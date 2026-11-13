@@ -350,3 +350,11 @@
   border-radius: 50%;
   background: var(--t-primary);
 }
+
+.bar-module-name {
+  overflow: hidden;
+}
+.bar-module-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
