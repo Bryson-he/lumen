@@ -15,7 +15,7 @@ use windows::Win32::{
         Shell::{QUNS_BUSY, QUNS_RUNNING_D3D_FULL_SCREEN, SHQueryUserNotificationState},
         WindowsAndMessaging::{
             EVENT_OBJECT_LOCATIONCHANGE, EVENT_SYSTEM_FOREGROUND, GWL_STYLE, GetClassNameW, GetDesktopWindow, GetForegroundWindow,
-            DispatchMessageW, GetMessageW, GetShellWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, KillTimer, MSG,
+            DispatchMessageW, IsZoomed, GetMessageW, GetShellWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, KillTimer, MSG,
             OBJID_WINDOW, SetTimer, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WM_TIMER, WS_CAPTION,
         },
     },
@@ -68,9 +68,19 @@ pub fn current() -> Option<FullscreenApp> {
         });
         let has_title_bar = GetWindowLongW(window, GWL_STYLE) as u32 & WS_CAPTION.0 == WS_CAPTION.0;
 
+        let maximised = IsZoomed(window).as_bool();
+
+        // Windows' own verdict comes first: it is what hides the taskbar and
+        // holds back notifications. It can lag a moment behind the window
+        // itself, which is why the watcher re-checks shortly after any change.
         let kind = if notification_state == Some(QUNS_RUNNING_D3D_FULL_SCREEN) {
             Kind::Exclusive
-        } else if covers && (!has_title_bar || notification_state == Some(QUNS_BUSY)) {
+        } else if covers && notification_state == Some(QUNS_BUSY) {
+            Kind::Borderless
+        } else if covers && !has_title_bar && !maximised {
+            // Not flagged by Windows, but a bare window exactly covering the
+            // monitor. A maximised window is excluded: on a monitor without a
+            // taskbar it also covers everything, and it is not fullscreen.
             Kind::Borderless
         } else {
             return None;
@@ -94,7 +104,7 @@ pub fn current() -> Option<FullscreenApp> {
 /// Event-driven: it wakes only when the foreground window changes, moves or
 /// resizes. There is no polling.
 pub fn watch(duration: Option<Duration>, on_change: impl FnMut(Option<&FullscreenApp>) + 'static) -> Result<()> {
-    WATCH.with_borrow_mut(|watch| *watch = Some(Watch { last: None, on_change: Box::new(on_change), location_hook: None }));
+    WATCH.with_borrow_mut(|watch| *watch = Some(Watch { last: None, on_change: Box::new(on_change), location_hook: None, settle_timer: 0 }));
 
     let result = unsafe {
         let foreground_hook = SetWinEventHook(
@@ -110,13 +120,20 @@ pub fn watch(duration: Option<Duration>, on_change: impl FnMut(Option<&Fullscree
             Err(windows::core::Error::from_thread()).context("listening for foreground changes")
         } else {
             follow_foreground_window();
-            report(true);
+            report(When::Start);
 
             let timer = duration.map(|d| SetTimer(None, 0, d.as_millis().try_into().unwrap_or(u32::MAX), None));
             let mut message = MSG::default();
             while GetMessageW(&mut message, None, 0, 0).as_bool() {
-                if message.message == WM_TIMER && timer == Some(message.wParam.0) {
-                    break;
+                if message.message == WM_TIMER && message.hwnd.is_invalid() {
+                    if timer == Some(message.wParam.0) {
+                        break;
+                    }
+                    if settle_timer() == message.wParam.0 {
+                        let _ = KillTimer(None, message.wParam.0);
+                        report(When::Settled);
+                        continue;
+                    }
                 }
                 // Deliver window messages too, so the caller's own windows (the tray) work on this thread.
                 DispatchMessageW(&message);
@@ -145,6 +162,26 @@ struct Watch {
     /// Move/resize hook, scoped to the foreground window's thread so that
     /// mouse movement and background windows never wake us.
     location_hook: Option<HWINEVENTHOOK>,
+    /// One-shot timer for the settle check; 0 when none has been set yet.
+    settle_timer: usize,
+}
+
+/// How long after the latest change to look again. Windows' fullscreen flag
+/// and the window's own size do not always change in the same instant.
+const SETTLE_MS: u32 = 500;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum When {
+    /// The first report: always made.
+    Start,
+    /// Straight after a window event: "off" is reported now, "on" waits to be confirmed.
+    Event,
+    /// The settle check: whatever is true now is reported.
+    Settled,
+}
+
+fn settle_timer() -> usize {
+    WATCH.with_borrow(|watch| watch.as_ref().map_or(0, |w| w.settle_timer))
 }
 
 thread_local! {
@@ -155,9 +192,9 @@ thread_local! {
 unsafe extern "system" fn on_event(_hook: HWINEVENTHOOK, event: u32, window: HWND, object: i32, _child: i32, _thread: u32, _time: u32) {
     if event == EVENT_SYSTEM_FOREGROUND {
         follow_foreground_window();
-        report(false);
+        report(When::Event);
     } else if event == EVENT_OBJECT_LOCATIONCHANGE && object == OBJID_WINDOW.0 && window == unsafe { GetForegroundWindow() } {
-        report(false);
+        report(When::Event);
     }
 }
 
@@ -188,17 +225,29 @@ fn follow_foreground_window() {
     }
 }
 
-/// Re-checks the fullscreen state and calls the callback if it changed
-/// (`always` reports even when it did not, for the initial state).
-fn report(always: bool) {
+/// Re-checks the fullscreen state and calls the callback if it changed.
+///
+/// Leaving fullscreen is reported at once. Entering it is reported only by
+/// the settle check, so a stale reading (Windows still saying "fullscreen"
+/// for a moment after a game closes) never pauses the desktop by mistake.
+fn report(when: When) {
     let now = current();
     // Take the callback out while it runs so it may safely pump messages.
     let Some(mut watch) = WATCH.take() else { return };
     let changed = now.as_ref().map(|app| app.window) != watch.last.as_ref().map(|app| app.window);
-    if changed || always {
+    let fire = match when {
+        When::Start => true,
+        When::Event => changed && now.is_none(),
+        When::Settled => changed,
+    };
+    if fire {
         (watch.on_change)(now.as_ref());
+        watch.last = now;
     }
-    watch.last = now;
+    if when != When::Settled {
+        // (Re)start the one-shot settle timer; passing its id back replaces it.
+        watch.settle_timer = unsafe { SetTimer(None, watch.settle_timer, SETTLE_MS, None) };
+    }
     WATCH.set(Some(watch));
 }
 

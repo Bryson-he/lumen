@@ -39,6 +39,8 @@ pub struct Service<D: Desktop> {
     /// Wakes the auto-revert task when the preview deadline changes.
     deadline_changed: Rc<Notify>,
     stats: ProcessStats,
+    /// Called with the theme to show whenever it changes.
+    theme_sink: Option<Box<dyn Fn(Theme)>>,
 }
 
 struct Preview<S> {
@@ -51,7 +53,7 @@ struct Preview<S> {
 impl<D: Desktop> Service<D> {
     pub fn new(store: Store, desktop: D) -> Self {
         let committed = store.active_theme();
-        Self { store, desktop, committed, preview: None, game: None, events: broadcast::channel(64).0, deadline_changed: Rc::new(Notify::new()), stats: ProcessStats::new() }
+        Self { store, desktop, committed, preview: None, game: None, events: broadcast::channel(64).0, deadline_changed: Rc::new(Notify::new()), stats: ProcessStats::new(), theme_sink: None }
     }
 
     /// A stream of notification lines for one client.
@@ -304,7 +306,19 @@ impl<D: Desktop> Service<D> {
     /// Announces the theme surfaces should show now: `previewed`, or the kept one.
     fn emit_theme(&self, previewed: Option<&Theme>, reason: ThemeChangeReason) {
         let theme = previewed.cloned().or_else(|| self.committed.clone());
+        // Lumen's own surfaces (the desktop widgets) recolour first.
+        if let Some(sink) = &self.theme_sink {
+            sink(theme.clone().unwrap_or_else(Theme::fallback));
+        }
         self.emit(event::THEME_CHANGED, ThemeChanged { theme, preview: previewed.is_some(), reason });
+    }
+
+    /// Registers the in-process listener for theme changes (the widget host)
+    /// and tells it the theme that is showing right now.
+    pub fn set_theme_sink(&mut self, sink: impl Fn(Theme) + 'static) {
+        let shown = self.preview.as_ref().map(|p| p.theme.clone()).or_else(|| self.committed.clone());
+        sink(shown.unwrap_or_else(Theme::fallback));
+        self.theme_sink = Some(Box::new(sink));
     }
 
     fn emit(&self, name: &str, params: impl Serialize) {
@@ -724,6 +738,21 @@ mod tests {
         let updated: WallpaperEntry = call(&mut service, method::UPDATE_WALLPAPER, json!({ "id": entry.id, "favourite": true, "tags": ["calm"] }));
         assert!(updated.favourite);
         assert_eq!(updated.tags, ["calm"]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn widgets_are_told_every_theme_to_show() {
+        let mut service = service();
+        let seen: Rc<RefCell<Vec<String>>> = Rc::default();
+        let log = seen.clone();
+        service.set_theme_sink(move |theme| log.borrow_mut().push(format!("{} {}", theme.name, theme.mode)));
+        assert_eq!(*seen.borrow(), ["Lumen dark"], "no theme yet: the fallback look");
+
+        preview_blue(&mut service);
+        let _: Theme = call(&mut service, method::COMMIT_PREVIEW, Value::Null);
+        let _: PreviewState = call(&mut service, method::PREVIEW_THEME, json!({ "mode": "dark", "name": "Night" }));
+        let _: ThemeState = call(&mut service, method::REVERT_PREVIEW, Value::Null);
+        assert_eq!(*seen.borrow(), ["Lumen dark", "#2F5BEA light", "#2F5BEA light", "Night dark", "#2F5BEA light"], "preview, keep, preview, revert");
     }
 
     #[tokio::test(start_paused = true)]

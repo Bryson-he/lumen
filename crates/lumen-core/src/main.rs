@@ -21,6 +21,7 @@ use tokio::{
     sync::{mpsc, oneshot},
     task::LocalSet,
 };
+use lumen_widgets::host::{self, HostHandle};
 use tracing::{error, info};
 
 use crate::{desktop::WindowsDesktop, service::Service, store::Store};
@@ -35,15 +36,20 @@ fn main() -> ExitCode {
     };
     start_logging(&store);
     info!("lumen-core {} starting; data in {}", env!("CARGO_PKG_VERSION"), store.root().display());
+    // Before any window exists: draw crisply on every monitor, whatever its scaling.
+    lumen_render::enable_per_monitor_dpi();
+    let layout = lumen_widgets::layout::Layout::load_or_create(&store.root().join("widgets").join("layout.json"));
 
-    // Fullscreen changes flow main -> service; shutdown flows main -> service;
-    // "ready or failed" flows service -> main once.
+    // Fullscreen changes flow main -> service; the widget host's handle flows
+    // main -> service; shutdown flows main -> service; "ready or failed" flows
+    // service -> main once.
     let (game_tx, game_rx) = mpsc::unbounded_channel::<Option<String>>();
+    let (host_tx, host_rx) = mpsc::unbounded_channel::<HostHandle>();
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
     let service_thread = thread::Builder::new()
         .name("service".into())
-        .spawn(move || run_service(store, game_rx, shutdown_rx, ready_tx))
+        .spawn(move || run_service(store, game_rx, host_rx, shutdown_rx, ready_tx))
         .expect("the service thread starts");
 
     match ready_rx.recv() {
@@ -65,14 +71,28 @@ fn main() -> ExitCode {
         }
     };
 
-    // Blocks here, pumping this thread's messages (tray included), until Quit.
+    // The desktop widgets live on this thread. The service sends the real
+    // theme as soon as it has the handle; until then they use the fallback look.
+    let options = host::Options { topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
+    match host::start(layout, &lumen_theme::Theme::fallback(), options) {
+        Ok(handle) => {
+            let _ = host_tx.send(handle);
+        }
+        // The rest of Lumen still works without widgets.
+        Err(message) => error!("no desktop widgets: {message}"),
+    }
+
+    // Blocks here, pumping this thread's messages (tray and widgets included), until Quit.
     let watching = lumen_win::fullscreen::watch(None, move |app| {
+        // Nothing renders while a fullscreen app or game is in front.
+        host::set_paused(app.is_some());
         let _ = game_tx.send(app.map(|app| app.title.clone()));
     });
     if let Err(error) = watching {
         error!("fullscreen watcher: {error}");
     }
 
+    host::stop();
     drop(tray);
     let _ = shutdown_tx.send(());
     let _ = service_thread.join();
@@ -83,6 +103,7 @@ fn main() -> ExitCode {
 fn run_service(
     store: Store,
     mut game_rx: mpsc::UnboundedReceiver<Option<String>>,
+    mut host_rx: mpsc::UnboundedReceiver<HostHandle>,
     shutdown_rx: oneshot::Receiver<()>,
     ready_tx: std::sync::mpsc::Sender<Result<(), String>>,
 ) {
@@ -120,6 +141,13 @@ fn run_service(
         tokio::task::spawn_local(async move {
             while let Some(app) = game_rx.recv().await {
                 game_service.borrow_mut().set_game_mode(app);
+            }
+        });
+
+        let theme_service = service.clone();
+        tokio::task::spawn_local(async move {
+            while let Some(widgets) = host_rx.recv().await {
+                theme_service.borrow_mut().set_theme_sink(move |theme| widgets.set_theme(theme));
             }
         });
 

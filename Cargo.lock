@@ -1827,6 +1827,11 @@ dependencies = [
 [[package]]
 name = "lumen-render"
 version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.21",
+ "windows",
+ "windows-numerics",
+]
 
 [[package]]
 name = "lumen-settings"
@@ -1855,6 +1860,15 @@ dependencies = [
 [[package]]
 name = "lumen-widgets"
 version = "0.1.0"
+dependencies = [
+ "image",
+ "lumen-render",
+ "lumen-theme",
+ "serde",
+ "serde_json",
+ "tracing",
+ "windows",
+]
 
 [[package]]
 name = "lumen-win"

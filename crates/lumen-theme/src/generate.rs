@@ -36,6 +36,15 @@ impl Theme {
         Self::generate(name_from_path(path), source, colors, variant, mode, contrast)
     }
 
+    /// The look Lumen's own surfaces use before the user has chosen one: a
+    /// dark tonal theme generated from the app's pencil blue.
+    pub fn fallback() -> Self {
+        let mut theme = Self::from_color(Color::new(0x2F, 0x5B, 0xEA), Variant::Tonal, Mode::Dark, 0).expect("contrast 0 is valid");
+        theme.name = "Lumen".to_owned();
+        theme.set_windows_accent = false;
+        theme
+    }
+
     /// Builds a theme from one picked colour.
     pub fn from_color(color: Color, variant: Variant, mode: Mode, contrast: i8) -> Result<Self, Error> {
         let colors = SourceColors::from_color(color);
