@@ -22,6 +22,7 @@ import {
   type WidgetStyle,
 } from "../types";
 import { Arrow, Button, Check, Segmented, Slider, Tip, WallpaperArt } from "../ui";
+import { PartsTab } from "./Parts";
 
 const LIBRARY: { kind: WidgetKind | null; label: string }[] = [
   { kind: "clock", label: "Clock" },
@@ -35,7 +36,7 @@ const LIBRARY: { kind: WidgetKind | null; label: string }[] = [
 const GLASS_OPACITY = { none: 1, low: 0.9, medium: 0.78, high: 0.64 } as const;
 const ZOOM_STEPS = [0.15, 0.2, 0.3, 0.4, 0.5, 0.65, 0.8, 1];
 
-type Tab = "layout" | "style" | "data";
+type Tab = "layout" | "style" | "parts" | "data";
 
 export function WidgetsScreen() {
   const { widgets, widgetRequest, shown, wallpapers, go } = useLumen();
@@ -582,6 +583,7 @@ function Inspector({
         options={[
           { value: "layout", label: "Layout" },
           { value: "style", label: "Style" },
+          { value: "parts", label: "Parts" },
           { value: "data", label: "Data" },
         ]}
       />
@@ -648,6 +650,8 @@ function Inspector({
           {style.radius !== null && <Slider label="Corner radius" min={0} max={24} value={style.radius} format={(v) => `${v} px`} onCommit={(radius) => setStyle({ radius })} />}
         </>
       )}
+
+      {tab === "parts" && <PartsTab placement={placement} locked={locked} onUpdate={onUpdate} />}
 
       {tab === "data" && (
         <>

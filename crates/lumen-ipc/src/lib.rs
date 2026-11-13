@@ -11,12 +11,14 @@ use serde_json::Value;
 pub mod bar;
 pub mod flyout;
 pub mod launcher;
+pub mod parts;
 pub mod presets;
 pub mod style;
 pub mod widgets;
 
 pub use flyout::{FlyoutConfig, FlyoutPosition, FlyoutStyle};
 pub use launcher::{LauncherConfig, LauncherHotkey};
+pub use parts::{FontList, ImportFontParams, Part, PartAlign, PartColor, PartKind, PartWeight};
 pub use style::{ComponentStyle, ExportStyleParams, ImportStyleParams, Role, StyleAssignments, StyleBackground, StyleSheet, StylesState};
 pub use bar::{BarConfig, BarModule, BarPosition, LauncherApp};
 pub use presets::{ExportPresetParams, ImportPresetParams, Preset, PresetIdParams, PresetInfo, PresetManifest, PresetWallpaper, RenamePresetParams, SavePresetParams};
@@ -118,6 +120,13 @@ pub mod method {
     pub const EXPORT_STYLE: &str = "exportStyle";
     /// Adds the style in a `.lumenstyle` file. Params: [`ImportStyleParams`](super::ImportStyleParams). Result: the new style.
     pub const IMPORT_STYLE: &str = "importStyle";
+    /// The parts each kind of widget comes with, and the live values a part can show.
+    /// Result: a map from widget kind to `{ parts, sources }`.
+    pub const GET_PART_DEFAULTS: &str = "getPartDefaults";
+    /// The font families a part can use. Result: [`FontList`](super::FontList).
+    pub const LIST_FONTS: &str = "listFonts";
+    /// Adds a font file to Lumen. Params: [`ImportFontParams`](super::ImportFontParams). Result: [`FontList`](super::FontList).
+    pub const IMPORT_FONT: &str = "importFont";
 }
 
 /// Notification names pushed by the core.

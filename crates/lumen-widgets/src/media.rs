@@ -13,7 +13,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use lumen_render::{Bitmap, Canvas, Rect, Weight};
 use windows::{
     Foundation::TypedEventHandler,
     Media::Control::{
@@ -24,7 +23,6 @@ use windows::{
     Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize},
 };
 
-use crate::paint::Paint;
 
 /// Default size in logical pixels.
 pub const SIZE: (f32, f32) = (320.0, 96.0);
@@ -236,34 +234,6 @@ fn read_art(thumbnail: &IRandomAccessStreamReference) -> Option<Art> {
     let image = image::load_from_memory(&encoded).ok()?;
     let square = image.resize_to_fill(ART_SIZE, ART_SIZE, image::imageops::FilterType::Triangle).into_rgba8();
     Some(Art { size: ART_SIZE, rgba: square.into_raw() })
-}
-
-pub fn draw(canvas: &Canvas<'_>, paint: &Paint, info: Option<&MediaInfo>, art: Option<&Bitmap>, width: f32, height: f32) {
-    paint.card(canvas, width, height);
-    let art_size = height - 24.0;
-    let art_rect = Rect::new(12.0, 12.0, art_size, art_size);
-    let art_radius = paint.radius.min(8.0);
-    match art {
-        Some(bitmap) => canvas.image(bitmap, art_rect, art_radius),
-        // No cover: a soft gradient in the theme's colours.
-        None => canvas.fill_round_rect_gradient(art_rect, art_radius, paint.primary, paint.tertiary),
-    }
-
-    let x = 12.0 + art_size + 12.0;
-    let text_width = width - x - 14.0;
-    match info {
-        Some(info) => {
-            canvas.text(&info.title, Rect::new(x, 15.0, text_width, 20.0), paint.body(15.0, Weight::SemiBold, paint.text));
-            canvas.text(&info.artist, Rect::new(x, 38.0, text_width, 18.0), paint.body(13.0, Weight::Regular, paint.text_muted));
-            if let Some(progress) = info.progress() {
-                paint.bar(canvas, Rect::new(x, height - 12.0 - 5.0 - 6.0, text_width, 5.0), progress, paint.primary);
-            }
-        }
-        None => {
-            canvas.text("Nothing playing", Rect::new(x, 26.0, text_width, 20.0), paint.body(15.0, Weight::SemiBold, paint.text_muted));
-            canvas.text("Start some music or a video", Rect::new(x, 49.0, text_width, 18.0), paint.body(13.0, Weight::Regular, paint.text_muted));
-        }
-    }
 }
 
 #[cfg(test)]

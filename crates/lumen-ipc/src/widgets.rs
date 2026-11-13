@@ -90,6 +90,9 @@ pub struct Placement {
     /// A component style for this widget only; absent uses the style assigned to all widgets.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component_style: Option<String>,
+    /// This widget's own arrangement of parts; absent uses the one its kind comes with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parts: Option<Vec<crate::parts::Part>>,
 }
 
 /// `widgets/layout.json`.
@@ -117,7 +120,7 @@ impl Default for Layout {
             .into_iter()
             .map(|kind| {
                 let (width, height) = kind.default_size();
-                let placement = Placement { id: format!("{}-1", kind.id_prefix()), kind, monitor: None, x: 48.0, y, width, height, style: WidgetStyle::default(), component_style: None };
+                let placement = Placement { id: format!("{}-1", kind.id_prefix()), kind, monitor: None, x: 48.0, y, width, height, style: WidgetStyle::default(), component_style: None, parts: None };
                 y += height + GRID;
                 placement
             })
@@ -134,6 +137,7 @@ impl Layout {
             widget.width = widget.width.clamp(MIN_SIZE.0, 2000.0);
             widget.height = widget.height.clamp(MIN_SIZE.1, 2000.0);
             widget.style.opacity = widget.style.opacity.clamp(20, 100);
+            widget.parts = widget.parts.take().map(crate::parts::sanitise_parts).filter(|parts| !parts.is_empty());
         }
         self
     }
@@ -237,6 +241,9 @@ pub struct UpdateWidgetParams {
     /// Give this widget its own component style; an empty string goes back to the one all widgets share.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub component_style: Option<String>,
+    /// Replace this widget's parts; an empty list goes back to the arrangement its kind comes with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parts: Option<Vec<crate::parts::Part>>,
     /// True while the user is still dragging: the position is snapped and
     /// shown with guides, but not written to disk until a final update.
     #[serde(default)]

@@ -1,6 +1,5 @@
 //! The clock widget: the date and the time, redrawn once a minute.
 
-use lumen_render::{Canvas, Rect, Weight};
 use windows::{
     Win32::{
         Foundation::SYSTEMTIME,
@@ -10,7 +9,6 @@ use windows::{
     core::{PCWSTR, w},
 };
 
-use crate::paint::Paint;
 
 /// Default size in logical pixels.
 pub const SIZE: (f32, f32) = (190.0, 92.0);
@@ -45,18 +43,6 @@ pub fn millis_until_next_minute() -> u32 {
     let into_minute = u32::from(now.wSecond) * 1000 + u32::from(now.wMilliseconds);
     // A little past the boundary, so the new minute is certainly showing.
     60_000u32.saturating_sub(into_minute) + 30
-}
-
-pub fn draw(canvas: &Canvas<'_>, paint: &Paint, data: &ClockData, width: f32, height: f32) {
-    paint.card(canvas, width, height);
-    let inner = width - 32.0;
-    canvas.text(&data.date, Rect::new(16.0, 13.0, inner, 18.0), paint.body(13.0, Weight::Regular, paint.text_muted));
-    canvas.text(&data.time, Rect::new(16.0, 29.0, inner, 52.0), paint.display(40.0, paint.text));
-    if !data.suffix.is_empty() {
-        let mut style = paint.body(13.0, Weight::Medium, paint.text_muted);
-        style.align_right = true;
-        canvas.text(&data.suffix, Rect::new(16.0, 55.0, inner, 18.0), style);
-    }
 }
 
 fn format_date(time: &SYSTEMTIME, format: PCWSTR) -> String {

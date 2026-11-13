@@ -11,7 +11,7 @@ use windows::{
             Direct3D11::{D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11CreateDevice, ID3D11Device},
             DirectComposition::{DCompositionCreateDevice, IDCompositionDevice},
             DirectWrite::{
-                DWRITE_CONTAINER_TYPE_UNKNOWN, DWRITE_FACTORY_TYPE_SHARED, DWriteCreateFactory, IDWriteFactory5, IDWriteFontCollection, IDWriteFontCollection1,
+                DWRITE_CONTAINER_TYPE_UNKNOWN, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_FAMILY_MODEL_TYPOGRAPHIC, IDWriteFactory6, DWriteCreateFactory, IDWriteFactory5, IDWriteFontCollection, IDWriteFontCollection1,
                 IDWriteInMemoryFontFileLoader,
             },
             Dxgi::{IDXGIDevice, IDXGIFactory2},
@@ -58,13 +58,25 @@ impl Gpu {
         }
     }
 
-    /// The font collection that has `family`: the bundled one if it is there,
-    /// otherwise `None`, meaning the fonts installed in Windows.
-    pub(crate) fn collection_for(&self, family: &str) -> Option<IDWriteFontCollection> {
-        let bundled = self.bundled_fonts.as_ref()?;
-        let (mut index, mut exists) = (0u32, false.into());
-        unsafe { bundled.FindFamilyName(&HSTRING::from(family), &mut index, &mut exists) }.ok()?;
-        if exists.as_bool() { bundled.cast().ok() } else { None }
+    /// Where to find `family`: the bundled collection and the name the
+    /// family has there, if it is bundled; otherwise `None` and the name as
+    /// given, meaning the fonts installed in Windows.
+    pub(crate) fn font_for(&self, family: &str) -> (Option<IDWriteFontCollection>, String) {
+        let found = self.bundled_fonts.as_ref().and_then(|bundled| {
+            let collection: IDWriteFontCollection = bundled.cast().ok()?;
+            let has = |name: &str| {
+                let (mut index, mut exists) = (0u32, false.into());
+                unsafe { collection.FindFamilyName(&HSTRING::from(name), &mut index, &mut exists) }.is_ok() && exists.as_bool()
+            };
+            // Some font files name their family after one weight ("Space Grotesk
+            // Light"); asking for the plain name must still find them.
+            let name = if has(family) { family.to_owned() } else { crate::fonts::file_names_for(&collection, family).into_iter().next()? };
+            Some((collection, name))
+        });
+        match found {
+            Some((collection, name)) => (Some(collection), name),
+            None => (None, family.to_owned()),
+        }
     }
 }
 
@@ -86,7 +98,7 @@ unsafe fn create_device(driver: D3D_DRIVER_TYPE) -> Result<ID3D11Device> {
 }
 
 /// Builds a private font collection from in-memory font files.
-unsafe fn load_fonts(dwrite: &IDWriteFactory5, fonts: &[&[u8]]) -> windows::core::Result<(IDWriteFontCollection1, IDWriteInMemoryFontFileLoader)> {
+pub(crate) unsafe fn load_fonts(dwrite: &IDWriteFactory5, fonts: &[&[u8]]) -> windows::core::Result<(IDWriteFontCollection1, IDWriteInMemoryFontFileLoader)> {
     unsafe {
         let loader = dwrite.CreateInMemoryFontFileLoader()?;
         dwrite.RegisterFontFileLoader(&loader)?;
@@ -99,7 +111,18 @@ unsafe fn load_fonts(dwrite: &IDWriteFactory5, fonts: &[&[u8]]) -> windows::core
                 let _ = builder.AddFontFile(&file);
             }
         }
-        let collection = dwrite.CreateFontCollectionFromFontSet(&builder.CreateFontSet()?)?;
+        let set = builder.CreateFontSet()?;
+        // Group the files by their *typographic* family, so the weights of
+        // "Space Grotesk" are one family of that name. (The older grouping
+        // names a family after its lightest file: "Space Grotesk Light".)
+        let typographic = dwrite
+            .cast::<IDWriteFactory6>()
+            .and_then(|factory| factory.CreateFontCollectionFromFontSet(&set, DWRITE_FONT_FAMILY_MODEL_TYPOGRAPHIC))
+            .and_then(|collection| collection.cast::<IDWriteFontCollection1>());
+        let collection = match typographic {
+            Ok(collection) => collection,
+            Err(_) => dwrite.CreateFontCollectionFromFontSet(&set)?,
+        };
         Ok((collection, loader))
     }
 }

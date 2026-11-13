@@ -14,7 +14,7 @@ use std::{
 };
 
 use lumen_ipc::{
-    BarConfig, EditModeParams, ExportStyleParams, FlyoutConfig, ImportStyleParams, LauncherConfig, StyleSheet, StylesState, GameModeChanged, ImportWallpaperParams, Notification, PREVIEW_SECONDS, PresetInfo, PreviewState, PreviewThemeParams, RpcError, SelectWidgetParams,
+    BarConfig, EditModeParams, ExportStyleParams, FlyoutConfig, FontList, ImportFontParams, ImportStyleParams, LauncherConfig, StyleSheet, StylesState, GameModeChanged, ImportWallpaperParams, Notification, PREVIEW_SECONDS, PresetInfo, PreviewState, PreviewThemeParams, RpcError, SelectWidgetParams,
     SetWallpaperParams, Status, ThemeChangeReason, ThemeChanged, ThemeState, UpdateWallpaperParams, WidgetCost, WidgetIdParams, WidgetsState, code, event, method,
 };
 use lumen_theme::{Mode, Source, SourceColors, Theme, Variant};
@@ -219,6 +219,42 @@ impl<D: Desktop> Service<D> {
                 let added = sheet.resolve(&style.id);
                 host(WidgetCommand::SetStyles(Box::new(sheet)));
                 json(added)
+            }
+            method::GET_PART_DEFAULTS => {
+                let mut kinds = serde_json::Map::new();
+                for kind in lumen_ipc::widgets::WidgetKind::ALL {
+                    let name = serde_json::to_value(kind).ok().and_then(|value| value.as_str().map(str::to_owned)).unwrap_or_default();
+                    let sources: Vec<Value> = lumen_ipc::parts::sources_for(kind).into_iter().map(|(source, label)| serde_json::json!({ "source": source, "label": label })).collect();
+                    kinds.insert(name, serde_json::json!({ "parts": lumen_ipc::parts::default_parts(kind), "sources": sources }));
+                }
+                Ok(Value::Object(kinds))
+            }
+            method::LIST_FONTS => json(self.font_list()),
+            method::IMPORT_FONT => {
+                let params: ImportFontParams = parse(params)?;
+                let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets are not running, so the font cannot be loaded"))?;
+                let source = Path::new(&params.path);
+                let not_a_font = |why: &str| RpcError::new(code::INVALID_PARAMS, format!("{} cannot be used as a font ({why})", params.path));
+                let extension = source.extension().and_then(|ext| ext.to_str()).unwrap_or_default().to_lowercase();
+                if !["ttf", "otf", "ttc", "woff", "woff2"].contains(&extension.as_str()) {
+                    return Err(not_a_font("font files end in .ttf, .otf, .ttc, .woff or .woff2"));
+                }
+                let size = std::fs::metadata(source).map_err(|e| not_a_font(&e.to_string()))?.len();
+                if size > 40 * 1024 * 1024 {
+                    return Err(not_a_font("the file is larger than 40 MB"));
+                }
+                let bytes = std::fs::read(source).map_err(|e| not_a_font(&e.to_string()))?;
+                if lumen_render::font_families_in(&[&bytes]).is_empty() {
+                    return Err(not_a_font("no font was found inside it"));
+                }
+                // Kept under a plain file name of its own, whatever it was called.
+                let stem: String = source.file_stem().and_then(|stem| stem.to_str()).unwrap_or("font").chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' }).take(60).collect();
+                let folder = self.fonts_dir();
+                std::fs::create_dir_all(&folder).map_err(|e| RpcError::new(code::INTERNAL_ERROR, format!("could not create {}: {e}", folder.display())))?;
+                let target = folder.join(format!("{stem}.{extension}"));
+                std::fs::write(&target, bytes).map_err(|e| RpcError::new(code::INTERNAL_ERROR, format!("could not write {}: {e}", target.display())))?;
+                host(WidgetCommand::ReloadFonts);
+                json(self.font_list())
             }
             method::GET_LAUNCHER => json(self.launcher.clone().unwrap_or_default()),
             method::SET_LAUNCHER => {
@@ -437,6 +473,23 @@ impl<D: Desktop> Service<D> {
         if self.widgets.as_ref() != Some(&state) {
             self.emit(event::WIDGETS_CHANGED, &state);
             self.widgets = Some(state);
+        }
+    }
+
+    /// Where font files the user added are kept.
+    fn fonts_dir(&self) -> std::path::PathBuf {
+        self.store.root().join("fonts")
+    }
+
+    /// Every font family a widget part can use.
+    fn font_list(&self) -> FontList {
+        let added: Vec<Vec<u8>> = std::fs::read_dir(self.fonts_dir())
+            .map(|entries| entries.flatten().filter_map(|entry| std::fs::read(entry.path()).ok()).collect())
+            .unwrap_or_default();
+        FontList {
+            bundled: lumen_render::font_families_in(lumen_widgets::BUNDLED_FONTS),
+            imported: lumen_render::font_families_in(&added.iter().map(Vec::as_slice).collect::<Vec<_>>()),
+            installed: lumen_render::installed_font_families(),
         }
     }
 
@@ -1238,6 +1291,54 @@ mod tests {
         ids.sort_unstable();
         assert_eq!(ids, ["neon", "other"]);
         assert_eq!(applied.assigned.bar, "neon");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fonts_are_listed_and_font_files_can_be_added() {
+        let mut service = service();
+        let root = service.store.root().to_owned();
+        let fonts: FontList = call(&mut service, method::LIST_FONTS, Value::Null);
+        assert_eq!(fonts.bundled, ["Inter", "Space Grotesk"]);
+        assert!(fonts.imported.is_empty() && fonts.installed.iter().any(|family| family == "Segoe UI"));
+
+        let font = root.join("My Font (1).woff2");
+        fs::write(&font, lumen_widgets::BUNDLED_FONTS[3]).unwrap();
+        assert_eq!(service.handle(method::IMPORT_FONT, json!({ "path": font })).unwrap_err().code, code::WIDGETS_UNAVAILABLE, "no host yet");
+        let sent: Rc<RefCell<Vec<WidgetCommand>>> = Rc::default();
+        let log = sent.clone();
+        service.set_widget_host(move |command| log.borrow_mut().push(command));
+
+        let fonts: FontList = call(&mut service, method::IMPORT_FONT, json!({ "path": font }));
+        assert_eq!(fonts.imported, ["Space Grotesk"]);
+        assert!(root.join("fonts").join("My-Font--1-.woff2").is_file(), "kept under a plain file name");
+        assert!(sent.borrow().iter().any(|c| matches!(c, WidgetCommand::ReloadFonts)), "the widgets load it straight away");
+
+        let fake = root.join("fake.ttf");
+        fs::write(&fake, "not a font").unwrap();
+        assert_eq!(service.handle(method::IMPORT_FONT, json!({ "path": fake })).unwrap_err().code, code::INVALID_PARAMS);
+        let wrong = root.join("picture.png");
+        fs::write(&wrong, "x").unwrap();
+        assert_eq!(service.handle(method::IMPORT_FONT, json!({ "path": wrong })).unwrap_err().code, code::INVALID_PARAMS);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_widgets_parts_are_sent_to_the_host() {
+        let mut service = service();
+        let defaults: Value = call(&mut service, method::GET_PART_DEFAULTS, Value::Null);
+        assert_eq!(defaults["clock"]["parts"][1]["id"], "time");
+        assert_eq!(defaults["systemStats"]["sources"][0]["source"], "stats.cpu");
+        assert_eq!(defaults["nowPlaying"]["parts"].as_array().unwrap().len(), 4);
+        let sent: Rc<RefCell<Vec<WidgetCommand>>> = Rc::default();
+        let log = sent.clone();
+        service.set_widget_host(move |command| log.borrow_mut().push(command));
+        service.widgets_changed(WidgetsState::default());
+        let parts = json!([{ "id": "time", "kind": "text", "source": "clock.time", "font": "Segoe UI", "size": 30, "color": "accent", "align": "centre" }]);
+        let _: WidgetsState = call(&mut service, method::UPDATE_WIDGET, json!({ "id": "clock-1", "parts": parts }));
+        let sent = sent.borrow();
+        let Some(WidgetCommand::Update(update)) = sent.iter().find(|c| matches!(c, WidgetCommand::Update(_))) else { panic!("no update sent") };
+        let part = &update.parts.as_ref().unwrap()[0];
+        assert_eq!((part.font.as_deref(), part.size, part.color, part.align), (Some("Segoe UI"), 30.0, lumen_ipc::PartColor::Accent, lumen_ipc::PartAlign::Centre));
+        assert!(service.handle(method::UPDATE_WIDGET, json!({ "id": "clock-1", "parts": [{ "id": "x", "color": "#ff0000" }] })).is_err(), "a part cannot hold a colour of its own");
     }
 
     #[tokio::test(start_paused = true)]

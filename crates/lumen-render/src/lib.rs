@@ -9,10 +9,12 @@
 //! All of this lives on one thread (the one that creates the `Gpu`).
 
 mod canvas;
+mod fonts;
 mod gpu;
 mod surface;
 
 pub use canvas::{Bitmap, Canvas, Rect, Rgba, TextStyle, Weight};
+pub use fonts::{font_families_in, installed_font_families};
 pub use gpu::Gpu;
 pub use surface::{InputHandler, Surface, SurfaceOptions, set_input_handler};
 

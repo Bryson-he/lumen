@@ -4,7 +4,6 @@
 //! (processor times, memory status, and the same GPU performance counter Task
 //! Manager reads), which costs far less than a general system-info library.
 
-use lumen_render::{Canvas, Rect, Weight};
 use windows::{
     Win32::{
         Foundation::FILETIME,
@@ -20,7 +19,6 @@ use windows::{
     core::w,
 };
 
-use crate::paint::Paint;
 
 /// Default size in logical pixels.
 pub const SIZE: (f32, f32) = (190.0, 150.0);
@@ -146,23 +144,6 @@ impl Drop for GpuCounter {
         unsafe {
             PdhCloseQuery(self.query);
         }
-    }
-}
-
-pub fn draw(canvas: &Canvas<'_>, paint: &Paint, data: &StatsData, width: f32, height: f32) {
-    paint.card(canvas, width, height);
-    let inner = width - 32.0;
-    canvas.text("System", Rect::new(16.0, 13.0, inner, 18.0), paint.body(13.0, Weight::SemiBold, paint.text));
-
-    let rows = [("CPU", Some(data.cpu), paint.primary), ("RAM", Some(data.memory), paint.tertiary), ("GPU", data.gpu, paint.accent)];
-    for (index, (label, value, colour)) in rows.into_iter().enumerate() {
-        let y = 40.0 + index as f32 * 35.0;
-        canvas.text(label, Rect::new(16.0, y, inner, 18.0), paint.body(13.0, Weight::Regular, paint.text));
-        let mut number = paint.body(13.0, Weight::Regular, paint.text_muted);
-        number.align_right = true;
-        let shown = value.map_or("n/a".to_owned(), |v| format!("{v}%"));
-        canvas.text(&shown, Rect::new(16.0, y, inner, 18.0), number);
-        paint.bar(canvas, Rect::new(16.0, y + 21.0, inner, 5.0), f32::from(value.unwrap_or(0)) / 100.0, colour);
     }
 }
 

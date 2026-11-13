@@ -351,7 +351,8 @@ button.preview-chip:hover:not(:disabled) {
 }
 .segmented-inset {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  grid-auto-flow: column;
   gap: 4px;
   padding: 4px;
   background: var(--bg);
@@ -400,4 +401,72 @@ button.preview-chip:hover:not(:disabled) {
 }
 .suspended-note {
   font-size: 13px;
+}
+
+/* ---------- Parts (the pieces of one widget) ---------- */
+
+.parts-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.parts-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface-raised);
+}
+.parts-item-open {
+  border-color: var(--pencil);
+}
+.parts-item-hidden .parts-name > span:first-child {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.parts-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+}
+.parts-name {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--size-control-min);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+}
+.parts-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 12px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 0 0 var(--radius-button) var(--radius-button);
+}
+.parts-fields > :first-child {
+  margin-top: 10px;
+}
+.parts-text {
+  width: 100%;
+  padding: 8px 10px;
+  min-height: 38px;
+  font-size: 14px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-input);
+  user-select: text;
+  cursor: text;
 }

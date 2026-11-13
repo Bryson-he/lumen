@@ -122,6 +122,11 @@ impl Paint {
         }
     }
 
+    /// One of the theme's colours, by role (for a widget part that names a role).
+    pub fn role(&self, role: Role) -> Rgba {
+        self.theme.role(role)
+    }
+
     /// A length of padding or gap, scaled by the style's spacing.
     pub fn space(&self, length: f32) -> f32 {
         length * self.spacing
@@ -194,11 +199,11 @@ impl Paint {
     }
 
     pub fn body(&self, size: f32, weight: Weight, color: Rgba) -> TextStyle<'_> {
-        TextStyle { family: &self.body_font, size: size * self.text_scale, weight, color, align_right: false }
+        TextStyle { family: &self.body_font, size: size * self.text_scale, weight, color, align_right: false, align_center: false }
     }
 
     pub fn display(&self, size: f32, color: Rgba) -> TextStyle<'_> {
-        TextStyle { family: DISPLAY_FONT, size: size * self.text_scale, weight: Weight::SemiBold, color, align_right: false }
+        TextStyle { family: DISPLAY_FONT, size: size * self.text_scale, weight: Weight::SemiBold, color, align_right: false, align_center: false }
     }
 }
 

@@ -10,7 +10,7 @@ use windows::{
             ID2D1Brush, ID2D1DeviceContext,
         },
         DirectWrite::{
-            DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_TEXT_METRICS,
+            DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_TEXT_METRICS,
             DWRITE_TRIMMING, DWRITE_TRIMMING_GRANULARITY_CHARACTER, DWRITE_WORD_WRAPPING_NO_WRAP,
         },
         Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM,
@@ -97,6 +97,8 @@ pub struct TextStyle<'a> {
     pub color: Rgba,
     /// Align to the right edge of the box instead of the left.
     pub align_right: bool,
+    /// Centre in the box (wins over `align_right`).
+    pub align_center: bool,
 }
 
 /// An image uploaded to the GPU, ready to draw.
@@ -165,11 +167,11 @@ impl Canvas<'_> {
             Weight::Medium => 500,
             Weight::SemiBold => 600,
         });
-        let collection = self.gpu.collection_for(style.family);
+        let (collection, family) = self.gpu.font_for(style.family);
         let wide: Vec<u16> = text.encode_utf16().collect();
         unsafe {
             let format = self.gpu.dwrite.CreateTextFormat(
-                &HSTRING::from(style.family),
+                &HSTRING::from(family.as_str()),
                 collection.as_ref(),
                 weight,
                 DWRITE_FONT_STYLE_NORMAL,
@@ -179,7 +181,14 @@ impl Canvas<'_> {
             );
             let Ok(format) = format else { return };
             let _ = format.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-            let _ = format.SetTextAlignment(if style.align_right { DWRITE_TEXT_ALIGNMENT_TRAILING } else { DWRITE_TEXT_ALIGNMENT_LEADING });
+            let alignment = if style.align_center {
+                DWRITE_TEXT_ALIGNMENT_CENTER
+            } else if style.align_right {
+                DWRITE_TEXT_ALIGNMENT_TRAILING
+            } else {
+                DWRITE_TEXT_ALIGNMENT_LEADING
+            };
+            let _ = format.SetTextAlignment(alignment);
             if let Ok(ellipsis) = self.gpu.dwrite.CreateEllipsisTrimmingSign(&format) {
                 let trimming = DWRITE_TRIMMING { granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER, delimiter: 0, delimiterCount: 0 };
                 let _ = format.SetTrimming(&trimming, &ellipsis);
@@ -203,11 +212,11 @@ impl Canvas<'_> {
             Weight::Medium => 500,
             Weight::SemiBold => 600,
         });
-        let collection = self.gpu.collection_for(style.family);
+        let (collection, family) = self.gpu.font_for(style.family);
         let wide: Vec<u16> = text.encode_utf16().collect();
         unsafe {
             let format = self.gpu.dwrite.CreateTextFormat(
-                &HSTRING::from(style.family),
+                &HSTRING::from(family.as_str()),
                 collection.as_ref(),
                 weight,
                 DWRITE_FONT_STYLE_NORMAL,

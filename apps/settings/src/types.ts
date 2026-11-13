@@ -133,6 +133,8 @@ export interface Placement {
   style: WidgetStyle;
   /** A component style for this widget only; absent uses the one all widgets share. */
   componentStyle?: string;
+  /** This widget's own parts; absent uses the arrangement its kind comes with. */
+  parts?: Part[];
 }
 
 export interface WidgetLayout {
@@ -171,6 +173,8 @@ export interface UpdateWidgetParams {
   style?: WidgetStyle;
   /** Its own component style; "" goes back to the one all widgets share. */
   componentStyle?: string;
+  /** Its parts; an empty list goes back to the arrangement its kind comes with. */
+  parts?: Part[];
   /** True while still dragging: snapped and shown, not yet saved. */
   dragging?: boolean;
 }
@@ -323,3 +327,59 @@ export interface StylesState {
 /** The limits in lumen-ipc's style.rs. */
 export const STYLE_LIMITS = { maxStyles: 40, radius: 60, border: 4, textScale: [85, 125], spacing: [70, 150], opacity: [20, 100] } as const;
 export const STYLE_FONTS = ["Inter", "Space Grotesk"] as const;
+
+// ----- Widget parts (crates/lumen-ipc/src/parts.rs) -----
+
+export type PartKind = "text" | "bar" | "image";
+/** The widget's own text / muted / highlight colour, or one of the theme's roles. */
+export type PartColor = "text" | "muted" | "highlight" | keyof Roles;
+export type PartAlign = "left" | "centre" | "right";
+export type PartWeight = "regular" | "medium" | "semiBold";
+
+export interface Part {
+  id: string;
+  name: string;
+  kind: PartKind;
+  /** The live value shown ("clock.time"); empty for fixed text. */
+  source: string;
+  /** Fixed text, used when source is empty. */
+  text: string;
+  /** Inside the widget, in logical pixels, at the widget's default size. */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Grows and shrinks with the widget's width. */
+  stretch: boolean;
+  /** Keeps its distance from the widget's bottom edge. */
+  fromBottom: boolean;
+  /** Null uses the widget's font. */
+  font: string | null;
+  size: number;
+  weight: PartWeight;
+  color: PartColor;
+  /** 10–100 percent. */
+  opacity: number;
+  align: PartAlign;
+  hidden: boolean;
+}
+
+/** What getPartDefaults returns, per kind of widget. */
+export type PartDefaults = Record<WidgetKind, { parts: Part[]; sources: { source: string; label: string }[] }>;
+
+export interface FontList {
+  /** Shipped with Lumen. */
+  bundled: string[];
+  /** Font files the user added. */
+  imported: string[];
+  /** Installed in Windows. */
+  installed: string[];
+}
+
+export const PART_COLORS: [PartColor, string][] = [
+  ["text", "Text"],
+  ["muted", "Text, fainter"],
+  ["highlight", "Highlight"],
+];
+/** The text sizes the slider offers (the core accepts 6–200). */
+export const PART_LIMITS = { textSize: [8, 96] } as const;

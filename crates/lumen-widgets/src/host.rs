@@ -61,6 +61,7 @@ use crate::{
     layout,
     media::{self, MediaInfo},
     paint::Paint,
+    parts,
     snap::{self, Frame},
     stats::{self, StatsData, StatsSampler},
 };
@@ -94,6 +95,8 @@ pub struct Options {
     pub launcher_path: PathBuf,
     /// Where the user's component styles are kept (`styles.json`).
     pub styles_path: PathBuf,
+    /// Font files the user added to Lumen (`fonts/`); loaded beside the bundled ones.
+    pub fonts_dir: PathBuf,
     /// Keep widgets above other windows (for testing; normally they sit on the desktop).
     pub topmost: bool,
 }
@@ -123,6 +126,8 @@ pub enum Command {
     SetLauncher(LauncherConfig),
     /// Replace the user's component styles and what uses which.
     SetStyles(Box<StyleSheet>),
+    /// A font file was added: load the fonts again and redraw.
+    ReloadFonts,
 }
 
 /// What the host tells its owner.
@@ -467,7 +472,10 @@ impl Host {
             // suspended. Everything is rebuilt when the game ends.
             return Ok(());
         }
-        self.gpu = Some(Gpu::new(BUNDLED_FONTS).map_err(text)?);
+        // The bundled fonts, then any font files the user added.
+        let added = imported_fonts(&self.options.fonts_dir);
+        let fonts: Vec<&[u8]> = BUNDLED_FONTS.iter().copied().chain(added.iter().map(Vec::as_slice)).collect();
+        self.gpu = Some(Gpu::new(&fonts).map_err(text)?);
         self.make_bar_surfaces();
 
         for index in 0..self.layout.widgets.len() {
@@ -663,20 +671,20 @@ impl Host {
                 continue;
             };
             let (width, height) = self.slots[index].surface.size();
+            // The widget's own parts, or the arrangement its kind comes with.
+            let parts = self.placement(&id).and_then(|placement| placement.parts.clone()).unwrap_or_else(|| lumen_ipc::parts::default_parts(kind));
             let (clock, stats, media) = (&self.clock, &self.stats, self.media.as_ref());
             let art = &mut self.art;
             let started = Instant::now();
-            let result = self.slots[index].surface.draw(|canvas| match kind {
-                Kind::Clock => clock::draw(canvas, &paint, clock, width, height),
-                Kind::SystemStats => stats::draw(canvas, &paint, stats, width, height),
-                Kind::NowPlaying => {
-                    if art.is_none()
-                        && let Some(cover) = media.and_then(|m| m.art.as_ref())
-                    {
-                        *art = canvas.bitmap_from_rgba(cover.size, cover.size, &cover.rgba).ok();
-                    }
-                    media::draw(canvas, &paint, media, art.as_ref(), width, height);
+            let result = self.slots[index].surface.draw(|canvas| {
+                if kind == Kind::NowPlaying
+                    && art.is_none()
+                    && let Some(cover) = media.and_then(|m| m.art.as_ref())
+                {
+                    *art = canvas.bitmap_from_rgba(cover.size, cover.size, &cover.rgba).ok();
                 }
+                let data = parts::Data { clock, stats, media, art: art.as_ref() };
+                parts::draw(canvas, &paint, &parts, &data, (width, height), kind.default_size());
             });
             self.governor.record_draw(&id, started.elapsed());
             match result {
@@ -869,6 +877,12 @@ impl Host {
             Command::ShowFlyout => self.show_flyout_now(),
             Command::SetLauncher(config) => self.set_launcher(config),
             Command::SetStyles(sheet) => self.set_styles(*sheet),
+            Command::ReloadFonts => {
+                if let Err(error) = self.rebuild() {
+                    warn!("could not reload the fonts: {error}");
+                }
+                self.sync_timers();
+            }
             Command::Resume(id) => {
                 if self.governor.resume(&id) {
                     info!("the widget {id} was resumed");
@@ -925,6 +939,10 @@ impl Host {
         if let Some(id) = params.component_style {
             // Empty, or a style that is not there: back to the one all widgets share.
             after.component_style = Some(id).filter(|id| !id.is_empty() && self.styles.exists(id));
+        }
+        if let Some(parts) = params.parts {
+            // An empty list: back to the arrangement its kind comes with.
+            after.parts = Some(lumen_ipc::parts::sanitise_parts(parts)).filter(|parts| !parts.is_empty());
         }
         let moved = params.x.is_some() || params.y.is_some();
         let resized = params.width.is_some() || params.height.is_some();
@@ -1000,6 +1018,7 @@ impl Host {
             height: size.1,
             style: Default::default(),
             component_style: None,
+            parts: None,
         };
         if let Some(slot) = self.create_slot(&placement) {
             self.slots.push(slot);
@@ -1467,6 +1486,15 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
         _ => return unsafe { DefWindowProcW(window, message, wparam, lparam) },
     }
     LRESULT(0)
+}
+
+/// Reads the font files the user added to Lumen. A file that cannot be read
+/// is skipped; one that is not a font is ignored by the graphics layer.
+fn imported_fonts(dir: &std::path::Path) -> Vec<Vec<u8>> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut files: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).filter(|path| path.is_file()).collect();
+    files.sort();
+    files.into_iter().take(64).filter_map(|path| std::fs::read(path).ok()).collect()
 }
 
 fn text(error: impl std::fmt::Display) -> String {

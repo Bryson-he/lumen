@@ -51,6 +51,7 @@ fn main() -> ExitCode {
     let flyouts_path = store.root().join("flyouts.json");
     let launcher_path = store.root().join("launcher.json");
     let styles_path = store.root().join("styles.json");
+    let fonts_dir = store.root().join("fonts");
 
     // Fullscreen changes flow main -> service; the widget host's handle and
     // its state reports flow main -> service; shutdown flows main -> service;
@@ -93,7 +94,7 @@ fn main() -> ExitCode {
 
     // The desktop widgets live on this thread. The service sends the real
     // theme as soon as it has the handle; until then they use the fallback look.
-    let options = host::Options { layout_path, bar_path, flyouts_path, launcher_path, styles_path, topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
+    let options = host::Options { layout_path, bar_path, flyouts_path, launcher_path, styles_path, fonts_dir, topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
     let state_tx = host_tx.clone();
     let on_state = move |report| {
         let _ = state_tx.send(match report {
