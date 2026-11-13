@@ -21,7 +21,9 @@ use lumen_theme::{Color, Theme};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
-const FOLDERS: [&str; 4] = ["themes", "presets", "wallpapers", "widgets"];
+const FOLDERS: [&str; 5] = ["themes", "presets", "wallpapers", "wallpapers/thumbs", "widgets"];
+/// Longest side of a wallpaper preview image, in pixels.
+const THUMB_SIZE: u32 = 640;
 const IMAGE_EXTENSIONS: [&str; 5] = ["jpg", "jpeg", "png", "webp", "bmp"];
 
 /// What can go wrong reading or writing Lumen's files.
@@ -64,6 +66,10 @@ struct StoredWallpaper {
     added_at: u64,
     /// Content hash, so importing the same image twice returns the first copy.
     hash: String,
+    #[serde(default)]
+    favourite: bool,
+    #[serde(default)]
+    tags: Vec<String>,
 }
 
 /// A saved look (`presets/<id>.json`). The widget and bar layouts are carried
@@ -169,13 +175,17 @@ impl Store {
             return Ok(self.entry(existing.clone()));
         }
 
-        // Extracting the colours also proves the file really is an image.
-        let colors = lumen_theme::extract(source).map_err(|e| StoreError::Invalid(e.to_string()))?;
+        // Decode once: it proves the file really is an image, and feeds both
+        // the colour extraction and the preview thumbnail.
+        let image = image::load_from_memory(&bytes).map_err(|e| StoreError::Invalid(format!("{shown} could not be read as an image: {e}")))?;
+        let colors = lumen_theme::extract_from_image(&image).map_err(|e| StoreError::Invalid(e.to_string()))?;
 
         let base = slug(&source.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default());
         let id = unique(&base, |candidate| index.iter().any(|w| w.id == candidate));
         let file = format!("wallpapers/{id}.{extension}");
         fs::write(self.root.join(&file), &bytes).map_err(|e| StoreError::Io(format!("could not copy {shown} into the library: {e}")))?;
+        // A missing thumbnail is not fatal: the app falls back to the palette.
+        let _ = image.thumbnail(THUMB_SIZE, THUMB_SIZE).into_rgb8().save(self.root.join(thumb_file(&id)));
 
         let stored = StoredWallpaper {
             name: display_name(&id),
@@ -185,10 +195,37 @@ impl Store {
             palette: colors.candidates,
             added_at: SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
             hash,
+            favourite: false,
+            tags: Vec::new(),
         };
         index.push(stored.clone());
         self.write_json("wallpapers/index.json", &index)?;
         Ok(self.entry(stored))
+    }
+
+    /// Renames, favourites or re-tags a library entry. `None` leaves a field as it is.
+    pub fn update_wallpaper(&self, id: &str, name: Option<String>, favourite: Option<bool>, tags: Option<Vec<String>>) -> Result<WallpaperEntry> {
+        let mut index = self.index();
+        let entry = index.iter_mut().find(|w| w.id == id).ok_or_else(|| StoreError::NotFound(format!("there is no wallpaper \"{id}\"")))?;
+        if let Some(name) = name.map(|n| n.trim().to_owned()).filter(|n| !n.is_empty()) {
+            entry.name = name;
+        }
+        if let Some(favourite) = favourite {
+            entry.favourite = favourite;
+        }
+        if let Some(tags) = tags {
+            // Tidy: trimmed, lower-case, no blanks or repeats.
+            let mut clean: Vec<String> = Vec::new();
+            for tag in tags.iter().map(|t| t.trim().to_lowercase()).filter(|t| !t.is_empty()) {
+                if !clean.contains(&tag) {
+                    clean.push(tag);
+                }
+            }
+            entry.tags = clean;
+        }
+        let updated = entry.clone();
+        self.write_json("wallpapers/index.json", &index)?;
+        Ok(self.entry(updated))
     }
 
     fn index(&self) -> Vec<StoredWallpaper> {
@@ -198,6 +235,9 @@ impl Store {
     fn entry(&self, w: StoredWallpaper) -> WallpaperEntry {
         WallpaperEntry {
             path: self.resolve(&w.file).display().to_string(),
+            thumb: self.root.join(thumb_file(&w.id)).display().to_string(),
+            favourite: w.favourite,
+            tags: w.tags,
             id: w.id,
             name: w.name,
             file: w.file,
@@ -235,6 +275,10 @@ impl Store {
         let text = serde_json::to_string_pretty(value).map_err(|e| StoreError::Io(e.to_string()))?;
         fs::write(&temp, text).and_then(|()| fs::rename(&temp, &path)).map_err(|e| StoreError::Io(format!("could not write {relative}: {e}")))
     }
+}
+
+fn thumb_file(id: &str) -> String {
+    format!("wallpapers/thumbs/{id}.jpg")
 }
 
 /// `Midnight Harbour!` -> `midnight-harbour`. Always a safe file name.
@@ -330,6 +374,8 @@ pub(crate) mod tests {
         assert_eq!(entry.file, "wallpapers/forest-day.png");
         assert!(Path::new(&entry.path).is_file());
         assert!(!entry.palette.is_empty());
+        assert!(Path::new(&entry.thumb).is_file(), "a preview thumbnail is written");
+        assert!(!entry.favourite && entry.tags.is_empty());
         assert_eq!(store.wallpapers(), vec![entry.clone()]);
         assert_eq!(store.wallpaper_by_file("wallpapers/forest-day.png"), Some(entry));
     }
@@ -367,6 +413,23 @@ pub(crate) mod tests {
         fs::write(&fake, "not really a png").unwrap();
         assert!(matches!(store.import_wallpaper(&fake), Err(StoreError::Invalid(_))));
         assert!(store.wallpapers().is_empty());
+    }
+
+    #[test]
+    fn favourites_and_tags_are_saved() {
+        let store = temp_store();
+        let entry = store.import_wallpaper(&test_image(store.root(), "sky.png", [40, 80, 200])).unwrap();
+        let tags = vec![" Calm".to_string(), "calm".into(), String::new(), "Blue".into()];
+        let updated = store.update_wallpaper(&entry.id, Some("  Big Sky ".into()), Some(true), Some(tags)).unwrap();
+        assert_eq!(updated.name, "Big Sky");
+        assert!(updated.favourite);
+        assert_eq!(updated.tags, ["calm", "blue"]);
+        assert_eq!(Store::open(store.root()).unwrap().wallpapers(), vec![updated.clone()]);
+
+        // Leaving a field out keeps it.
+        let again = store.update_wallpaper(&entry.id, None, Some(false), None).unwrap();
+        assert_eq!((again.name.as_str(), again.favourite, again.tags.len()), ("Big Sky", false, 2));
+        assert!(matches!(store.update_wallpaper("nope", None, None, None), Err(StoreError::NotFound(_))));
     }
 
     #[test]

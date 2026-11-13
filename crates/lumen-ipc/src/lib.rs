@@ -35,6 +35,14 @@ pub mod method {
     pub const IMPORT_WALLPAPER: &str = "importWallpaper";
     /// Params: [`ApplyPresetParams`](super::ApplyPresetParams). Result: the applied `Theme`.
     pub const APPLY_PRESET: &str = "applyPreset";
+    /// No params. Result: [`Status`](super::Status).
+    pub const GET_STATUS: &str = "getStatus";
+    /// No params. Result: array of [`MonitorInfo`](super::MonitorInfo).
+    pub const LIST_MONITORS: &str = "listMonitors";
+    /// Params: [`SetWallpaperParams`](super::SetWallpaperParams). Applies at once, without a preview. Result: `null`.
+    pub const SET_WALLPAPER: &str = "setWallpaper";
+    /// Params: [`UpdateWallpaperParams`](super::UpdateWallpaperParams). Result: [`WallpaperEntry`](super::WallpaperEntry).
+    pub const UPDATE_WALLPAPER: &str = "updateWallpaper";
 }
 
 /// Notification names pushed by the core.
@@ -171,6 +179,9 @@ pub struct PreviewThemeParams {
     pub set_windows_accent: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Put the source wallpaper on this monitor only (a monitor id); all monitors if left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wallpaper_monitor: Option<String>,
 }
 
 /// Why the theme changed.
@@ -215,11 +226,17 @@ pub struct WallpaperEntry {
     pub file: String,
     /// Absolute path on this PC.
     pub path: String,
+    /// Absolute path of a small JPEG preview (about 640 px wide).
+    pub thumb: String,
     pub kind: WallpaperKind,
     /// Colours extracted at import, best theme seed first.
     pub palette: Vec<Color>,
     /// Seconds since 1970 (UTC).
     pub added_at: u64,
+    #[serde(default)]
+    pub favourite: bool,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -243,4 +260,61 @@ pub struct ImportWallpaperParams {
 pub struct ApplyPresetParams {
     /// The preset's file name in `presets/`, without `.json`.
     pub id: String,
+}
+
+/// Result of `getStatus`: what the Home status strip shows.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Status {
+    pub version: String,
+    /// The data folder in use (`%APPDATA%\Lumen` unless overridden).
+    pub data_dir: String,
+    /// The core's memory in use (working set), in megabytes.
+    pub memory_mb: f64,
+    /// The core's share of the whole CPU since the previous `getStatus`, 0–100.
+    pub cpu_percent: f64,
+    pub game_mode: GameModeChanged,
+    /// True while a preview is on the desktop.
+    pub previewing: bool,
+}
+
+/// One connected monitor, as returned by `listMonitors`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorInfo {
+    /// 1-based, left to right then top to bottom.
+    pub number: usize,
+    /// Windows' device path; the stable identifier to store and send back.
+    pub id: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+    pub primary: bool,
+    /// Absolute path of the image it shows now, if any.
+    pub wallpaper: Option<String>,
+}
+
+/// Params of `setWallpaper`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SetWallpaperParams {
+    /// Relative to the data folder (`wallpapers/x.jpg`) or absolute.
+    pub file: String,
+    /// A monitor id; every monitor if left out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub monitor: Option<String>,
+}
+
+/// Params of `updateWallpaper`. Only the fields given are changed.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UpdateWallpaperParams {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub favourite: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
 }

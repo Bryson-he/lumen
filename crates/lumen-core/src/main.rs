@@ -11,6 +11,7 @@
 mod desktop;
 mod ipc;
 mod service;
+mod stats;
 mod store;
 mod tray;
 

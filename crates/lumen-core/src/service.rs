@@ -8,7 +8,7 @@ use std::{path::Path, rc::Rc, time::Duration};
 
 use lumen_ipc::{
     ApplyPresetParams, GameModeChanged, ImportWallpaperParams, Notification, PREVIEW_SECONDS, PreviewState, PreviewThemeParams, RpcError,
-    ThemeChangeReason, ThemeChanged, ThemeState, code, event, method,
+    SetWallpaperParams, Status, ThemeChangeReason, ThemeChanged, ThemeState, UpdateWallpaperParams, code, event, method,
 };
 use lumen_theme::{Mode, Source, SourceColors, Theme, Variant};
 use serde::{Serialize, de::DeserializeOwned};
@@ -21,6 +21,7 @@ use tracing::{info, warn};
 
 use crate::{
     desktop::{ApplyPlan, Desktop},
+    stats::ProcessStats,
     store::{Store, StoreError},
 };
 
@@ -37,6 +38,7 @@ pub struct Service<D: Desktop> {
     events: broadcast::Sender<Rc<str>>,
     /// Wakes the auto-revert task when the preview deadline changes.
     deadline_changed: Rc<Notify>,
+    stats: ProcessStats,
 }
 
 struct Preview<S> {
@@ -49,7 +51,7 @@ struct Preview<S> {
 impl<D: Desktop> Service<D> {
     pub fn new(store: Store, desktop: D) -> Self {
         let committed = store.active_theme();
-        Self { store, desktop, committed, preview: None, game: None, events: broadcast::channel(64).0, deadline_changed: Rc::new(Notify::new()) }
+        Self { store, desktop, committed, preview: None, game: None, events: broadcast::channel(64).0, deadline_changed: Rc::new(Notify::new()), stats: ProcessStats::new() }
     }
 
     /// A stream of notification lines for one client.
@@ -82,6 +84,20 @@ impl<D: Desktop> Service<D> {
                 json(self.store.import_wallpaper(Path::new(&params.path)).map_err(store_error)?)
             }
             method::APPLY_PRESET => json(self.apply_preset(parse(params)?)?),
+            method::GET_STATUS => json(self.status()),
+            method::LIST_MONITORS => json(self.desktop.monitors().map_err(desktop_error)?),
+            method::SET_WALLPAPER => {
+                let params: SetWallpaperParams = parse(params)?;
+                let image = self.store.resolve(&params.file);
+                if !image.is_file() {
+                    return Err(RpcError::new(code::NOT_FOUND, format!("no such wallpaper file: {}", image.display())));
+                }
+                json(self.desktop.set_wallpaper(params.monitor.as_deref(), &image).map_err(desktop_error)?)
+            }
+            method::UPDATE_WALLPAPER => {
+                let params: UpdateWallpaperParams = parse(params)?;
+                json(self.store.update_wallpaper(&params.id, params.name, params.favourite, params.tags).map_err(store_error)?)
+            }
             other => Err(RpcError::new(code::METHOD_NOT_FOUND, format!("unknown method \"{other}\""))),
         }
     }
@@ -96,9 +112,27 @@ impl<D: Desktop> Service<D> {
         }
     }
 
-    fn preview_theme(&mut self, params: PreviewThemeParams) -> Result<PreviewState, RpcError> {
+    fn status(&mut self) -> Status {
+        let (memory_mb, cpu_percent) = self.stats.sample();
+        Status {
+            version: env!("CARGO_PKG_VERSION").to_owned(),
+            data_dir: self.store.root().display().to_string(),
+            memory_mb,
+            cpu_percent,
+            game_mode: GameModeChanged { active: self.game.is_some(), app: self.game.clone() },
+            previewing: self.preview.is_some(),
+        }
+    }
+
+    fn preview_theme(&mut self, mut params: PreviewThemeParams) -> Result<PreviewState, RpcError> {
+        let only_monitor = params.wallpaper_monitor.take();
         let theme = self.build_theme(params)?;
-        let plan = self.plan(&theme, None);
+        // "Show on monitor N": the source wallpaper goes on that monitor alone.
+        let wallpapers = match (&theme.source, only_monitor) {
+            (Source::Wallpaper { path }, Some(monitor)) => Some(vec![(Some(monitor), self.store.resolve(path))]),
+            _ => None,
+        };
+        let plan = self.plan(&theme, wallpapers);
 
         // Previewing again while a preview is up keeps the original snapshot,
         // so Revert always returns to the look from before any of them.
@@ -323,7 +357,7 @@ pub async fn auto_revert<D: Desktop>(service: Rc<std::cell::RefCell<Service<D>>>
 mod tests {
     use std::{cell::RefCell, fs, path::PathBuf};
 
-    use lumen_ipc::WallpaperEntry;
+    use lumen_ipc::{MonitorInfo, WallpaperEntry};
     use lumen_theme::Color;
     use serde_json::json;
     use tokio::task::LocalSet;
@@ -339,6 +373,8 @@ mod tests {
         applied: Vec<ApplyPlan>,
         restores: usize,
         fail_apply: bool,
+        /// Calls to `set_wallpaper`.
+        wallpaper_only: Vec<(Option<String>, PathBuf)>,
     }
 
     impl Desktop for FakeDesktop {
@@ -360,6 +396,15 @@ mod tests {
         fn restore(&mut self, snapshot: &Self::Snapshot) -> Result<(), String> {
             self.current = snapshot.clone();
             self.restores += 1;
+            Ok(())
+        }
+
+        fn monitors(&mut self) -> Result<Vec<MonitorInfo>, String> {
+            Ok(vec![MonitorInfo { number: 1, id: "MONITOR-A".into(), x: 0, y: 0, width: 1920, height: 1080, primary: true, wallpaper: None }])
+        }
+
+        fn set_wallpaper(&mut self, monitor: Option<&str>, image: &Path) -> Result<(), String> {
+            self.wallpaper_only.push((monitor.map(str::to_owned), image.to_owned()));
             Ok(())
         }
     }
@@ -634,6 +679,51 @@ mod tests {
         assert_eq!(plan.wallpapers, vec![(Some("MONITOR-A".into()), image.clone()), (Some("MONITOR-B".into()), image)]);
         let reasons: Vec<_> = events(&mut rx).iter().map(|e| e["params"]["reason"].clone()).collect();
         assert_eq!(reasons, [json!("revert"), json!("preset")]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn show_on_one_monitor_previews_the_wallpaper_there_only() {
+        let mut service = service();
+        let image = test_image(service.store.root(), "sky.png", [40, 80, 200]);
+        let entry: WallpaperEntry = call(&mut service, method::IMPORT_WALLPAPER, json!({ "path": image }));
+        let params = json!({ "source": { "type": "wallpaper", "path": entry.file }, "wallpaperMonitor": "MONITOR-B" });
+        let _: PreviewState = call(&mut service, method::PREVIEW_THEME, params);
+        let plan = service.desktop.current.clone().unwrap();
+        assert_eq!(plan.wallpapers, vec![(Some("MONITOR-B".into()), PathBuf::from(&entry.path))]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn set_wallpaper_applies_at_once_without_a_preview() {
+        let mut service = service();
+        let image = test_image(service.store.root(), "sky.png", [40, 80, 200]);
+        let entry: WallpaperEntry = call(&mut service, method::IMPORT_WALLPAPER, json!({ "path": image }));
+        let _: Value = call(&mut service, method::SET_WALLPAPER, json!({ "file": entry.file, "monitor": "MONITOR-A" }));
+
+        assert_eq!(service.desktop.wallpaper_only, vec![(Some("MONITOR-A".into()), PathBuf::from(&entry.path))]);
+        assert!(service.preview.is_none() && service.desktop.applied.is_empty());
+        let missing = service.handle(method::SET_WALLPAPER, json!({ "file": "wallpapers/missing.jpg" })).unwrap_err();
+        assert_eq!(missing.code, code::NOT_FOUND);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn status_monitors_and_favourites_are_served() {
+        let mut service = service();
+        let status: Status = call(&mut service, method::GET_STATUS, Value::Null);
+        assert!(status.memory_mb > 0.0 && !status.previewing && !status.game_mode.active);
+        assert_eq!(status.data_dir, service.store.root().display().to_string());
+        preview_blue(&mut service);
+        service.set_game_mode(Some("Some Game".into()));
+        let status: Status = call(&mut service, method::GET_STATUS, Value::Null);
+        assert!(status.previewing && status.game_mode.active);
+
+        let monitors: Vec<MonitorInfo> = call(&mut service, method::LIST_MONITORS, Value::Null);
+        assert_eq!(monitors.len(), 1);
+
+        let image = test_image(service.store.root(), "sky.png", [40, 80, 200]);
+        let entry: WallpaperEntry = call(&mut service, method::IMPORT_WALLPAPER, json!({ "path": image }));
+        let updated: WallpaperEntry = call(&mut service, method::UPDATE_WALLPAPER, json!({ "id": entry.id, "favourite": true, "tags": ["calm"] }));
+        assert!(updated.favourite);
+        assert_eq!(updated.tags, ["calm"]);
     }
 
     #[tokio::test(start_paused = true)]

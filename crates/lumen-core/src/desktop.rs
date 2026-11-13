@@ -1,8 +1,9 @@
 //! The real desktop, behind a trait so the service can be tested without
 //! changing anyone's wallpaper.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use lumen_ipc::MonitorInfo;
 use lumen_theme::{Color, Mode};
 use lumen_win::{
     accent,
@@ -27,6 +28,11 @@ pub trait Desktop {
     fn snapshot(&mut self) -> Result<Self::Snapshot, String>;
     fn apply(&mut self, plan: &ApplyPlan) -> Result<(), String>;
     fn restore(&mut self, snapshot: &Self::Snapshot) -> Result<(), String>;
+
+    /// Connected monitors and what each one shows.
+    fn monitors(&mut self) -> Result<Vec<MonitorInfo>, String>;
+    /// Shows an image on one monitor (by id), or on all with `None`. Not part of any preview.
+    fn set_wallpaper(&mut self, monitor: Option<&str>, image: &Path) -> Result<(), String>;
 }
 
 /// The Windows desktop, through `lumen-win`.
@@ -99,6 +105,27 @@ impl Desktop for WindowsDesktop {
             accent::restore(&snapshot.accent).map_err(text)?;
         }
         Ok(())
+    }
+
+    fn monitors(&mut self) -> Result<Vec<MonitorInfo>, String> {
+        let monitors = self.wallpapers.monitors().map_err(text)?;
+        Ok(monitors
+            .into_iter()
+            .map(|m| MonitorInfo {
+                number: m.number,
+                id: m.id,
+                x: m.x,
+                y: m.y,
+                width: m.width,
+                height: m.height,
+                primary: m.primary,
+                wallpaper: m.wallpaper.map(|p| p.display().to_string()),
+            })
+            .collect())
+    }
+
+    fn set_wallpaper(&mut self, monitor: Option<&str>, image: &Path) -> Result<(), String> {
+        self.wallpapers.set_by_id(monitor, image).map_err(text)
     }
 }
 
