@@ -240,3 +240,113 @@
 .bar-module-name > span {
   white-space: nowrap;
 }
+
+/* ---------- Flyouts ---------- */
+
+.flyout-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: stretch;
+}
+.flyout-options {
+  flex: 1 1 280px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* A small picture of the screen with the flyout where it will appear. */
+.flyout-pv {
+  flex: 1 1 280px;
+  min-height: 190px;
+  display: flex;
+  padding: 14px;
+  border-radius: var(--radius-tile);
+  border: 1px solid var(--border);
+  background: linear-gradient(160deg, var(--t-surface), var(--t-neutral));
+  color: var(--t-on-surface);
+  font-family: var(--t-font);
+  font-size: 12px;
+}
+.flyout-pv-topLeft {
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+.flyout-pv-topCentre {
+  align-items: flex-start;
+  justify-content: center;
+}
+.flyout-pv-topRight {
+  align-items: flex-start;
+  justify-content: flex-end;
+}
+.flyout-pv-bottomLeft {
+  align-items: flex-end;
+  justify-content: flex-start;
+}
+.flyout-pv-bottomCentre {
+  align-items: flex-end;
+  justify-content: center;
+}
+.flyout-pv-bottomRight {
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+.flyout-pv-box {
+  width: 220px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--t-surface);
+  border: 1px solid var(--t-outline);
+  border-radius: var(--t-radius);
+}
+.flyout-pv-pill {
+  border-radius: 999px;
+}
+.flyout-pv-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  padding: 0 15px;
+}
+.flyout-pv-muted {
+  opacity: 0.65;
+}
+.flyout-pv-value {
+  font-weight: 500;
+}
+.flyout-pv-track {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--t-neutral);
+  overflow: hidden;
+}
+.flyout-pv-track > span {
+  display: block;
+  width: 64%;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--t-primary);
+}
+.flyout-pv-media {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 15px;
+  padding: 8px 0 10px;
+  border-top: 1px solid var(--t-outline);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.flyout-pv-dot {
+  flex-shrink: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--t-primary);
+}

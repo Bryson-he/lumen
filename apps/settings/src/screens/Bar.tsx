@@ -5,7 +5,18 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { PageHeader } from "../Shell";
 import { useLumen } from "../store";
-import { BAR_HEIGHT_RANGE, MAX_LAUNCHER_APPS, MAX_SLOT_MODULES, type BarConfig, type BarModule, type BarSlot, type LauncherApp, type Theme } from "../types";
+import {
+  BAR_HEIGHT_RANGE,
+  MAX_LAUNCHER_APPS,
+  MAX_SLOT_MODULES,
+  type BarConfig,
+  type BarModule,
+  type BarSlot,
+  type FlyoutConfig,
+  type FlyoutPosition,
+  type LauncherApp,
+  type Theme,
+} from "../types";
 import { Button, Check, Segmented, Slider, Tip } from "../ui";
 
 const SLOTS: { slot: BarSlot; label: string }[] = [
@@ -34,7 +45,7 @@ interface Pick {
 }
 
 export function BarScreen() {
-  const { bar, setBar, monitors, shown, status } = useLumen();
+  const { bar, setBar, flyouts, setFlyouts, showFlyout, monitors, shown, status } = useLumen();
   const [picked, setPicked] = useState<Pick | null>(null);
   const [adding, setAdding] = useState<BarSlot | null>(null);
 
@@ -219,6 +230,8 @@ export function BarScreen() {
               )}
             </section>
           )}
+
+          {flyouts && <FlyoutPanel flyouts={flyouts} theme={shown} gameRunning={status?.gameMode.active ?? false} onChange={(config) => void setFlyouts(config)} onShow={() => void showFlyout()} />}
         </div>
 
         <aside className="panel bar-side" aria-label="Bar settings">
@@ -262,7 +275,7 @@ export function BarScreen() {
 
           <div className="bar-later">
             <span className="label">Still to come</span>
-            <span className="muted small-13">Auto-hide, side bars, themed flyouts, the launcher hotkey and the tray menu preview.</span>
+            <span className="muted small-13">Auto-hide, side bars, more flyouts, the launcher hotkey and the tray menu preview.</span>
             <Tip accent size={20}>
               arriving after the bar
             </Tip>
@@ -270,6 +283,101 @@ export function BarScreen() {
         </aside>
       </div>
     </>
+  );
+}
+
+const FLYOUT_POSITIONS: { value: FlyoutPosition; label: string }[] = [
+  { value: "topLeft", label: "Top left" },
+  { value: "topCentre", label: "Top centre" },
+  { value: "topRight", label: "Top right" },
+  { value: "bottomLeft", label: "Bottom left" },
+  { value: "bottomCentre", label: "Bottom centre" },
+  { value: "bottomRight", label: "Bottom right" },
+];
+
+/** The volume flyout: on or off, how it looks, where it appears. */
+function FlyoutPanel({
+  flyouts,
+  theme,
+  gameRunning,
+  onChange,
+  onShow,
+}: {
+  flyouts: FlyoutConfig;
+  theme: Theme | null;
+  gameRunning: boolean;
+  onChange: (config: FlyoutConfig) => void;
+  onShow: () => void;
+}) {
+  const vars = theme
+    ? ({
+        "--t-primary": theme.roles.primary,
+        "--t-neutral": theme.roles.neutral,
+        "--t-surface": theme.roles.surface,
+        "--t-on-surface": theme.roles.onSurface,
+        "--t-outline": theme.roles.outline,
+        "--t-radius": `${theme.style.radius}px`,
+        "--t-font": `'${theme.style.font}', var(--font-body)`,
+      } as CSSProperties)
+    : undefined;
+
+  return (
+    <section className="panel" aria-label="Flyouts">
+      <div className="field-row">
+        <h2 className="panel-title">Volume flyout</h2>
+        <Button size="bar" disabled={gameRunning} onClick={onShow}>
+          Show it
+        </Button>
+      </div>
+      <div className="flyout-split">
+        <div className="flyout-options">
+          <Check checked={flyouts.volume} onChange={(volume) => onChange({ ...flyouts, volume })}>
+            Use Lumen's volume flyout
+          </Check>
+          <p className="muted small-13">
+            {flyouts.volume
+              ? "Lumen answers the volume keys and shows its own flyout, so the Windows one stays away. In a fullscreen game the keys go back to Windows."
+              : "Off: the volume keys show the Windows flyout, as usual."}
+          </p>
+          <div className="field">
+            <span className="label">Style</span>
+            <Segmented
+              label="Flyout style"
+              look="grid-2"
+              value={flyouts.style}
+              onChange={(style) => onChange({ ...flyouts, style })}
+              options={[
+                { value: "pill", label: "Pill" },
+                { value: "card", label: "Card" },
+              ]}
+            />
+          </div>
+          <div className="field">
+            <span className="label">Where it appears</span>
+            <Segmented label="Flyout position" look="grid-3" value={flyouts.position} onChange={(position) => onChange({ ...flyouts, position })} options={FLYOUT_POSITIONS} />
+          </div>
+        </div>
+        {vars && (
+          <div className={`flyout-pv flyout-pv-${flyouts.position}`} style={vars} role="img" aria-label={`Preview of the ${flyouts.style} flyout`}>
+            <div className={`flyout-pv-box flyout-pv-${flyouts.style}`}>
+              <div className="flyout-pv-row">
+                <span className="flyout-pv-muted">Volume</span>
+                <span className="flyout-pv-track">
+                  <span />
+                </span>
+                <span className="flyout-pv-value">64%</span>
+              </div>
+              {flyouts.style === "card" && (
+                <div className="flyout-pv-media">
+                  <span className="flyout-pv-dot" />
+                  Track title · Artist
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

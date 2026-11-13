@@ -7,6 +7,7 @@
 
 pub mod accent;
 pub mod appbar;
+pub mod audio;
 pub mod appearance;
 pub mod fullscreen;
 pub mod shell;

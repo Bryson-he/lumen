@@ -62,9 +62,12 @@ pub struct Preset {
     /// The widget layout; `None` leaves the widgets as they are when applied.
     #[serde(default)]
     pub widgets: Option<Layout>,
-    /// The bar layout, carried untouched until the bar exists.
+    /// The bar's settings ([`BarConfig`](crate::BarConfig)); null in presets saved before the bar existed.
     #[serde(default)]
     pub bar: Value,
+    /// The flyout settings ([`FlyoutConfig`](crate::FlyoutConfig)); null in presets saved before flyouts existed.
+    #[serde(default)]
+    pub flyouts: Value,
 }
 
 fn current_format() -> u32 {
@@ -86,6 +89,8 @@ pub struct PresetManifest {
     pub widgets: Option<Layout>,
     #[serde(default)]
     pub bar: Value,
+    #[serde(default)]
+    pub flyouts: Value,
 }
 
 /// Params of `savePreset`: save the look that is on the desktop now.

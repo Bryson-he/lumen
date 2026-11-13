@@ -9,9 +9,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub mod bar;
+pub mod flyout;
 pub mod presets;
 pub mod widgets;
 
+pub use flyout::{FlyoutConfig, FlyoutPosition, FlyoutStyle};
 pub use bar::{BarConfig, BarModule, BarPosition, LauncherApp};
 pub use presets::{ExportPresetParams, ImportPresetParams, Preset, PresetIdParams, PresetInfo, PresetManifest, PresetWallpaper, RenamePresetParams, SavePresetParams};
 pub use widgets::{
@@ -98,6 +100,10 @@ pub mod method {
     /// Params: a whole [`BarConfig`](super::BarConfig). Applied and saved at once;
     /// the result is the config as it stood, and the change arrives in `barChanged`.
     pub const SET_BAR: &str = "setBar";
+    pub const GET_FLYOUTS: &str = "getFlyouts";
+    pub const SET_FLYOUTS: &str = "setFlyouts";
+    /// Shows the volume flyout once, to see how it looks.
+    pub const SHOW_FLYOUT: &str = "showFlyout";
 }
 
 /// Notification names pushed by the core.
@@ -112,6 +118,7 @@ pub mod event {
     pub const PRESETS_CHANGED: &str = "presetsChanged";
     /// Params: [`BarConfig`](super::BarConfig).
     pub const BAR_CHANGED: &str = "barChanged";
+    pub const FLYOUTS_CHANGED: &str = "flyoutsChanged";
 }
 
 /// JSON-RPC error codes: the standard ones plus Lumen's own (positive).

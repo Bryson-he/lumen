@@ -3,7 +3,7 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { call, CoreError, onConnection, onCoreEvent } from "./core";
-import type { BarConfig, MonitorInfo, PresetInfo, PreviewState, PreviewThemeParams, Status, Theme, ThemeState, WallpaperEntry, WidgetsState } from "./types";
+import type { BarConfig, FlyoutConfig, MonitorInfo, PresetInfo, PreviewState, PreviewThemeParams, Status, Theme, ThemeState, WallpaperEntry, WidgetsState } from "./types";
 
 export type Screen = "home" | "presets" | "wallpapers" | "theme" | "widgets" | "bar" | "plugins" | "gallery" | "settings";
 
@@ -41,6 +41,11 @@ interface Lumen {
   bar: BarConfig | null;
   /** Changes the bar. The screen shows the new settings at once; the core confirms them. */
   setBar: (config: BarConfig) => Promise<void>;
+  /** The flyout settings. Null until the core reports them. */
+  flyouts: FlyoutConfig | null;
+  setFlyouts: (config: FlyoutConfig) => Promise<void>;
+  /** Shows the volume flyout on the desktop once, as it looks now. */
+  showFlyout: () => Promise<void>;
   /** Saved looks, most recently used first. */
   presets: PresetInfo[];
   /** Sends a preset request (savePreset, applyPreset, renamePreset, ...). Null if it failed. */
@@ -84,6 +89,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [widgets, setWidgets] = useState<WidgetsState | null>(null);
   const [bar, setBarState] = useState<BarConfig | null>(null);
+  const [flyouts, setFlyoutsState] = useState<FlyoutConfig | null>(null);
   const [presets, setPresets] = useState<PresetInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [dropping, setDropping] = useState(false);
@@ -135,6 +141,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       call<WidgetsState>("getWidgets").then(setWidgets, () => setWidgets(null)),
       attempt(() => call<PresetInfo[]>("listPresets")).then((list) => list && setPresets(list)),
       call<BarConfig>("getBar").then(setBarState, () => setBarState(null)),
+      call<FlyoutConfig>("getFlyouts").then(setFlyoutsState, () => setFlyoutsState(null)),
     ]);
   }, [refreshTheme, refreshWallpapers, refreshStatus, attempt]);
 
@@ -156,6 +163,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
         if (method === "themeChanged") void refreshThemeRef.current();
         if (method === "widgetsChanged") setWidgets(params as WidgetsState);
         if (method === "barChanged") setBarState(params as BarConfig);
+        if (method === "flyoutsChanged") setFlyoutsState(params as FlyoutConfig);
         if (method === "presetsChanged") {
           setPresets(params as PresetInfo[]);
           // Presets can bring new wallpapers into the library (saving, importing).
@@ -310,6 +318,20 @@ export function LumenProvider({ children }: { children: ReactNode }) {
     [attempt],
   );
 
+  const setFlyouts = useCallback(
+    async (config: FlyoutConfig) => {
+      setFlyoutsState(config);
+      const set = await attempt(() => call<FlyoutConfig>("setFlyouts", config));
+      if (set) setFlyoutsState(set);
+      else await call<FlyoutConfig>("getFlyouts").then(setFlyoutsState, () => {});
+    },
+    [attempt],
+  );
+
+  const showFlyout = useCallback(async () => {
+    await attempt(() => call<null>("showFlyout"));
+  }, [attempt]);
+
   const wallpaperOf = useCallback(
     (t: Theme | null) => {
       if (!t || t.source.type !== "wallpaper") return null;
@@ -338,6 +360,9 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       widgetRequest,
       bar,
       setBar,
+      flyouts,
+      setFlyouts,
+      showFlyout,
       presets,
       presetRequest,
       importPresets,
@@ -352,7 +377,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       setWallpaperOnly,
       wallpaperOf,
     }),
-    [screen, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, widgets, widgetRequest, bar, setBar, presets, presetRequest, importPresets, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
+    [screen, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, widgets, widgetRequest, bar, setBar, flyouts, setFlyouts, showFlyout, presets, presetRequest, importPresets, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;

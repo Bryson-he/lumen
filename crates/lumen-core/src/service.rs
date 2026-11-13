@@ -14,7 +14,7 @@ use std::{
 };
 
 use lumen_ipc::{
-    BarConfig, EditModeParams, GameModeChanged, ImportWallpaperParams, Notification, PREVIEW_SECONDS, PresetInfo, PreviewState, PreviewThemeParams, RpcError, SelectWidgetParams,
+    BarConfig, EditModeParams, FlyoutConfig, GameModeChanged, ImportWallpaperParams, Notification, PREVIEW_SECONDS, PresetInfo, PreviewState, PreviewThemeParams, RpcError, SelectWidgetParams,
     SetWallpaperParams, Status, ThemeChangeReason, ThemeChanged, ThemeState, UpdateWallpaperParams, WidgetCost, WidgetIdParams, WidgetsState, code, event, method,
 };
 use lumen_theme::{Mode, Source, SourceColors, Theme, Variant};
@@ -55,6 +55,8 @@ pub struct Service<D: Desktop> {
     widget_costs: Vec<WidgetCost>,
     /// The bar's settings, as the widget host last reported them.
     bar: Option<BarConfig>,
+    /// The flyout settings, as the widget host last reported them.
+    flyouts: Option<FlyoutConfig>,
     /// A copy of the preset list for the tray menu, which lives on another thread.
     preset_mirror: Option<Arc<Mutex<Vec<PresetInfo>>>>,
 }
@@ -82,6 +84,7 @@ impl<D: Desktop> Service<D> {
             widgets: None,
             widget_costs: Vec::new(),
             bar: None,
+            flyouts: None,
             preset_mirror: None,
         }
     }
@@ -150,6 +153,18 @@ impl<D: Desktop> Service<D> {
                 let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets and bar are not running"))?;
                 host(WidgetCommand::SetBar(Box::new(config.clone())));
                 json(config)
+            }
+            method::GET_FLYOUTS => json(self.flyouts.clone().unwrap_or_default()),
+            method::SET_FLYOUTS => {
+                let config: FlyoutConfig = parse(params)?;
+                let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets and flyouts are not running"))?;
+                host(WidgetCommand::SetFlyouts(Box::new(config.clone())));
+                json(config)
+            }
+            method::SHOW_FLYOUT => {
+                let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets and flyouts are not running"))?;
+                host(WidgetCommand::ShowFlyout);
+                Ok(Value::Null)
             }
             other => self.handle_preset(other, params).unwrap_or_else(|| Err(RpcError::new(code::METHOD_NOT_FOUND, format!("unknown method \"{other}\"")))),
         }
@@ -361,6 +376,16 @@ impl<D: Desktop> Service<D> {
         if self.widgets.as_ref() != Some(&state) {
             self.emit(event::WIDGETS_CHANGED, &state);
             self.widgets = Some(state);
+        }
+    }
+
+    /// The widget host reports the flyout settings (at start-up and on every change).
+    pub fn flyouts_changed(&mut self, config: FlyoutConfig) {
+        if self.flyouts.as_ref() != Some(&config) {
+            if self.flyouts.is_some() {
+                self.emit(event::FLYOUTS_CHANGED, &config);
+            }
+            self.flyouts = Some(config);
         }
     }
 
@@ -1003,6 +1028,45 @@ mod tests {
         sent.borrow_mut().clear();
         let _: Theme = call(&mut service, method::APPLY_PRESET, json!({ "id": "with-bar" }));
         assert_eq!(bars(), [set]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn flyout_settings_go_through_the_host_and_into_presets() {
+        let mut service = service();
+        let wanted = json!({ "volume": true, "style": "card", "position": "topRight" });
+        assert_eq!(service.handle(method::SET_FLYOUTS, wanted.clone()).unwrap_err().code, code::WIDGETS_UNAVAILABLE, "no host yet");
+        assert_eq!(service.handle(method::SHOW_FLYOUT, Value::Null).unwrap_err().code, code::WIDGETS_UNAVAILABLE);
+        assert!(!call::<FlyoutConfig>(&mut service, method::GET_FLYOUTS, Value::Null).volume, "off until the host says otherwise");
+
+        let sent: Rc<RefCell<Vec<WidgetCommand>>> = Rc::default();
+        let log = sent.clone();
+        service.set_widget_host(move |command| log.borrow_mut().push(command));
+        let mut rx = service.subscribe();
+        service.flyouts_changed(FlyoutConfig::default());
+        assert!(events(&mut rx).is_empty(), "the host's first report is what it loaded, not a change");
+
+        let set: FlyoutConfig = call(&mut service, method::SET_FLYOUTS, wanted);
+        assert!(set.volume);
+        let _: Value = call(&mut service, method::SHOW_FLYOUT, Value::Null);
+        let flyouts = || sent.borrow().iter().filter_map(|c| if let WidgetCommand::SetFlyouts(f) = c { Some((**f).clone()) } else { None }).collect::<Vec<_>>();
+        assert_eq!(flyouts(), std::slice::from_ref(&set));
+        assert!(sent.borrow().iter().any(|c| matches!(c, WidgetCommand::ShowFlyout)));
+
+        service.flyouts_changed(set.clone());
+        service.flyouts_changed(set.clone());
+        let heard = events(&mut rx);
+        assert_eq!(heard.len(), 1);
+        assert_eq!(heard[0]["method"], "flyoutsChanged");
+        assert_eq!(heard[0]["params"]["position"], "topRight");
+
+        // A preset carries the flyout settings, and brings them back.
+        preview_blue(&mut service);
+        let _: lumen_ipc::PresetInfo = call(&mut service, method::SAVE_PRESET, json!({ "name": "With Flyout" }));
+        service.flyouts_changed(FlyoutConfig::default());
+        sent.borrow_mut().clear();
+        let _: Theme = call(&mut service, method::APPLY_PRESET, json!({ "id": "with-flyout" }));
+        assert_eq!(flyouts(), [set]);
+        assert!(service.handle(method::SET_FLYOUTS, json!({ "position": "middle" })).is_err(), "an unknown position is refused");
     }
 
     #[tokio::test(start_paused = true)]

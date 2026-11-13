@@ -11,6 +11,7 @@
 //! other windows and makes them draggable; Esc or the hotkey again leaves it.
 
 mod bars;
+mod flyouts;
 
 use std::{
     cell::RefCell,
@@ -23,6 +24,7 @@ use std::{
 };
 
 use lumen_ipc::bar::BarConfig;
+use lumen_ipc::flyout::FlyoutConfig;
 use lumen_ipc::widgets::{
     AddWidgetParams, Guides, Layout, LayoutOptionsParams, MIN_SIZE, MonitorArea, Placement, UpdateWidgetParams, WidgetCost, WidgetKind as Kind, WidgetsState,
 };
@@ -82,6 +84,8 @@ pub struct Options {
     pub layout_path: PathBuf,
     /// Where the bar's settings are kept (`bar.json`).
     pub bar_path: PathBuf,
+    /// Where the flyout settings are kept (`flyouts.json`).
+    pub flyouts_path: PathBuf,
     /// Keep widgets above other windows (for testing; normally they sit on the desktop).
     pub topmost: bool,
 }
@@ -103,6 +107,10 @@ pub enum Command {
     Resume(String),
     /// Replace the bar's settings.
     SetBar(Box<BarConfig>),
+    /// Replace the flyout settings.
+    SetFlyouts(Box<FlyoutConfig>),
+    /// Show the volume flyout once, as it looks now.
+    ShowFlyout,
 }
 
 /// What the host tells its owner.
@@ -110,6 +118,8 @@ pub enum Command {
 pub enum Report {
     /// The bar's settings changed (also sent once at start-up).
     Bar(BarConfig),
+    /// The flyout settings changed (also sent once at start-up).
+    Flyouts(FlyoutConfig),
     /// The layout, selection, edit mode or list of switched-off widgets changed.
     State(WidgetsState),
     /// Fresh per-widget costs, about every ten seconds while widgets are running.
@@ -232,6 +242,12 @@ struct Host {
     /// Launcher icons as read from disk (`None`: the file has no icon), and on the GPU.
     icon_pixels: HashMap<String, Option<lumen_win::shell::Icon>>,
     icons: HashMap<String, Bitmap>,
+
+    flyouts: FlyoutConfig,
+    /// The default playback device's volume, held while Lumen answers the volume keys.
+    volume: Option<lumen_win::audio::Volume>,
+    /// The volume flyout, while it is on screen.
+    flyout: Option<flyouts::Shown>,
 }
 
 thread_local! {
@@ -279,13 +295,18 @@ pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'stat
         bars: Vec::new(),
         icon_pixels: HashMap::new(),
         icons: HashMap::new(),
+        flyouts: FlyoutConfig::default(),
+        volume: None,
+        flyout: None,
     };
     host.bar = bars::load_bar(&host.options.bar_path);
+    host.flyouts = flyouts::load_flyouts(&host.options.flyouts_path);
     host.rebuild()?;
     host.load_icons();
     host.place_bars();
     host.draw(None);
     host.sync_timers();
+    host.sync_volume_keys();
     unsafe {
         if RegisterHotKey(Some(window), HOTKEY_EDIT, MOD_WIN | MOD_ALT | MOD_NOREPEAT, u32::from(b'E')).is_err() {
             warn!("Win+Alt+E is taken by another app; edit mode can still be started from Lumen");
@@ -295,6 +316,7 @@ pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'stat
     info!("{} widgets on the desktop{}", host.slots.len(), if host.bar.enabled { ", bar on" } else { "" });
     host.report();
     (host.on_state)(Report::Bar(host.bar.clone()));
+    (host.on_state)(Report::Flyouts(host.flyouts.clone()));
     HOST.set(Some(host));
 
     let handle = HostHandle { window: window.0 as isize, inbox };
@@ -318,6 +340,7 @@ pub fn set_paused(paused: bool) {
             host.clock = ClockData::now();
             host.stats = host.sampler.sample();
         }
+        host.sync_volume_keys();
         host.sync_suspension();
         host.sync_visibility();
         host.draw(None);
@@ -364,7 +387,13 @@ pub fn set_edit_mode(on: bool) {
 
 /// Removes the widgets. Call on the host's thread before it exits.
 pub fn stop() {
-    with_host(|host| host.set_edit_mode(false));
+    with_host(|host| {
+        host.set_edit_mode(false);
+        host.hide_flyout();
+        // Hand the volume keys back to Windows.
+        host.flyouts.volume = false;
+        host.sync_volume_keys();
+    });
     set_input_handler(None);
     if let Some(host) = HOST.take() {
         unsafe {
@@ -397,6 +426,7 @@ impl Host {
         self.gpu = None;
         self.areas = read_areas();
         self.drop_bar_surfaces();
+        self.hide_flyout();
         if self.should_suspend() {
             // A display change during a game: note the new monitors, but stay
             // suspended. Everything is rebuilt when the game ends.
@@ -531,8 +561,8 @@ impl Host {
     /// Whether nothing at all should be on screen: the user paused the
     /// widgets, or a game is in front and every widget hides in games.
     fn should_suspend(&self) -> bool {
-        // "Pause widgets" leaves the bar up, so the device is still needed then.
-        (self.user_paused && !self.bar.enabled) || (self.paused && self.layout.widgets.iter().all(|w| w.style.hide_in_games))
+        // "Pause widgets" leaves the bar and the flyout working, so the device is still needed then.
+        (self.user_paused && !self.bar.enabled && !self.flyouts.volume) || (self.paused && self.layout.widgets.iter().all(|w| w.style.hide_in_games))
     }
 
     /// Suspends or resumes rendering as a whole. Suspended means the widget
@@ -544,6 +574,7 @@ impl Host {
             self.set_edit_mode(false);
             self.slots.clear();
             self.drop_bar_surfaces();
+            self.hide_flyout();
             self.art = None;
             self.gpu = None;
             media::set_paused(true);
@@ -662,6 +693,9 @@ impl Host {
     }
 
     fn on_timer(&mut self, timer: usize) {
+        if self.on_flyout_timer(timer) {
+            return;
+        }
         match timer {
             TIMER_CLOCK => {
                 let now = ClockData::now();
@@ -749,6 +783,7 @@ impl Host {
             Command::Theme(theme) => {
                 self.paint = Paint::from_theme(&theme);
                 self.draw(None);
+                self.draw_flyout();
                 if let Some(edit) = &self.edit {
                     edit::set_dim_colour(&self.paint);
                     edit.dims.iter().for_each(|dim| edit::repaint_dim(*dim));
@@ -793,6 +828,8 @@ impl Host {
                 }
             }
             Command::SetBar(config) => self.set_bar(*config),
+            Command::SetFlyouts(config) => self.set_flyouts(*config),
+            Command::ShowFlyout => self.show_flyout_now(),
             Command::Resume(id) => {
                 if self.governor.resume(&id) {
                     info!("the widget {id} was resumed");
@@ -1342,6 +1379,7 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
                 let on = match wparam.0 as i32 {
                     HOTKEY_EDIT => host.edit.is_none(),
                     HOTKEY_ESCAPE => false,
+                    key @ (flyouts::HOTKEY_VOLUME_UP | flyouts::HOTKEY_VOLUME_DOWN | flyouts::HOTKEY_VOLUME_MUTE) => return host.on_volume_key(key),
                     _ => return,
                 };
                 host.run(Command::EditMode(on));
@@ -1353,6 +1391,9 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
         }
         // Monitors were added, removed, rearranged or rescaled.
         // Something that holds screen space (the taskbar, another bar) moved.
+        flyouts::VOLUME_CHANGED => {
+            with_host(Host::on_volume_changed);
+        }
         BAR_CALLBACK => {
             if wparam.0 == lumen_win::appbar::POSITION_CHANGED {
                 with_host(Host::reposition_bars);

@@ -2133,6 +2133,7 @@ dependencies = [
  "lumen-theme",
  "thiserror 2.0.21",
  "windows",
+ "windows-core",
  "windows-registry",
 ]
 

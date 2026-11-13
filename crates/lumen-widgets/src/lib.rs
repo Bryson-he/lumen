@@ -14,6 +14,7 @@
 pub mod bar;
 pub mod clock;
 mod edit;
+pub mod flyout;
 pub mod governor;
 pub mod host;
 pub mod layout;

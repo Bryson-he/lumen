@@ -246,3 +246,15 @@ export const BAR_HEIGHT_RANGE = [28, 56] as const;
 export const MAX_LAUNCHER_APPS = 16;
 /** The most modules one slot holds. */
 export const MAX_SLOT_MODULES = 12;
+
+// ----- Flyouts (crates/lumen-ipc/src/flyout.rs) -----
+
+export type FlyoutStyle = "pill" | "card";
+export type FlyoutPosition = "topLeft" | "topCentre" | "topRight" | "bottomLeft" | "bottomCentre" | "bottomRight";
+
+export interface FlyoutConfig {
+  /** Show Lumen's volume flyout, and answer the volume keys in place of Windows. */
+  volume: boolean;
+  style: FlyoutStyle;
+  position: FlyoutPosition;
+}
