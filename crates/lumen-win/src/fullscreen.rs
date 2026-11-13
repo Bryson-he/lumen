@@ -15,7 +15,7 @@ use windows::Win32::{
         Shell::{QUNS_BUSY, QUNS_RUNNING_D3D_FULL_SCREEN, SHQueryUserNotificationState},
         WindowsAndMessaging::{
             EVENT_OBJECT_LOCATIONCHANGE, EVENT_SYSTEM_FOREGROUND, GWL_STYLE, GetClassNameW, GetDesktopWindow, GetForegroundWindow,
-            GetMessageW, GetShellWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, KillTimer, MSG,
+            DispatchMessageW, GetMessageW, GetShellWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, KillTimer, MSG,
             OBJID_WINDOW, SetTimer, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WM_TIMER, WS_CAPTION,
         },
     },
@@ -118,6 +118,8 @@ pub fn watch(duration: Option<Duration>, on_change: impl FnMut(Option<&Fullscree
                 if message.message == WM_TIMER && timer == Some(message.wParam.0) {
                     break;
                 }
+                // Deliver window messages too, so the caller's own windows (the tray) work on this thread.
+                DispatchMessageW(&message);
             }
             if let Some(timer) = timer {
                 let _ = KillTimer(None, timer);

@@ -12,6 +12,8 @@ pub mod wallpaper;
 
 mod util;
 
+pub use util::flush_broadcasts;
+
 /// Everything that can go wrong in this crate.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

@@ -78,6 +78,18 @@ impl Wallpapers {
 
     /// Shows an image on one monitor (by 1-based number), or on all of them with `None`.
     pub fn set(&self, monitor: Option<usize>, image: impl AsRef<Path>) -> Result<()> {
+        match monitor {
+            None => self.set_by_id(None, image),
+            Some(number) => {
+                let monitors = self.monitors()?;
+                let target = monitors.iter().find(|m| m.number == number).ok_or(Error::NoSuchMonitor(number, monitors.len()))?;
+                self.set_by_id(Some(&target.id), image)
+            }
+        }
+    }
+
+    /// Shows an image on the monitor with this [`Monitor::id`], or on all monitors with `None`.
+    pub fn set_by_id(&self, monitor_id: Option<&str>, image: impl AsRef<Path>) -> Result<()> {
         let image = image.as_ref();
         if !image.is_file() {
             return Err(Error::WallpaperNotFound(image.display().to_string()));
@@ -86,13 +98,9 @@ impl Wallpapers {
         let image = std::path::absolute(image).map_err(|_| Error::WallpaperNotFound(image.display().to_string()))?;
         let image = HSTRING::from(image.as_os_str());
 
-        match monitor {
+        match monitor_id {
             None => unsafe { self.api.SetWallpaper(PCWSTR::null(), &image) },
-            Some(number) => {
-                let monitors = self.monitors()?;
-                let target = monitors.iter().find(|m| m.number == number).ok_or(Error::NoSuchMonitor(number, monitors.len()))?;
-                unsafe { self.api.SetWallpaper(&HSTRING::from(&target.id), &image) }
-            }
+            Some(id) => unsafe { self.api.SetWallpaper(&HSTRING::from(id), &image) },
         }
         .context("setting the wallpaper")
     }

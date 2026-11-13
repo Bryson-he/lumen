@@ -24,7 +24,10 @@ Options for wallpaper, mode and accent:
   --revert-after <seconds>    put the previous setting back after this long";
 
 fn main() -> ExitCode {
-    match run(std::env::args().skip(1).collect()) {
+    let result = run(std::env::args().skip(1).collect());
+    // Let apps finish hearing about any colour change before exiting.
+    lumen_win::flush_broadcasts();
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             eprintln!("error: {message}\n\nRun `lumen-win --help` for usage.");

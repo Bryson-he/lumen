@@ -65,8 +65,9 @@ pub fn set(color: Color) -> Result<()> {
     write_u32(&dwm, "ColorizationAfterglow", argb(color, 0xC4))?;
     write_u32(&explorer, "AccentColorMenu", abgr(color))?;
     write_u32(&explorer, "StartColorMenu", abgr(shades[5]))?;
+    let previous = read_value(&explorer, "AccentPalette");
     explorer
-        .set_bytes("AccentPalette", Type::Bytes, &palette_bytes(&shades))
+        .set_bytes("AccentPalette", Type::Bytes, &palette_bytes(&shades, previous.as_deref()))
         .map_err(|e| Error::Registry { what: "AccentPalette", message: e.to_string() })?;
 
     broadcast_color_change();
@@ -99,15 +100,19 @@ fn shades(color: Color) -> [Color; 7] {
     [mix(255, 0.75), mix(255, 0.5), mix(255, 0.25), color, mix(0, 0.25), mix(0, 0.5), mix(0, 0.7)]
 }
 
-/// `AccentPalette` is eight RGBA entries: the seven shades plus one extra
-/// colour Windows uses for a few legacy highlights.
-fn palette_bytes(shades: &[Color; 7]) -> [u8; 32] {
+/// `AccentPalette` is eight 4-byte entries (red, green, blue, 0): the seven
+/// shades plus one extra colour Windows uses for a few legacy highlights.
+/// That eighth entry is kept from the `previous` palette when there is one.
+fn palette_bytes(shades: &[Color; 7], previous: Option<&[u8]>) -> [u8; 32] {
     let mut bytes = [0u8; 32];
     for (slot, shade) in bytes.chunks_exact_mut(4).zip(shades) {
-        slot.copy_from_slice(&[shade.r, shade.g, shade.b, 0xFF]);
+        slot.copy_from_slice(&[shade.r, shade.g, shade.b, 0]);
     }
-    // Windows' own default for the eighth entry.
-    bytes[28..].copy_from_slice(&[0x88, 0x17, 0x98, 0x00]);
+    match previous {
+        Some(previous) if previous.len() == 32 => bytes[28..].copy_from_slice(&previous[28..]),
+        // Windows' own default.
+        _ => bytes[28..].copy_from_slice(&[0x88, 0x17, 0x98, 0x00]),
+    }
     bytes
 }
 
@@ -147,8 +152,14 @@ mod tests {
 
     #[test]
     fn palette_has_the_accent_in_the_fourth_slot() {
-        let bytes = palette_bytes(&shades(BLUE));
-        assert_eq!(bytes[12..16], [0x2F, 0x5B, 0xEA, 0xFF]);
+        let bytes = palette_bytes(&shades(BLUE), None);
+        assert_eq!(bytes[12..16], [0x2F, 0x5B, 0xEA, 0x00]);
+        assert_eq!(bytes[28..], [0x88, 0x17, 0x98, 0x00]);
+
+        // An existing palette keeps its eighth entry.
+        let mut previous = [0u8; 32];
+        previous[28..].copy_from_slice(&[0xF7, 0x63, 0x0C, 0x00]);
+        assert_eq!(palette_bytes(&shades(BLUE), Some(&previous))[28..], [0xF7, 0x63, 0x0C, 0x00]);
         assert_eq!(bytes.len(), 32);
     }
 }
