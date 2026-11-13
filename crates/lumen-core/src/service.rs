@@ -61,6 +61,8 @@ pub struct Service<D: Desktop> {
     launcher: Option<LauncherConfig>,
     /// The user's component styles, as the widget host last reported them.
     styles: Option<StyleSheet>,
+    /// The widget files, as the widget host last read them.
+    widget_files: Vec<lumen_ipc::WidgetFileInfo>,
     /// A copy of the preset list for the tray menu, which lives on another thread.
     preset_mirror: Option<Arc<Mutex<Vec<PresetInfo>>>>,
 }
@@ -91,6 +93,7 @@ impl<D: Desktop> Service<D> {
             flyouts: None,
             launcher: None,
             styles: None,
+            widget_files: Vec::new(),
             preset_mirror: None,
         }
     }
@@ -219,6 +222,65 @@ impl<D: Desktop> Service<D> {
                 let added = sheet.resolve(&style.id);
                 host(WidgetCommand::SetStyles(Box::new(sheet)));
                 json(added)
+            }
+            method::GET_WIDGET_FILES => json(&self.widget_files),
+            method::READ_WIDGET_FILE => {
+                let file = file_param(&params)?;
+                let text = std::fs::read_to_string(self.widget_files_dir().join(&file)).map_err(|e| RpcError::new(code::INVALID_PARAMS, format!("could not read {file}: {e}")))?;
+                Ok(serde_json::json!({ "file": file, "text": text }))
+            }
+            method::WRITE_WIDGET_FILE => {
+                let file = file_param(&params)?;
+                let text = params.get("text").and_then(Value::as_str).ok_or_else(|| RpcError::new(code::INVALID_PARAMS, "there is no text to save"))?;
+                if text.len() > 512 * 1024 {
+                    return Err(RpcError::new(code::INVALID_PARAMS, "a widget file cannot be larger than 512 KB"));
+                }
+                let folder = self.widget_files_dir();
+                self.write_widget_file(&file, text)?;
+                // The widgets pick the file up by themselves; this is so the editor can say at once whether it is right.
+                let problem = lumen_ipc::widget_file::is_widget(text).then(|| lumen_ipc::widget_file::parse(text, &|other| read_widget_include(&folder, other)).err()).flatten();
+                Ok(serde_json::json!({ "error": problem.as_ref().map(|e| e.message.clone()), "line": problem.and_then(|e| e.line) }))
+            }
+            method::NEW_WIDGET_FILE => {
+                let name = name_param(&params)?;
+                let file = self.free_widget_file_name(&name);
+                self.write_widget_file(&file, &lumen_ipc::widget_file::starter(&name))?;
+                json(file)
+            }
+            method::SAVE_WIDGET_AS_FILE => {
+                let name = name_param(&params)?;
+                let id = params.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+                let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets are not running"))?;
+                let placement = self.widgets.as_ref().and_then(|state| state.layout.widgets.iter().find(|w| w.id == id)).ok_or_else(|| RpcError::new(code::INVALID_PARAMS, format!("there is no widget \"{id}\"")))?;
+                if placement.file.is_some() {
+                    return Err(RpcError::new(code::INVALID_PARAMS, "this widget already comes from a file"));
+                }
+                // The parts are laid out for the size its kind starts at.
+                let parts = placement.parts.clone().unwrap_or_else(|| lumen_ipc::parts::default_parts(placement.kind));
+                let text = lumen_ipc::widget_file::render(&name, placement.kind.default_size(), &parts, None, &|_| None);
+                let file = self.free_widget_file_name(&name);
+                self.write_widget_file(&file, &text)?;
+                host(WidgetCommand::Update(lumen_ipc::widgets::UpdateWidgetParams { file: Some(file.clone()), ..update_for(&id) }));
+                json(file)
+            }
+            method::DELETE_WIDGET_FILE => {
+                let file = file_param(&params)?;
+                // Widgets drawn from it go back to the parts their kind comes with.
+                if let (Some(host), Some(state)) = (&self.widget_host, &self.widgets) {
+                    for widget in state.layout.widgets.iter().filter(|w| w.file.as_deref() == Some(file.as_str())) {
+                        host(WidgetCommand::Update(lumen_ipc::widgets::UpdateWidgetParams { file: Some(String::new()), ..update_for(&widget.id) }));
+                    }
+                }
+                std::fs::remove_file(self.widget_files_dir().join(&file)).map_err(|e| RpcError::new(code::INVALID_PARAMS, format!("could not delete {file}: {e}")))?;
+                Ok(Value::Null)
+            }
+            method::OPEN_WIDGET_FOLDER => {
+                let folder = self.widget_files_dir();
+                let _ = std::fs::create_dir_all(&folder);
+                if !lumen_win::shell::open(&folder.to_string_lossy()) {
+                    return Err(RpcError::new(code::INTERNAL_ERROR, format!("could not open {}", folder.display())));
+                }
+                json(folder.to_string_lossy())
             }
             method::GET_PART_DEFAULTS => {
                 let mut kinds = serde_json::Map::new();
@@ -477,6 +539,41 @@ impl<D: Desktop> Service<D> {
         }
     }
 
+    /// The widget host read the widget files (at start-up, and whenever one changes).
+    pub fn widget_files_changed(&mut self, files: Vec<lumen_ipc::WidgetFileInfo>) {
+        if self.widget_files != files {
+            self.emit(event::WIDGET_FILES_CHANGED, &files);
+            self.widget_files = files;
+        }
+    }
+
+    /// The folder of widget files (beside the layout).
+    fn widget_files_dir(&self) -> std::path::PathBuf {
+        self.store.root().join("widgets")
+    }
+
+    fn write_widget_file(&self, file: &str, text: &str) -> Result<(), RpcError> {
+        let folder = self.widget_files_dir();
+        let failed = |e: std::io::Error| RpcError::new(code::INTERNAL_ERROR, format!("could not save {file}: {e}"));
+        std::fs::create_dir_all(&folder).map_err(failed)?;
+        let temp = folder.join(format!("{file}.tmp"));
+        std::fs::write(&temp, text).and_then(|()| std::fs::rename(&temp, folder.join(file))).map_err(failed)
+    }
+
+    /// A file name for a widget called `name` that is not taken.
+    fn free_widget_file_name(&self, name: &str) -> String {
+        let wanted = lumen_ipc::widget_file::file_name_for(name);
+        let stem = wanted.trim_end_matches(".yaml").to_owned();
+        let folder = self.widget_files_dir();
+        let mut file = wanted;
+        let mut number = 2;
+        while folder.join(&file).exists() {
+            file = format!("{stem}-{number}.yaml");
+            number += 1;
+        }
+        file
+    }
+
     /// Where font files the user added are kept.
     fn fonts_dir(&self) -> std::path::PathBuf {
         self.store.root().join("fonts")
@@ -595,6 +692,31 @@ pub async fn auto_revert<D: Desktop>(service: Rc<std::cell::RefCell<Service<D>>>
             },
         }
     }
+}
+
+/// The `file` of a request: a plain file name in the widgets folder, never a path.
+fn file_param(params: &Value) -> Result<String, RpcError> {
+    let file = params.get("file").and_then(Value::as_str).unwrap_or_default();
+    if lumen_ipc::widget_file::is_file_name(file) {
+        Ok(file.to_owned())
+    } else {
+        Err(RpcError::new(code::INVALID_PARAMS, format!("\"{file}\" is not the name of a file in the widgets folder")))
+    }
+}
+
+/// The `name` of a request, trimmed; it must not be empty.
+fn name_param(params: &Value) -> Result<String, RpcError> {
+    let name: String = params.get("name").and_then(Value::as_str).unwrap_or_default().trim().chars().take(60).collect();
+    if name.is_empty() { Err(RpcError::new(code::INVALID_PARAMS, "the widget needs a name")) } else { Ok(name) }
+}
+
+fn read_widget_include(folder: &Path, name: &str) -> Option<String> {
+    lumen_ipc::widget_file::is_file_name(name).then(|| std::fs::read_to_string(folder.join(name)).ok()).flatten()
+}
+
+/// An update for one widget that changes nothing yet.
+fn update_for(id: &str) -> lumen_ipc::widgets::UpdateWidgetParams {
+    lumen_ipc::widgets::UpdateWidgetParams { id: id.to_owned(), x: None, y: None, width: None, height: None, monitor: None, style: None, component_style: None, parts: None, file: None, dragging: false }
 }
 
 #[cfg(test)]
@@ -1341,6 +1463,64 @@ mod tests {
         let part = &update.parts.as_ref().unwrap()[0];
         assert_eq!((part.font.as_deref(), part.size, part.color, part.align), (Some("Segoe UI"), 30.0, lumen_ipc::PartColor::Accent, lumen_ipc::PartAlign::Centre));
         assert!(service.handle(method::UPDATE_WIDGET, json!({ "id": "clock-1", "parts": [{ "id": "x", "color": "#ff0000" }] })).is_err(), "a part cannot hold a colour of its own");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn widget_files_are_made_read_written_and_deleted() {
+        let mut service = service();
+        let folder = service.store.root().join("widgets");
+        let sent: Rc<RefCell<Vec<WidgetCommand>>> = Rc::default();
+        let log = sent.clone();
+        service.set_widget_host(move |command| log.borrow_mut().push(command));
+        service.widgets_changed(WidgetsState::default());
+        let updates = || sent.borrow().iter().filter_map(|c| if let WidgetCommand::Update(u) = c { Some((u.id.clone(), u.file.clone())) } else { None }).collect::<Vec<_>>();
+
+        // A new file from the starting point; a second of the same name gets a number.
+        let file: String = call(&mut service, method::NEW_WIDGET_FILE, json!({ "name": "My Widget" }));
+        assert_eq!(file, "my-widget.yaml");
+        assert_eq!(call::<String>(&mut service, method::NEW_WIDGET_FILE, json!({ "name": "My Widget" })), "my-widget-2.yaml");
+        let read: Value = call(&mut service, method::READ_WIDGET_FILE, json!({ "file": file }));
+        assert!(read["text"].as_str().unwrap().contains("lumen-widget: 1"));
+
+        // Saving from the code view says at once whether the file is right, and keeps it either way.
+        let good = "lumen-widget: 1\nname: Mine\nparts:\n  - id: a\n    text: hi\n";
+        let fine: Value = call(&mut service, method::WRITE_WIDGET_FILE, json!({ "file": file, "text": good }));
+        assert!(fine["error"].is_null());
+        let wrong: Value = call(&mut service, method::WRITE_WIDGET_FILE, json!({ "file": file, "text": good.replace("text: hi", "color: \"#123456\"") }));
+        assert!(wrong["error"].as_str().unwrap().contains("not a theme colour") && wrong["line"] == 4, "{wrong}");
+        assert!(fs::read_to_string(folder.join(&file)).unwrap().contains("#123456"), "the text is saved as typed");
+
+        // A widget on the desktop becomes a file and is drawn from it.
+        let saved: String = call(&mut service, method::SAVE_WIDGET_AS_FILE, json!({ "id": "clock-1", "name": "Desk clock" }));
+        assert_eq!(saved, "desk-clock.yaml");
+        let text = fs::read_to_string(folder.join(&saved)).unwrap();
+        assert!(text.contains("name: Desk clock") && text.contains("- id: time") && text.contains("size: [190, 92]"), "{text}");
+        assert_eq!(updates(), [("clock-1".to_owned(), Some("desk-clock.yaml".to_owned()))]);
+
+        // The host reports what it read; clients hear once per change.
+        let mut rx = service.subscribe();
+        let info = lumen_ipc::WidgetFileInfo { file: saved.clone(), is_widget: true, name: "Desk clock".into(), size: [190.0, 92.0], parts: Vec::new(), error: None, error_line: None };
+        service.widget_files_changed(vec![info.clone()]);
+        service.widget_files_changed(vec![info]);
+        let heard = events(&mut rx);
+        assert_eq!((heard.len(), heard[0]["method"].as_str()), (1, Some("widgetFilesChanged")));
+        assert_eq!(call::<Vec<lumen_ipc::WidgetFileInfo>>(&mut service, method::GET_WIDGET_FILES, Value::Null).len(), 1);
+
+        // Deleting a file lets go of the widgets drawn from it.
+        let mut state = WidgetsState::default();
+        state.layout.widgets[0].file = Some(saved.clone());
+        service.widgets_changed(state);
+        sent.borrow_mut().clear();
+        let _: Value = call(&mut service, method::DELETE_WIDGET_FILE, json!({ "file": saved }));
+        assert!(!folder.join(&saved).exists());
+        assert_eq!(updates(), [("clock-1".to_owned(), Some(String::new()))]);
+
+        // Only plain file names in the widgets folder are ever touched.
+        for bad in ["../config.json", "C:/Windows/win.ini", "layout.json", ""] {
+            assert_eq!(service.handle(method::READ_WIDGET_FILE, json!({ "file": bad })).unwrap_err().code, code::INVALID_PARAMS, "{bad}");
+            assert_eq!(service.handle(method::WRITE_WIDGET_FILE, json!({ "file": bad, "text": "x" })).unwrap_err().code, code::INVALID_PARAMS, "{bad}");
+            assert_eq!(service.handle(method::DELETE_WIDGET_FILE, json!({ "file": bad })).unwrap_err().code, code::INVALID_PARAMS, "{bad}");
+        }
     }
 
     #[tokio::test(start_paused = true)]

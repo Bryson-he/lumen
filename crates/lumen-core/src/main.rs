@@ -52,6 +52,7 @@ fn main() -> ExitCode {
     let launcher_path = store.root().join("launcher.json");
     let styles_path = store.root().join("styles.json");
     let fonts_dir = store.root().join("fonts");
+    let widget_files_dir = store.root().join("widgets");
 
     // Fullscreen changes flow main -> service; the widget host's handle and
     // its state reports flow main -> service; shutdown flows main -> service;
@@ -94,7 +95,7 @@ fn main() -> ExitCode {
 
     // The desktop widgets live on this thread. The service sends the real
     // theme as soon as it has the handle; until then they use the fallback look.
-    let options = host::Options { layout_path, bar_path, flyouts_path, launcher_path, styles_path, fonts_dir, topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
+    let options = host::Options { layout_path, bar_path, flyouts_path, launcher_path, styles_path, fonts_dir, widget_files_dir, topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
     let state_tx = host_tx.clone();
     let on_state = move |report| {
         let _ = state_tx.send(match report {
@@ -103,6 +104,7 @@ fn main() -> ExitCode {
             host::Report::Flyouts(config) => FromHost::Flyouts(config),
             host::Report::Launcher(config) => FromHost::Launcher(config),
             host::Report::Styles(sheet) => FromHost::Styles(Box::new(sheet)),
+            host::Report::Files(files) => FromHost::Files(files),
             host::Report::Costs(costs) => FromHost::Costs(costs),
         });
     };
@@ -153,6 +155,8 @@ enum FromHost {
     Launcher(lumen_ipc::LauncherConfig),
     /// The user's component styles (at start-up, and whenever they change).
     Styles(Box<lumen_ipc::StyleSheet>),
+    /// The widget files, as read from the widgets folder (at start-up, and whenever one changes).
+    Files(Vec<lumen_ipc::WidgetFileInfo>),
     /// A preset was picked from the tray menu.
     ApplyPreset(String),
 }
@@ -214,6 +218,7 @@ fn run_service(
                     FromHost::Flyouts(config) => widget_service.borrow_mut().flyouts_changed(config),
                     FromHost::Launcher(config) => widget_service.borrow_mut().launcher_changed(config),
                     FromHost::Styles(sheet) => widget_service.borrow_mut().styles_changed(*sheet),
+                    FromHost::Files(files) => widget_service.borrow_mut().widget_files_changed(files),
                     FromHost::ApplyPreset(id) => {
                         let params = serde_json::json!({ "id": id });
                         if let Err(error) = widget_service.borrow_mut().handle(lumen_ipc::method::APPLY_PRESET, params) {

@@ -12,6 +12,7 @@ pub mod audio;
 pub mod appearance;
 pub mod fullscreen;
 pub mod shell;
+pub mod watch;
 pub mod wallpaper;
 
 mod util;

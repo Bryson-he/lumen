@@ -76,7 +76,7 @@ Lumen's edge over these tools is the combination none of them has: **a real visu
 
 What Lumen deliberately does **not** copy: CSS as the styling language (it needs a browser engine per surface, which is the memory cost Lumen exists to avoid); INI; unrestricted native plugins in the main process; hard-coded colours.
 
-### What a widget file will look like (target for M15)
+### What a widget file looks like (built in M15; the full format is in `crates/lumen-ipc/src/widget_file.rs`)
 
 ```yaml
 lumen-widget: 1

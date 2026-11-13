@@ -3,7 +3,7 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { call, CoreError, onConnection, onCoreEvent } from "./core";
-import type { BarConfig, ComponentStyle, FlyoutConfig, FontList, PartDefaults, LauncherConfig, MonitorInfo, StyleAssignments, StylesState, PresetInfo, PreviewState, PreviewThemeParams, Status, Theme, ThemeState, WallpaperEntry, WidgetsState } from "./types";
+import type { BarConfig, ComponentStyle, FlyoutConfig, FontList, PartDefaults, WidgetFileInfo, LauncherConfig, MonitorInfo, StyleAssignments, StylesState, PresetInfo, PreviewState, PreviewThemeParams, Status, Theme, ThemeState, WallpaperEntry, WidgetsState } from "./types";
 
 export type Screen = "home" | "presets" | "wallpapers" | "theme" | "widgets" | "bar" | "plugins" | "gallery" | "settings";
 
@@ -55,6 +55,10 @@ interface Lumen {
   setStyles: (sheet: { styles: ComponentStyle[]; assigned: StyleAssignments }) => Promise<void>;
   /** Sends exportStyle or importStyle. Null if it failed. */
   styleRequest: <T>(method: string, params: unknown) => Promise<T | null>;
+  /** The .yaml files in the widgets folder, as last read. */
+  widgetFiles: WidgetFileInfo[];
+  /** Sends any request to the core; null (with the message strip set) if it failed. */
+  request: <T>(method: string, params?: unknown) => Promise<T | null>;
   /** The parts each kind of widget comes with. Null until the core reports them. */
   partDefaults: PartDefaults | null;
   /** The font families a widget part can use. Null until asked for. */
@@ -109,6 +113,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
   const [launcher, setLauncherState] = useState<LauncherConfig | null>(null);
   const [styles, setStylesState] = useState<StylesState | null>(null);
   const [partDefaults, setPartDefaults] = useState<PartDefaults | null>(null);
+  const [widgetFiles, setWidgetFiles] = useState<WidgetFileInfo[]>([]);
   const [fonts, setFonts] = useState<FontList | null>(null);
   const [presets, setPresets] = useState<PresetInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -165,6 +170,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       call<LauncherConfig>("getLauncher").then(setLauncherState, () => setLauncherState(null)),
       call<StylesState>("getStyles").then(setStylesState, () => setStylesState(null)),
       call<PartDefaults>("getPartDefaults").then(setPartDefaults, () => setPartDefaults(null)),
+      call<WidgetFileInfo[]>("getWidgetFiles").then(setWidgetFiles, () => setWidgetFiles([])),
     ]);
   }, [refreshTheme, refreshWallpapers, refreshStatus, attempt]);
 
@@ -189,6 +195,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
         if (method === "flyoutsChanged") setFlyoutsState(params as FlyoutConfig);
         if (method === "launcherChanged") setLauncherState(params as LauncherConfig);
         if (method === "stylesChanged") setStylesState(params as StylesState);
+        if (method === "widgetFilesChanged") setWidgetFiles(params as WidgetFileInfo[]);
         if (method === "presetsChanged") {
           setPresets(params as PresetInfo[]);
           // Presets can bring new wallpapers into the library (saving, importing).
@@ -375,6 +382,8 @@ export function LumenProvider({ children }: { children: ReactNode }) {
 
   const styleRequest = useCallback(<T,>(method: string, params: unknown) => attempt(() => call<T>(method, params)), [attempt]);
 
+  const request = useCallback(<T,>(method: string, params?: unknown) => attempt(() => call<T>(method, params)), [attempt]);
+
   const refreshFonts = useCallback(async () => {
     await call<FontList>("listFonts").then(setFonts, () => {});
   }, []);
@@ -429,6 +438,8 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       styles,
       setStyles,
       styleRequest,
+      widgetFiles,
+      request,
       partDefaults,
       fonts,
       refreshFonts,
@@ -447,7 +458,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       setWallpaperOnly,
       wallpaperOf,
     }),
-    [screen, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, widgets, widgetRequest, bar, setBar, flyouts, setFlyouts, showFlyout, launcher, setLauncher, styles, setStyles, styleRequest, partDefaults, fonts, refreshFonts, importFonts, presets, presetRequest, importPresets, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
+    [screen, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, widgets, widgetRequest, bar, setBar, flyouts, setFlyouts, showFlyout, launcher, setLauncher, styles, setStyles, styleRequest, widgetFiles, request, partDefaults, fonts, refreshFonts, importFonts, presets, presetRequest, importPresets, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;

@@ -93,6 +93,9 @@ pub struct Placement {
     /// This widget's own arrangement of parts; absent uses the one its kind comes with.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parts: Option<Vec<crate::parts::Part>>,
+    /// The widget file this widget is drawn from (`big-clock.yaml` in the widgets folder); its parts then come from the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
 }
 
 /// `widgets/layout.json`.
@@ -120,7 +123,7 @@ impl Default for Layout {
             .into_iter()
             .map(|kind| {
                 let (width, height) = kind.default_size();
-                let placement = Placement { id: format!("{}-1", kind.id_prefix()), kind, monitor: None, x: 48.0, y, width, height, style: WidgetStyle::default(), component_style: None, parts: None };
+                let placement = Placement { id: format!("{}-1", kind.id_prefix()), kind, monitor: None, x: 48.0, y, width, height, style: WidgetStyle::default(), component_style: None, parts: None, file: None };
                 y += height + GRID;
                 placement
             })
@@ -138,6 +141,7 @@ impl Layout {
             widget.height = widget.height.clamp(MIN_SIZE.1, 2000.0);
             widget.style.opacity = widget.style.opacity.clamp(20, 100);
             widget.parts = widget.parts.take().map(crate::parts::sanitise_parts).filter(|parts| !parts.is_empty());
+            widget.file = widget.file.take().filter(|file| crate::widget_file::is_file_name(file));
         }
         self
     }
@@ -244,6 +248,9 @@ pub struct UpdateWidgetParams {
     /// Replace this widget's parts; an empty list goes back to the arrangement its kind comes with.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parts: Option<Vec<crate::parts::Part>>,
+    /// Draw this widget from a widget file; an empty string goes back to parts of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
     /// True while the user is still dragging: the position is snapped and
     /// shown with guides, but not written to disk until a final update.
     #[serde(default)]
@@ -262,6 +269,9 @@ pub struct AddWidgetParams {
     pub x: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub y: Option<f32>,
+    /// Make it from this widget file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
 }
 
 /// Params of `removeWidget`.

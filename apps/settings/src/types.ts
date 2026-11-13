@@ -135,6 +135,8 @@ export interface Placement {
   componentStyle?: string;
   /** This widget's own parts; absent uses the arrangement its kind comes with. */
   parts?: Part[];
+  /** The widget file it is drawn from, if any ("big-clock.yaml"). */
+  file?: string;
 }
 
 export interface WidgetLayout {
@@ -175,6 +177,8 @@ export interface UpdateWidgetParams {
   componentStyle?: string;
   /** Its parts; an empty list goes back to the arrangement its kind comes with. */
   parts?: Part[];
+  /** Draw it from this widget file; "" goes back to parts of its own. */
+  file?: string;
   /** True while still dragging: snapped and shown, not yet saved. */
   dragging?: boolean;
 }
@@ -385,3 +389,20 @@ export const PART_COLORS: [PartColor, string][] = [
 ];
 /** The text sizes the slider offers (the core accepts 6–200). */
 export const PART_LIMITS = { textSize: [8, 96] } as const;
+
+// ----- Widget files (crates/lumen-ipc/src/widget_file.rs) -----
+
+/** One .yaml file in the widgets folder. */
+export interface WidgetFileInfo {
+  /** Its name in the widgets folder: "big-clock.yaml". */
+  file: string;
+  /** False for a file that only holds shared variables and styles. */
+  isWidget: boolean;
+  name: string;
+  size: [number, number];
+  /** The parts as last read successfully (what is on screen). */
+  parts: Part[];
+  /** What is wrong with the file as it is now, if anything. */
+  error: string | null;
+  errorLine: number | null;
+}

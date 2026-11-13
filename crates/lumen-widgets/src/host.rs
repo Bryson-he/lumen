@@ -11,6 +11,7 @@
 //! other windows and makes them draggable; Esc or the hotkey again leaves it.
 
 mod bars;
+mod files;
 mod flyouts;
 mod launchers;
 mod styles;
@@ -97,6 +98,8 @@ pub struct Options {
     pub styles_path: PathBuf,
     /// Font files the user added to Lumen (`fonts/`); loaded beside the bundled ones.
     pub fonts_dir: PathBuf,
+    /// The folder of widget files (`widgets/`): every `.yaml` in it is read, and read again when saved.
+    pub widget_files_dir: PathBuf,
     /// Keep widgets above other windows (for testing; normally they sit on the desktop).
     pub topmost: bool,
 }
@@ -141,6 +144,8 @@ pub enum Report {
     Launcher(LauncherConfig),
     /// The component styles changed (also sent once at start-up).
     Styles(StyleSheet),
+    /// The widget files changed: one was added, saved, or has a mistake (also sent once at start-up).
+    Files(Vec<lumen_ipc::widget_file::WidgetFileInfo>),
     /// The layout, selection, edit mode or list of switched-off widgets changed.
     State(WidgetsState),
     /// Fresh per-widget costs, about every ten seconds while widgets are running.
@@ -275,6 +280,8 @@ struct Host {
     /// The user's component styles, and the paint each kind of piece draws with.
     styles: StyleSheet,
     paints: styles::Paints,
+
+    files: files::Files,
 }
 
 thread_local! {
@@ -328,7 +335,9 @@ pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'stat
         launcher: launchers::Launcher::default(),
         styles: StyleSheet::default(),
         paints: styles::Paints::plain(&Paint::from_theme(theme)),
+        files: files::Files::default(),
     };
+    host.start_files();
     host.styles = styles::load_styles(&host.options.styles_path);
     host.refresh_paints();
     host.bar = bars::load_bar(&host.options.bar_path);
@@ -353,6 +362,7 @@ pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'stat
     (host.on_state)(Report::Flyouts(host.flyouts.clone()));
     (host.on_state)(Report::Launcher(host.launcher.config.clone()));
     (host.on_state)(Report::Styles(host.styles.clone()));
+    (host.on_state)(Report::Files(host.files.list.clone()));
     HOST.set(Some(host));
 
     let handle = HostHandle { window: window.0 as isize, inbox };
@@ -436,7 +446,7 @@ pub fn stop() {
     set_input_handler(None);
     if let Some(host) = HOST.take() {
         unsafe {
-            for timer in [TIMER_CLOCK, TIMER_STATS, TIMER_MEDIA, TIMER_HOVER] {
+            for timer in [TIMER_CLOCK, TIMER_STATS, TIMER_MEDIA, TIMER_HOVER, files::TIMER_FILES] {
                 let _ = KillTimer(Some(host.window), timer);
             }
             let _ = UnregisterHotKey(Some(host.window), HOTKEY_EDIT);
@@ -671,8 +681,8 @@ impl Host {
                 continue;
             };
             let (width, height) = self.slots[index].surface.size();
-            // The widget's own parts, or the arrangement its kind comes with.
-            let parts = self.placement(&id).and_then(|placement| placement.parts.clone()).unwrap_or_else(|| lumen_ipc::parts::default_parts(kind));
+            // Its file's parts, its own, or the arrangement its kind comes with.
+            let Some((parts, default_size)) = self.placement(&id).map(|placement| self.parts_of(placement)) else { continue };
             let (clock, stats, media) = (&self.clock, &self.stats, self.media.as_ref());
             let art = &mut self.art;
             let started = Instant::now();
@@ -683,7 +693,7 @@ impl Host {
                     *art = canvas.bitmap_from_rgba(cover.size, cover.size, &cover.rgba).ok();
                 }
                 let data = parts::Data { clock, stats, media, art: art.as_ref() };
-                parts::draw(canvas, &paint, &parts, &data, (width, height), kind.default_size());
+                parts::draw(canvas, &paint, &parts, &data, (width, height), default_size);
             });
             self.governor.record_draw(&id, started.elapsed());
             match result {
@@ -726,9 +736,9 @@ impl Host {
             Kind::SystemStats => "stats",
             Kind::NowPlaying => "media",
         };
-        match self.placement(id).and_then(|placement| placement.parts.as_deref()) {
-            Some(parts) => lumen_ipc::parts::parts_use(parts, name),
-            None => kind == family,
+        match self.placement(id) {
+            Some(placement) if placement.parts.is_some() || placement.file.is_some() => lumen_ipc::parts::parts_use(&self.parts_of(placement).0, name),
+            _ => kind == family,
         }
     }
 
@@ -751,7 +761,7 @@ impl Host {
     }
 
     fn on_timer(&mut self, timer: usize) {
-        if self.on_flyout_timer(timer) {
+        if self.on_flyout_timer(timer) || self.on_files_timer(timer) {
             return;
         }
         match timer {
@@ -955,9 +965,21 @@ impl Host {
             // Empty, or a style that is not there: back to the one all widgets share.
             after.component_style = Some(id).filter(|id| !id.is_empty() && self.styles.exists(id));
         }
+        if let Some(file) = params.file {
+            // Empty: back to parts of its own. Otherwise the file takes over from them.
+            after.file = Some(file).filter(|file| lumen_ipc::widget_file::is_file_name(file));
+            if after.file.is_some() {
+                after.parts = None;
+            }
+        }
         if let Some(parts) = params.parts {
-            // An empty list: back to the arrangement its kind comes with.
-            after.parts = Some(lumen_ipc::parts::sanitise_parts(parts)).filter(|parts| !parts.is_empty());
+            match after.file.clone() {
+                // A widget from a file: the change goes into the file (an empty list would wipe it, so is ignored).
+                Some(file) if !parts.is_empty() => self.set_file_parts(&file, parts, params.dragging),
+                Some(_) => {}
+                // An empty list: back to the arrangement its kind comes with.
+                None => after.parts = Some(lumen_ipc::parts::sanitise_parts(parts)).filter(|parts| !parts.is_empty()),
+            }
         }
         let moved = params.x.is_some() || params.y.is_some();
         let resized = params.width.is_some() || params.height.is_some();
@@ -1014,7 +1036,8 @@ impl Host {
 
     fn add_widget(&mut self, params: AddWidgetParams) {
         let area = self.area_index(params.monitor.as_deref());
-        let size = params.kind.default_size();
+        let file = params.file.filter(|file| lumen_ipc::widget_file::is_file_name(file));
+        let size = file.as_deref().and_then(|file| self.file_size(file)).unwrap_or_else(|| params.kind.default_size());
         let others = self.frames_on(area, "");
         let (x, y) = match (params.x, params.y) {
             (Some(x), Some(y)) => {
@@ -1034,6 +1057,7 @@ impl Host {
             style: Default::default(),
             component_style: None,
             parts: None,
+            file,
         };
         if let Some(slot) = self.create_slot(&placement) {
             self.slots.push(slot);
@@ -1042,7 +1066,9 @@ impl Host {
         let kind = placement.kind;
         self.layout.widgets.push(placement);
         self.sync_visibility();
-        self.draw(Some(kind));
+        let _ = kind;
+        self.draw(None);
+        self.sync_timers();
         self.after_layout_change(true);
     }
 
@@ -1478,6 +1504,9 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
         }
         // Monitors were added, removed, rearranged or rescaled.
         // Something that holds screen space (the taskbar, another bar) moved.
+        files::FILES_CHANGED => {
+            with_host(Host::on_files_changed);
+        }
         flyouts::VOLUME_CHANGED => {
             with_host(Host::on_volume_changed);
         }

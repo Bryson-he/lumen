@@ -579,3 +579,47 @@ button.preview-chip:hover:not(:disabled) {
   padding-left: 12px;
   padding-right: 12px;
 }
+
+/* ---------- Widget files ---------- */
+
+.library-item-broken {
+  border-color: var(--danger-border);
+}
+.parts-file {
+  justify-content: flex-start;
+  font-size: 13px;
+}
+.parts-save-as {
+  text-align: left;
+}
+.parts-naming {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.parts-naming .parts-text {
+  flex: 1 1 150px;
+  width: auto;
+}
+.code-view {
+  gap: 10px;
+}
+.code-text {
+  width: 100%;
+  min-height: 340px;
+  padding: 12px 14px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  tab-size: 2;
+  white-space: pre;
+  overflow: auto;
+  color: var(--text);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-input);
+  user-select: text;
+  cursor: text;
+}

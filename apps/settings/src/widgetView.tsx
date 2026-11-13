@@ -5,7 +5,7 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 import { hexToRgb } from "./color";
-import type { ComponentStyle, Part, PartDefaults, PartKind, Placement, Roles, StylesState, Theme, WidgetStyle } from "./types";
+import type { ComponentStyle, Part, PartDefaults, PartKind, Placement, Roles, StylesState, Theme, WidgetFileInfo, WidgetStyle } from "./types";
 
 const GLASS_OPACITY = { none: 1, low: 0.9, medium: 0.78, high: 0.64 } as const;
 const WEIGHTS = { regular: 400, medium: 500, semiBold: 600 } as const;
@@ -74,6 +74,16 @@ export function lookFor(placement: Placement, theme: Theme, styles: StylesState)
   const all = [...styles.builtin, ...styles.styles];
   const style = all.find((item) => item.id === placement.componentStyle) ?? all.find((item) => item.id === styles.assigned.widgets) ?? styles.builtin[0];
   return resolveLook(theme, style, placement.style);
+}
+
+/** What a widget is made of: its file's parts, else its own, else the ones its kind comes with. */
+export function partsOf(placement: Placement, defaults: PartDefaults, files: WidgetFileInfo[]): { parts: Part[]; defaultSize: readonly [number, number]; file: WidgetFileInfo | null; own: boolean } {
+  const kind = defaults[placement.kind];
+  if (placement.file) {
+    const file = files.find((item) => item.file === placement.file && item.isWidget) ?? null;
+    return { parts: file?.parts ?? [], defaultSize: file?.size ?? kind.size, file, own: true };
+  }
+  return { parts: placement.parts ?? kind.parts, defaultSize: kind.size, file: null, own: !!placement.parts };
 }
 
 /** Every live value any widget can show: a part may use one from another kind (a clock with a CPU line). */

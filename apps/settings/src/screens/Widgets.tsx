@@ -22,7 +22,7 @@ import {
   type WidgetStyle,
 } from "../types";
 import { Arrow, Button, Check, Segmented, Slider, Tip, WallpaperArt } from "../ui";
-import { lookFor, useSampleValues, WidgetView } from "../widgetView";
+import { lookFor, partsOf, useSampleValues, WidgetView } from "../widgetView";
 import { Designer } from "./Designer";
 import { PartsTab } from "./Parts";
 
@@ -41,7 +41,8 @@ const ZOOM_STEPS = [0.15, 0.2, 0.3, 0.4, 0.5, 0.65, 0.8, 1];
 type Tab = "layout" | "style" | "parts" | "data";
 
 export function WidgetsScreen() {
-  const { widgets, widgetRequest, shown, wallpapers, styles, partDefaults, go } = useLumen();
+  const { widgets, widgetRequest, shown, wallpapers, styles, partDefaults, widgetFiles, request, go } = useLumen();
+  const [newFile, setNewFile] = useState<string | null>(null);
   // The designer: one widget large, its parts editable with the mouse.
   const [designing, setDesigning] = useState(false);
   const [partId, setPartId] = useState<string | null>(null);
@@ -123,7 +124,9 @@ export function WidgetsScreen() {
             <Designer
               key={selected.id}
               placement={selected}
-              defaults={partDefaults[selected.kind]}
+              saved={partsOf(selected, partDefaults, widgetFiles).parts}
+              defaultSize={partsOf(selected, partDefaults, widgetFiles).defaultSize}
+              file={selected.file ?? null}
               look={lookFor(selected, shown, styles)}
               theme={shown}
               locked={layout.locked}
@@ -160,6 +163,56 @@ export function WidgetsScreen() {
               ))}
               <button type="button" className="library-item library-gallery" onClick={() => go("gallery")}>
                 Browse gallery →
+              </button>
+            </div>
+          </div>
+
+          <div className="stack-10">
+            <span className="label">Your widget files — click to add one; edit them here or in any text editor</span>
+            <div className="library">
+              {widgetFiles
+                .filter((file) => file.isWidget)
+                .map((file) => (
+                  <button
+                    key={file.file}
+                    type="button"
+                    className={`library-item${file.error ? " library-item-broken" : ""}`}
+                    title={file.error ? `${file.file} has a mistake${file.errorLine ? ` on line ${file.errorLine}` : ""}: ${file.error}` : `Add a widget from ${file.file}`}
+                    onClick={() => void widgetRequest("addWidget", monitor.primary ? { kind: "clock", file: file.file } : { kind: "clock", file: file.file, monitor: monitor.id })}
+                  >
+                    {file.name}
+                    {file.error && <span className="muted small"> · mistake</span>}
+                  </button>
+                ))}
+              {newFile === null ? (
+                <button type="button" className="library-item library-gallery" onClick={() => setNewFile("My widget")}>
+                  + New widget file
+                </button>
+              ) : (
+                <span className="parts-naming">
+                  <input
+                    className="parts-text"
+                    type="text"
+                    aria-label="Name for the new widget file"
+                    maxLength={60}
+                    autoFocus
+                    value={newFile}
+                    onChange={(event) => setNewFile(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && newFile.trim()) void request<string>("newWidgetFile", { name: newFile.trim() }).then((made) => made && setNewFile(null));
+                      if (event.key === "Escape") setNewFile(null);
+                    }}
+                  />
+                  <Button size="bar" kind="primary" disabled={!newFile.trim()} onClick={() => void request<string>("newWidgetFile", { name: newFile.trim() }).then((made) => made && setNewFile(null))}>
+                    Create
+                  </Button>
+                  <Button size="bar" onClick={() => setNewFile(null)}>
+                    Cancel
+                  </Button>
+                </span>
+              )}
+              <button type="button" className="library-item" onClick={() => void request("openWidgetFolder")}>
+                Open the folder
               </button>
             </div>
           </div>
@@ -488,11 +541,11 @@ function themeVars(theme: Theme | null): CSSProperties {
 
 /** A widget in the preview, drawn from its real parts and component style. */
 function PreviewWidget({ placement, theme }: { placement: Placement; theme: Theme | null }) {
-  const { styles, partDefaults } = useLumen();
+  const { styles, partDefaults, widgetFiles } = useLumen();
   const values = useSampleValues();
-  const defaults = partDefaults?.[placement.kind];
-  if (!theme || !styles || !defaults) return null;
-  return <WidgetView parts={placement.parts ?? defaults.parts} look={lookFor(placement, theme, styles)} size={[placement.width, placement.height]} defaultSize={defaults.size} values={values} />;
+  if (!theme || !styles || !partDefaults) return null;
+  const { parts, defaultSize } = partsOf(placement, partDefaults, widgetFiles);
+  return <WidgetView parts={parts} look={lookFor(placement, theme, styles)} size={[placement.width, placement.height]} defaultSize={defaultSize} values={values} />;
 }
 
 // ---------- The inspector ----------
@@ -535,7 +588,7 @@ function Inspector({
   const setStyle = (changes: Partial<WidgetStyle>) => onUpdate({ id, style: { ...style, ...changes } });
   const backgroundId = useId();
   const componentStyleId = useId();
-  const { styles } = useLumen();
+  const { styles, widgetFiles: files } = useLumen();
   const sourceId = useId();
   const monitorSelectId = useId();
 
@@ -543,7 +596,7 @@ function Inspector({
     <>
       <div className="stack-2">
         <span className="small-13 muted">Selected</span>
-        <span className="panel-title">{WIDGET_NAMES[placement.kind]}</span>
+        <span className="panel-title">{placement.file ? (files.find((file) => file.file === placement.file)?.name ?? placement.file) : WIDGET_NAMES[placement.kind]}</span>
       </div>
       {suspended && (
         <div className="strip strip-danger suspended-note" role="alert">

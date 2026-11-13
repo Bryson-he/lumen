@@ -3,9 +3,10 @@
 // goes to the real widget on the desktop as it is made.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
-import type { Part, PartDefaults, Placement, Theme, UpdateWidgetParams } from "../types";
+import type { Part, Placement, Theme, UpdateWidgetParams } from "../types";
 import { Button } from "../ui";
 import { useLumen } from "../store";
+import { CodeView } from "./CodeView";
 import { allSources, PART_KIND_NAMES, rectIn, sampleValues, WidgetView, type Look } from "../widgetView";
 
 /** How close (in screen pixels) an edge must come to a line to snap to it. */
@@ -35,7 +36,9 @@ function snapAxis(start: number, size: number, lines: number[], reach: number): 
 
 export function Designer({
   placement,
-  defaults,
+  saved,
+  defaultSize,
+  file,
   look,
   theme,
   locked,
@@ -45,7 +48,11 @@ export function Designer({
   onDone,
 }: {
   placement: Placement;
-  defaults: PartDefaults[keyof PartDefaults];
+  /** The widget's parts as saved, and the widget size they are laid out for. */
+  saved: Part[];
+  defaultSize: readonly [number, number];
+  /** The widget file it is drawn from, if any: changes are written to it. */
+  file: string | null;
   look: Look;
   theme: Theme;
   locked: boolean;
@@ -55,7 +62,8 @@ export function Designer({
   onDone: () => void;
 }) {
   const size = [placement.width, placement.height] as const;
-  const saved = placement.parts ?? defaults.parts;
+  const defaults = { size: defaultSize };
+  const [code, setCode] = useState(false);
   // While dragging, the canvas shows this instead of waiting for the core to answer.
   const [draft, setDraft] = useState<Part[] | null>(null);
   const parts = draft ?? saved;
@@ -64,7 +72,7 @@ export function Designer({
   // Undo: the arrangements before each change made here.
   const [past, setPast] = useState<Part[][]>([]);
   const [future, setFuture] = useState<Part[][]>([]);
-  useEffect(() => setDraft(null), [placement.parts]);
+  useEffect(() => setDraft(null), [saved]);
 
   const box = useRef<HTMLDivElement>(null);
   const [boxWidth, setBoxWidth] = useState(700);
@@ -277,7 +285,7 @@ export function Designer({
               <button type="button" role="menuitem" className="menu-item" onClick={() => add({ id: "shape", name: "Shape", kind: "shape", width: 48, height: 48, radius: 10, color: "neutral" })}>
                 Shape
               </button>
-              <button type="button" role="menuitem" className="menu-item" onClick={() => add({ id: "divider", name: "Divider", kind: "shape", y: Math.round(size[1] / 2), width: Math.max(8, defaults.size[0] - 32), height: 1, stretch: true, color: "outline" })}>
+              <button type="button" role="menuitem" className="menu-item" onClick={() => add({ id: "divider", name: "Divider", kind: "shape", y: Math.round(size[1] / 2), width: Math.max(8, defaultSize[0] - 32), height: 1, stretch: true, color: "outline" })}>
                 Divider
               </button>
             </div>
@@ -302,9 +310,15 @@ export function Designer({
         <Button size="bar" disabled={future.length === 0} onClick={redo}>
           Redo
         </Button>
-        <Button size="bar" disabled={!placement.parts || locked} onClick={() => commit([])}>
-          Reset
-        </Button>
+        {file ? (
+          <Button size="bar" aria-pressed={code} onClick={() => setCode((open) => !open)}>
+            {code ? "Hide text" : "Edit as text"}
+          </Button>
+        ) : (
+          <Button size="bar" disabled={!placement.parts || locked} onClick={() => commit([])}>
+            Reset
+          </Button>
+        )}
         <Button size="bar" kind="primary" onClick={onDone}>
           Done
         </Button>
@@ -366,6 +380,7 @@ export function Designer({
           ? `${picked.name}: drag to move, drag a corner to resize. Arrow keys move it by one pixel (Shift for eight); hold Alt while dragging to stop it snapping. Its font, colour and text are in the Parts panel on the right.`
           : "Click a part to select it. Your real widget on the desktop changes as you work, and everything is saved as you go."}
       </p>
+      {file && code && <CodeView file={file} />}
     </div>
   );
 }

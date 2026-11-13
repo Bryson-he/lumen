@@ -5,9 +5,9 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useId, useState } from "react";
 import { useLumen } from "../store";
-import { PART_COLORS, PART_LIMITS, ROLE_NAMES, type Part, type PartAlign, type PartColor, type PartWeight, type Placement, type Roles, type UpdateWidgetParams } from "../types";
+import { PART_COLORS, PART_LIMITS, ROLE_NAMES, WIDGET_NAMES, type Part, type PartAlign, type PartColor, type PartWeight, type Placement, type Roles, type UpdateWidgetParams } from "../types";
 import { Button, Check, Segmented, Slider } from "../ui";
-import { allSources, PART_KIND_NAMES } from "../widgetView";
+import { allSources, PART_KIND_NAMES, partsOf } from "../widgetView";
 
 const FONT_FILES = [{ name: "Font files", extensions: ["ttf", "otf", "ttc", "woff", "woff2"] }];
 
@@ -29,15 +29,20 @@ export function PartsTab({
   onDesign: () => void;
   onUpdate: (params: UpdateWidgetParams) => void;
 }) {
-  const { partDefaults, fonts, refreshFonts, importFonts, shown } = useLumen();
+  const { partDefaults, fonts, refreshFonts, importFonts, shown, widgetFiles, request } = useLumen();
+  const [naming, setNaming] = useState<string | null>(null);
   const setOpenId = onOpen;
   useEffect(() => void refreshFonts(), [refreshFonts]);
 
-  const defaults = partDefaults?.[placement.kind];
-  if (!defaults) return <p className="muted small-13">The parts of this widget are not available right now.</p>;
+  if (!partDefaults) return <p className="muted small-13">The parts of this widget are not available right now.</p>;
+  const { parts, file, own } = partsOf(placement, partDefaults, widgetFiles);
 
-  const own = !!placement.parts;
-  const parts = placement.parts ?? defaults.parts;
+  const saveAsFile = async () => {
+    const name = (naming ?? "").trim();
+    if (!name) return;
+    const made = await request<string>("saveWidgetAsFile", { id: placement.id, name });
+    if (made) setNaming(null);
+  };
   const save = (next: Part[]) => onUpdate({ id: placement.id, parts: next });
   const change = (partId: string, patch: Partial<Part>) => save(parts.map((part) => (part.id === partId ? { ...part, ...patch } : part)));
 
@@ -52,6 +57,48 @@ export function PartsTab({
         <Button size="bar" kind="primary" onClick={onDesign}>
           Design with the mouse
         </Button>
+      )}
+      {placement.file ? (
+        <div className={`strip parts-file${file?.error ? " strip-danger" : ""}`} role={file?.error ? "alert" : undefined}>
+          <span>
+            {file ? (
+              <>
+                Drawn from the file <strong>{placement.file}</strong>.{" "}
+                {file.error ? `It has a mistake${file.errorLine ? ` on line ${file.errorLine}` : ""}: ${file.error} Showing the last version that worked.` : "Changes here are written to it."}
+              </>
+            ) : (
+              <>
+                The file <strong>{placement.file}</strong> is missing from the widgets folder, so this widget is empty.
+              </>
+            )}
+          </span>
+        </div>
+      ) : naming === null ? (
+        <button type="button" className="link small-13 parts-save-as" onClick={() => setNaming(WIDGET_NAMES[placement.kind])}>
+          Save as a widget file (to edit as text or reuse)…
+        </button>
+      ) : (
+        <div className="parts-naming">
+          <input
+            className="parts-text"
+            type="text"
+            aria-label="Name for the widget file"
+            maxLength={60}
+            autoFocus
+            value={naming}
+            onChange={(event) => setNaming(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void saveAsFile();
+              if (event.key === "Escape") setNaming(null);
+            }}
+          />
+          <Button size="bar" kind="primary" disabled={!naming.trim()} onClick={() => void saveAsFile()}>
+            Save
+          </Button>
+          <Button size="bar" onClick={() => setNaming(null)}>
+            Cancel
+          </Button>
+        </div>
       )}
       <p className="muted small-13">Each piece has its own font, size, colour and place. Changes show on your desktop straight away and are saved as you go.</p>
       <ul className="parts-list">
@@ -68,7 +115,7 @@ export function PartsTab({
                   {part.hidden ? "Show" : "Hide"}
                 </button>
               </div>
-              {isOpen && <PartFields part={part} roles={shown?.roles ?? null} fonts={fonts} sources={allSources(partDefaults)} locked={locked} onChange={(patch) => change(part.id, patch)} />}
+              {isOpen && <PartFields part={part} roles={shown?.roles ?? null} fonts={fonts} sources={allSources(partDefaults)} locked={locked || !!(placement.file && !file)} onChange={(patch) => change(part.id, patch)} />}
             </li>
           );
         })}
@@ -77,9 +124,11 @@ export function PartsTab({
         <Button size="bar" onClick={() => void addFonts()}>
           Add a font file…
         </Button>
-        <Button size="bar" disabled={!own || locked} onClick={() => save([])}>
-          Reset parts
-        </Button>
+        {!placement.file && (
+          <Button size="bar" disabled={!own || locked} onClick={() => save([])}>
+            Reset parts
+          </Button>
+        )}
       </div>
       {!own && <span className="muted small-13">This widget uses the arrangement it came with.</span>}
     </>

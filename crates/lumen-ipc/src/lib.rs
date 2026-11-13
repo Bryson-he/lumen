@@ -14,11 +14,13 @@ pub mod launcher;
 pub mod parts;
 pub mod presets;
 pub mod style;
+pub mod widget_file;
 pub mod widgets;
 
 pub use flyout::{FlyoutConfig, FlyoutPosition, FlyoutStyle};
 pub use launcher::{LauncherConfig, LauncherHotkey};
 pub use parts::{FontList, ImportFontParams, Part, PartAlign, PartColor, PartKind, PartWeight};
+pub use widget_file::WidgetFileInfo;
 pub use style::{ComponentStyle, ExportStyleParams, ImportStyleParams, Role, StyleAssignments, StyleBackground, StyleSheet, StylesState};
 pub use bar::{BarConfig, BarModule, BarPosition, LauncherApp};
 pub use presets::{ExportPresetParams, ImportPresetParams, Preset, PresetIdParams, PresetInfo, PresetManifest, PresetWallpaper, RenamePresetParams, SavePresetParams};
@@ -120,6 +122,20 @@ pub mod method {
     pub const EXPORT_STYLE: &str = "exportStyle";
     /// Adds the style in a `.lumenstyle` file. Params: [`ImportStyleParams`](super::ImportStyleParams). Result: the new style.
     pub const IMPORT_STYLE: &str = "importStyle";
+    /// The widget files in the widgets folder. Result: a list of [`WidgetFileInfo`](super::WidgetFileInfo).
+    pub const GET_WIDGET_FILES: &str = "getWidgetFiles";
+    /// Params: `{ file }`. Result: `{ file, text }`.
+    pub const READ_WIDGET_FILE: &str = "readWidgetFile";
+    /// Saves a file's text (the code view). Params: `{ file, text }`. Result: `{ error, line }`, both null if the file is fine.
+    pub const WRITE_WIDGET_FILE: &str = "writeWidgetFile";
+    /// Makes a new widget file from a starting point. Params: `{ name }`. Result: the file's name.
+    pub const NEW_WIDGET_FILE: &str = "newWidgetFile";
+    /// Writes a widget on the desktop out as a file and draws it from that file. Params: `{ id, name }`. Result: the file's name.
+    pub const SAVE_WIDGET_AS_FILE: &str = "saveWidgetAsFile";
+    /// Params: `{ file }`. Widgets drawn from it go back to the parts their kind comes with.
+    pub const DELETE_WIDGET_FILE: &str = "deleteWidgetFile";
+    /// Shows the widgets folder in File Explorer.
+    pub const OPEN_WIDGET_FOLDER: &str = "openWidgetFolder";
     /// The parts each kind of widget comes with, and the live values a part can show.
     /// Result: a map from widget kind to `{ parts, sources }`.
     pub const GET_PART_DEFAULTS: &str = "getPartDefaults";
@@ -145,6 +161,8 @@ pub mod event {
     pub const LAUNCHER_CHANGED: &str = "launcherChanged";
     /// Params: [`StylesState`](super::StylesState).
     pub const STYLES_CHANGED: &str = "stylesChanged";
+    /// Params: a list of [`WidgetFileInfo`](super::WidgetFileInfo).
+    pub const WIDGET_FILES_CHANGED: &str = "widgetFilesChanged";
 }
 
 /// JSON-RPC error codes: the standard ones plus Lumen's own (positive).
