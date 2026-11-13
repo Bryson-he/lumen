@@ -10,10 +10,12 @@ use serde_json::Value;
 
 pub mod bar;
 pub mod flyout;
+pub mod launcher;
 pub mod presets;
 pub mod widgets;
 
 pub use flyout::{FlyoutConfig, FlyoutPosition, FlyoutStyle};
+pub use launcher::{LauncherConfig, LauncherHotkey};
 pub use bar::{BarConfig, BarModule, BarPosition, LauncherApp};
 pub use presets::{ExportPresetParams, ImportPresetParams, Preset, PresetIdParams, PresetInfo, PresetManifest, PresetWallpaper, RenamePresetParams, SavePresetParams};
 pub use widgets::{
@@ -104,6 +106,8 @@ pub mod method {
     pub const SET_FLYOUTS: &str = "setFlyouts";
     /// Shows the volume flyout once, to see how it looks.
     pub const SHOW_FLYOUT: &str = "showFlyout";
+    pub const GET_LAUNCHER: &str = "getLauncher";
+    pub const SET_LAUNCHER: &str = "setLauncher";
 }
 
 /// Notification names pushed by the core.
@@ -119,6 +123,7 @@ pub mod event {
     /// Params: [`BarConfig`](super::BarConfig).
     pub const BAR_CHANGED: &str = "barChanged";
     pub const FLYOUTS_CHANGED: &str = "flyoutsChanged";
+    pub const LAUNCHER_CHANGED: &str = "launcherChanged";
 }
 
 /// JSON-RPC error codes: the standard ones plus Lumen's own (positive).

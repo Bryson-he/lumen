@@ -15,6 +15,8 @@ import {
   type FlyoutConfig,
   type FlyoutPosition,
   type LauncherApp,
+  type LauncherConfig,
+  type LauncherHotkey,
   type Theme,
 } from "../types";
 import { Button, Check, Segmented, Slider, Tip } from "../ui";
@@ -45,7 +47,7 @@ interface Pick {
 }
 
 export function BarScreen() {
-  const { bar, setBar, flyouts, setFlyouts, showFlyout, monitors, shown, status } = useLumen();
+  const { bar, setBar, flyouts, setFlyouts, showFlyout, launcher, setLauncher, monitors, shown, status } = useLumen();
   const [picked, setPicked] = useState<Pick | null>(null);
   const [adding, setAdding] = useState<BarSlot | null>(null);
 
@@ -232,6 +234,8 @@ export function BarScreen() {
           )}
 
           {flyouts && <FlyoutPanel flyouts={flyouts} theme={shown} gameRunning={status?.gameMode.active ?? false} onChange={(config) => void setFlyouts(config)} onShow={() => void showFlyout()} />}
+
+          {launcher && <LauncherPanel launcher={launcher} theme={shown} onChange={(config) => void setLauncher(config)} />}
         </div>
 
         <aside className="panel bar-side" aria-label="Bar settings">
@@ -275,7 +279,7 @@ export function BarScreen() {
 
           <div className="bar-later">
             <span className="label">Still to come</span>
-            <span className="muted small-13">Auto-hide, side bars, more flyouts, the launcher hotkey and the tray menu preview.</span>
+            <span className="muted small-13">Auto-hide, side bars, more flyouts, the tray menu preview, and your own styles for every piece.</span>
             <Tip accent size={20}>
               arriving after the bar
             </Tip>
@@ -373,6 +377,66 @@ function FlyoutPanel({
                   Track title · Artist
                 </div>
               )}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+const HOTKEYS: { value: LauncherHotkey; label: string }[] = [
+  { value: "altSpace", label: "Alt + Space" },
+  { value: "ctrlSpace", label: "Ctrl + Space" },
+  { value: "winAltSpace", label: "Win + Alt + Space" },
+];
+
+/** The launcher: on or off, and the keys that open it. */
+function LauncherPanel({ launcher, theme, onChange }: { launcher: LauncherConfig; theme: Theme | null; onChange: (config: LauncherConfig) => void }) {
+  const keys = HOTKEYS.find((h) => h.value === launcher.hotkey)?.label ?? "";
+  const vars = theme
+    ? ({
+        "--t-primary": theme.roles.primary,
+        "--t-neutral": theme.roles.neutral,
+        "--t-surface": theme.roles.surface,
+        "--t-on-surface": theme.roles.onSurface,
+        "--t-outline": theme.roles.outline,
+        "--t-radius": `${theme.style.radius}px`,
+        "--t-font": `'${theme.style.font}', var(--font-body)`,
+      } as CSSProperties)
+    : undefined;
+
+  return (
+    <section className="panel" aria-label="Launcher">
+      <h2 className="panel-title">Launcher</h2>
+      <div className="flyout-split">
+        <div className="flyout-options">
+          <Check checked={launcher.enabled} onChange={(enabled) => onChange({ ...launcher, enabled })}>
+            Use the Lumen launcher
+          </Check>
+          <p className="muted small-13">
+            {launcher.enabled
+              ? `Press ${keys} anywhere, type a few letters of an app's name and press Enter. Esc closes it. It is not available in a fullscreen game.`
+              : "A search box that opens any installed app from the keyboard."}
+          </p>
+          <div className="field">
+            <span className="label">Keys that open it</span>
+            <Segmented label="Launcher hotkey" look="grid-3" value={launcher.hotkey} onChange={(hotkey) => onChange({ ...launcher, hotkey })} options={HOTKEYS} />
+          </div>
+          {launcher.hotkey === "altSpace" && <p className="muted small-13">Alt + Space normally opens a window's own menu (Restore, Move, Close). While the launcher is on, it opens the launcher instead.</p>}
+        </div>
+        {vars && (
+          <div className="flyout-pv launcher-pv" style={vars} role="img" aria-label="Preview of the launcher">
+            <div className="launcher-pv-box">
+              <div className="launcher-pv-search">
+                note<span className="launcher-pv-caret" />
+              </div>
+              <div className="launcher-pv-row launcher-pv-picked">
+                <span className="launcher-pv-icon">N</span>Notepad
+              </div>
+              <div className="launcher-pv-row">
+                <span className="launcher-pv-icon">S</span>Sticky Notes
+              </div>
             </div>
           </div>
         )}

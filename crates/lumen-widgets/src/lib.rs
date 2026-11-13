@@ -16,6 +16,7 @@ pub mod clock;
 mod edit;
 pub mod flyout;
 pub mod governor;
+pub mod launcher;
 pub mod host;
 pub mod layout;
 pub mod media;

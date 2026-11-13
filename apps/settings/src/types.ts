@@ -258,3 +258,12 @@ export interface FlyoutConfig {
   style: FlyoutStyle;
   position: FlyoutPosition;
 }
+
+// ----- The launcher (crates/lumen-ipc/src/launcher.rs) -----
+
+export type LauncherHotkey = "altSpace" | "ctrlSpace" | "winAltSpace";
+
+export interface LauncherConfig {
+  enabled: boolean;
+  hotkey: LauncherHotkey;
+}

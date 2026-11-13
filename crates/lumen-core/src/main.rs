@@ -49,6 +49,7 @@ fn main() -> ExitCode {
     let layout_path = store.root().join("widgets").join("layout.json");
     let bar_path = store.root().join("bar.json");
     let flyouts_path = store.root().join("flyouts.json");
+    let launcher_path = store.root().join("launcher.json");
 
     // Fullscreen changes flow main -> service; the widget host's handle and
     // its state reports flow main -> service; shutdown flows main -> service;
@@ -91,13 +92,14 @@ fn main() -> ExitCode {
 
     // The desktop widgets live on this thread. The service sends the real
     // theme as soon as it has the handle; until then they use the fallback look.
-    let options = host::Options { layout_path, bar_path, flyouts_path, topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
+    let options = host::Options { layout_path, bar_path, flyouts_path, launcher_path, topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
     let state_tx = host_tx.clone();
     let on_state = move |report| {
         let _ = state_tx.send(match report {
             host::Report::State(state) => FromHost::State(Box::new(state)),
             host::Report::Bar(config) => FromHost::Bar(Box::new(config)),
             host::Report::Flyouts(config) => FromHost::Flyouts(config),
+            host::Report::Launcher(config) => FromHost::Launcher(config),
             host::Report::Costs(costs) => FromHost::Costs(costs),
         });
     };
@@ -144,6 +146,8 @@ enum FromHost {
     Bar(Box<lumen_ipc::BarConfig>),
     /// The flyout settings (at start-up, and whenever they change).
     Flyouts(lumen_ipc::FlyoutConfig),
+    /// The launcher's settings (at start-up, and whenever they change).
+    Launcher(lumen_ipc::LauncherConfig),
     /// A preset was picked from the tray menu.
     ApplyPreset(String),
 }
@@ -203,6 +207,7 @@ fn run_service(
                     FromHost::Costs(costs) => widget_service.borrow_mut().widget_costs_measured(costs),
                     FromHost::Bar(config) => widget_service.borrow_mut().bar_changed(*config),
                     FromHost::Flyouts(config) => widget_service.borrow_mut().flyouts_changed(config),
+                    FromHost::Launcher(config) => widget_service.borrow_mut().launcher_changed(config),
                     FromHost::ApplyPreset(id) => {
                         let params = serde_json::json!({ "id": id });
                         if let Err(error) = widget_service.borrow_mut().handle(lumen_ipc::method::APPLY_PRESET, params) {

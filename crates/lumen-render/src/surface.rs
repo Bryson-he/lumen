@@ -23,9 +23,9 @@ use windows::{
         UI::{
             HiDpi::GetDpiForWindow,
             WindowsAndMessaging::{
-                CreateWindowExW, DefWindowProcW, DestroyWindow, GWL_EXSTYLE, GetWindowLongW, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, LWA_ALPHA, MA_NOACTIVATE,
+                CreateWindowExW, DefWindowProcW, DestroyWindow, GWL_EXSTYLE, GetForegroundWindow, GetWindowLongW, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, LWA_ALPHA, MA_NOACTIVATE,
                 RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetLayeredWindowAttributes, SetWindowLongW,
-                SetWindowPos, ShowWindow, WM_CAPTURECHANGED, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED,
+                SetForegroundWindow, SetWindowPos, ShowWindow, WM_ACTIVATE, WM_CAPTURECHANGED, WM_CHAR, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED,
                 WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
             },
         },
@@ -38,7 +38,8 @@ use crate::{Canvas, Context, Error, Gpu, Result};
 /// The Direct2D error for "the target must be recreated".
 const D2DERR_RECREATE_TARGET: windows::core::HRESULT = windows::core::HRESULT(0x8899000C_u32 as i32);
 
-/// Receives mouse messages for surfaces that are not click-through:
+/// Receives mouse messages for surfaces that are not click-through, and
+/// keyboard and activation messages for one that has taken the keyboard:
 /// `(window, message, wparam, lparam)`. Return `Some(result)` to handle one.
 pub type InputHandler = fn(isize, u32, usize, isize) -> Option<isize>;
 
@@ -215,6 +216,18 @@ impl Surface {
         }
     }
 
+    /// Makes this the active window, so that typing goes to it. Surfaces
+    /// normally never take focus; this is for a panel the user asked for by
+    /// hotkey. Returns whether Windows agreed.
+    pub fn take_keyboard(&mut self) -> bool {
+        unsafe {
+            let style = GetWindowLongW(self.window, GWL_EXSTYLE) as u32;
+            SetWindowLongW(self.window, GWL_EXSTYLE, (style & !WS_EX_NOACTIVATE.0) as i32);
+            let _ = SetForegroundWindow(self.window);
+            GetForegroundWindow() == self.window
+        }
+    }
+
     /// Above every normal window (`true`) or at the bottom, on the desktop.
     pub fn set_topmost(&mut self, topmost: bool) {
         self.options.topmost = topmost;
@@ -315,11 +328,12 @@ unsafe fn bind_back_buffer(dc: &ID2D1DeviceContext, swap_chain: &IDXGISwapChain1
 }
 
 unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    // Belt and braces with WS_EX_NOACTIVATE: a click never activates a widget.
-    if message == WM_MOUSEACTIVATE {
+    // Belt and braces with WS_EX_NOACTIVATE: a click never activates a widget
+    // (unless it is a panel that has taken the keyboard).
+    if message == WM_MOUSEACTIVATE && unsafe { GetWindowLongW(window, GWL_EXSTYLE) } as u32 & WS_EX_NOACTIVATE.0 != 0 {
         return LRESULT(MA_NOACTIVATE as isize);
     }
-    if matches!(message, WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSEMOVE | WM_SETCURSOR | WM_CAPTURECHANGED)
+    if matches!(message, WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSEMOVE | WM_SETCURSOR | WM_CAPTURECHANGED | WM_CHAR | WM_KEYDOWN | WM_ACTIVATE)
         && let Some(handler) = INPUT.get()
         && let Some(result) = handler(window.0 as isize, message, wparam.0, lparam.0)
     {

@@ -358,3 +358,66 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ---------- Launcher ---------- */
+
+.launcher-pv {
+  align-items: center;
+  justify-content: center;
+}
+.launcher-pv-box {
+  width: 240px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 5px;
+  background: var(--t-surface);
+  border: 1px solid var(--t-outline);
+  border-radius: var(--t-radius);
+  overflow: hidden;
+}
+.launcher-pv-search {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 0 12px;
+  margin-bottom: 5px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--t-outline);
+}
+.launcher-pv-caret {
+  width: 2px;
+  height: 15px;
+  border-radius: 1px;
+  background: var(--t-primary);
+}
+.launcher-pv-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 30px;
+  margin: 0 5px;
+  padding: 0 8px;
+  border-radius: 6px;
+}
+.launcher-pv-picked {
+  background: var(--t-neutral);
+  box-shadow: inset 2px 0 0 var(--t-primary);
+  font-weight: 500;
+}
+.launcher-pv-icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: var(--t-neutral);
+  font-size: 10px;
+  font-weight: 600;
+}
+.launcher-pv-picked .launcher-pv-icon {
+  background: var(--t-surface);
+}

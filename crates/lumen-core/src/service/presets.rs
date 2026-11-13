@@ -106,6 +106,7 @@ impl<D: Desktop> Service<D> {
             // The bar already names its monitor portably ("main", "all", "#2").
             bar: self.bar.as_ref().and_then(|bar| serde_json::to_value(bar).ok()).unwrap_or(Value::Null),
             flyouts: self.flyouts.as_ref().and_then(|flyouts| serde_json::to_value(flyouts).ok()).unwrap_or(Value::Null),
+            launcher: self.launcher.as_ref().and_then(|launcher| serde_json::to_value(launcher).ok()).unwrap_or(Value::Null),
         };
         let id = self.store.new_preset_id(&preset.name);
         self.store.save_preset(&id, &preset).map_err(store_error)?;
@@ -159,6 +160,11 @@ impl<D: Desktop> Service<D> {
             && preset.flyouts.is_object()
         {
             widgets(WidgetCommand::SetFlyouts(Box::new(flyouts)));
+        }
+        if let (Ok(launcher), Some(widgets)) = (serde_json::from_value::<lumen_ipc::LauncherConfig>(preset.launcher.clone()), &self.widget_host)
+            && preset.launcher.is_object()
+        {
+            widgets(WidgetCommand::SetLauncher(launcher));
         }
 
         preset.last_used_at = now_secs();

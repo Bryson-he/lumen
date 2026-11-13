@@ -14,7 +14,7 @@ use std::{
 };
 
 use lumen_ipc::{
-    BarConfig, EditModeParams, FlyoutConfig, GameModeChanged, ImportWallpaperParams, Notification, PREVIEW_SECONDS, PresetInfo, PreviewState, PreviewThemeParams, RpcError, SelectWidgetParams,
+    BarConfig, EditModeParams, FlyoutConfig, LauncherConfig, GameModeChanged, ImportWallpaperParams, Notification, PREVIEW_SECONDS, PresetInfo, PreviewState, PreviewThemeParams, RpcError, SelectWidgetParams,
     SetWallpaperParams, Status, ThemeChangeReason, ThemeChanged, ThemeState, UpdateWallpaperParams, WidgetCost, WidgetIdParams, WidgetsState, code, event, method,
 };
 use lumen_theme::{Mode, Source, SourceColors, Theme, Variant};
@@ -57,6 +57,8 @@ pub struct Service<D: Desktop> {
     bar: Option<BarConfig>,
     /// The flyout settings, as the widget host last reported them.
     flyouts: Option<FlyoutConfig>,
+    /// The launcher's settings, as the widget host last reported them.
+    launcher: Option<LauncherConfig>,
     /// A copy of the preset list for the tray menu, which lives on another thread.
     preset_mirror: Option<Arc<Mutex<Vec<PresetInfo>>>>,
 }
@@ -85,6 +87,7 @@ impl<D: Desktop> Service<D> {
             widget_costs: Vec::new(),
             bar: None,
             flyouts: None,
+            launcher: None,
             preset_mirror: None,
         }
     }
@@ -165,6 +168,13 @@ impl<D: Desktop> Service<D> {
                 let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets and flyouts are not running"))?;
                 host(WidgetCommand::ShowFlyout);
                 Ok(Value::Null)
+            }
+            method::GET_LAUNCHER => json(self.launcher.clone().unwrap_or_default()),
+            method::SET_LAUNCHER => {
+                let config: LauncherConfig = parse(params)?;
+                let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets and launcher are not running"))?;
+                host(WidgetCommand::SetLauncher(config.clone()));
+                json(config)
             }
             other => self.handle_preset(other, params).unwrap_or_else(|| Err(RpcError::new(code::METHOD_NOT_FOUND, format!("unknown method \"{other}\"")))),
         }
@@ -376,6 +386,16 @@ impl<D: Desktop> Service<D> {
         if self.widgets.as_ref() != Some(&state) {
             self.emit(event::WIDGETS_CHANGED, &state);
             self.widgets = Some(state);
+        }
+    }
+
+    /// The widget host reports the launcher's settings (at start-up and on every change).
+    pub fn launcher_changed(&mut self, config: LauncherConfig) {
+        if self.launcher.as_ref() != Some(&config) {
+            if self.launcher.is_some() {
+                self.emit(event::LAUNCHER_CHANGED, &config);
+            }
+            self.launcher = Some(config);
         }
     }
 
@@ -1067,6 +1087,42 @@ mod tests {
         let _: Theme = call(&mut service, method::APPLY_PRESET, json!({ "id": "with-flyout" }));
         assert_eq!(flyouts(), [set]);
         assert!(service.handle(method::SET_FLYOUTS, json!({ "position": "middle" })).is_err(), "an unknown position is refused");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn launcher_settings_go_through_the_host_and_into_presets() {
+        let mut service = service();
+        let wanted = json!({ "enabled": true, "hotkey": "ctrlSpace" });
+        assert_eq!(service.handle(method::SET_LAUNCHER, wanted.clone()).unwrap_err().code, code::WIDGETS_UNAVAILABLE, "no host yet");
+        assert!(!call::<LauncherConfig>(&mut service, method::GET_LAUNCHER, Value::Null).enabled, "off until the host says otherwise");
+
+        let sent: Rc<RefCell<Vec<WidgetCommand>>> = Rc::default();
+        let log = sent.clone();
+        service.set_widget_host(move |command| log.borrow_mut().push(command));
+        let mut rx = service.subscribe();
+        service.launcher_changed(LauncherConfig::default());
+        assert!(events(&mut rx).is_empty(), "the host's first report is what it loaded, not a change");
+
+        let set: LauncherConfig = call(&mut service, method::SET_LAUNCHER, wanted);
+        assert!(set.enabled);
+        let launchers = || sent.borrow().iter().filter_map(|c| if let WidgetCommand::SetLauncher(l) = c { Some(l.clone()) } else { None }).collect::<Vec<_>>();
+        assert_eq!(launchers(), std::slice::from_ref(&set));
+
+        service.launcher_changed(set.clone());
+        service.launcher_changed(set.clone());
+        let heard = events(&mut rx);
+        assert_eq!(heard.len(), 1);
+        assert_eq!(heard[0]["method"], "launcherChanged");
+        assert_eq!(heard[0]["params"]["hotkey"], "ctrlSpace");
+
+        // A preset carries the launcher's settings, and brings them back.
+        preview_blue(&mut service);
+        let _: lumen_ipc::PresetInfo = call(&mut service, method::SAVE_PRESET, json!({ "name": "With Launcher" }));
+        service.launcher_changed(LauncherConfig::default());
+        sent.borrow_mut().clear();
+        let _: Theme = call(&mut service, method::APPLY_PRESET, json!({ "id": "with-launcher" }));
+        assert_eq!(launchers(), [set]);
+        assert!(service.handle(method::SET_LAUNCHER, json!({ "hotkey": "f13" })).is_err(), "an unknown hotkey is refused");
     }
 
     #[tokio::test(start_paused = true)]

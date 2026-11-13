@@ -12,6 +12,7 @@
 
 mod bars;
 mod flyouts;
+mod launchers;
 
 use std::{
     cell::RefCell,
@@ -25,6 +26,7 @@ use std::{
 
 use lumen_ipc::bar::BarConfig;
 use lumen_ipc::flyout::FlyoutConfig;
+use lumen_ipc::launcher::LauncherConfig;
 use lumen_ipc::widgets::{
     AddWidgetParams, Guides, Layout, LayoutOptionsParams, MIN_SIZE, MonitorArea, Placement, UpdateWidgetParams, WidgetCost, WidgetKind as Kind, WidgetsState,
 };
@@ -41,7 +43,7 @@ use windows::{
             Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN, RegisterHotKey, ReleaseCapture, SetCapture, UnregisterHotKey, VK_ESCAPE},
             WindowsAndMessaging::{
                 CreateWindowExW, DefWindowProcW, DestroyWindow, GetCursorPos, IDC_ARROW, IDC_HAND, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENWSE, KillTimer, LoadCursorW, PostMessageW,
-                RegisterClassW, SetCursor, SetTimer, WINDOW_STYLE, WM_APP, WM_CAPTURECHANGED, WM_DISPLAYCHANGE, WM_HOTKEY, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+                RegisterClassW, SetCursor, SetTimer, WINDOW_STYLE, WM_APP, WM_CAPTURECHANGED, WM_DISPLAYCHANGE, WM_ACTIVATE, WM_CHAR, WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
                 WM_SETCURSOR, WM_TIMECHANGE, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW,
             },
         },
@@ -86,6 +88,8 @@ pub struct Options {
     pub bar_path: PathBuf,
     /// Where the flyout settings are kept (`flyouts.json`).
     pub flyouts_path: PathBuf,
+    /// Where the launcher's settings are kept (`launcher.json`).
+    pub launcher_path: PathBuf,
     /// Keep widgets above other windows (for testing; normally they sit on the desktop).
     pub topmost: bool,
 }
@@ -111,6 +115,8 @@ pub enum Command {
     SetFlyouts(Box<FlyoutConfig>),
     /// Show the volume flyout once, as it looks now.
     ShowFlyout,
+    /// Replace the launcher's settings.
+    SetLauncher(LauncherConfig),
 }
 
 /// What the host tells its owner.
@@ -120,6 +126,8 @@ pub enum Report {
     Bar(BarConfig),
     /// The flyout settings changed (also sent once at start-up).
     Flyouts(FlyoutConfig),
+    /// The launcher's settings changed (also sent once at start-up).
+    Launcher(LauncherConfig),
     /// The layout, selection, edit mode or list of switched-off widgets changed.
     State(WidgetsState),
     /// Fresh per-widget costs, about every ten seconds while widgets are running.
@@ -248,6 +256,8 @@ struct Host {
     volume: Option<lumen_win::audio::Volume>,
     /// The volume flyout, while it is on screen.
     flyout: Option<flyouts::Shown>,
+
+    launcher: launchers::Launcher,
 }
 
 thread_local! {
@@ -298,15 +308,18 @@ pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'stat
         flyouts: FlyoutConfig::default(),
         volume: None,
         flyout: None,
+        launcher: launchers::Launcher::default(),
     };
     host.bar = bars::load_bar(&host.options.bar_path);
     host.flyouts = flyouts::load_flyouts(&host.options.flyouts_path);
+    host.load_launcher();
     host.rebuild()?;
     host.load_icons();
     host.place_bars();
     host.draw(None);
     host.sync_timers();
     host.sync_volume_keys();
+    host.sync_launcher_hotkey();
     unsafe {
         if RegisterHotKey(Some(window), HOTKEY_EDIT, MOD_WIN | MOD_ALT | MOD_NOREPEAT, u32::from(b'E')).is_err() {
             warn!("Win+Alt+E is taken by another app; edit mode can still be started from Lumen");
@@ -317,6 +330,7 @@ pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'stat
     host.report();
     (host.on_state)(Report::Bar(host.bar.clone()));
     (host.on_state)(Report::Flyouts(host.flyouts.clone()));
+    (host.on_state)(Report::Launcher(host.launcher.config.clone()));
     HOST.set(Some(host));
 
     let handle = HostHandle { window: window.0 as isize, inbox };
@@ -341,6 +355,7 @@ pub fn set_paused(paused: bool) {
             host.stats = host.sampler.sample();
         }
         host.sync_volume_keys();
+        host.sync_launcher_hotkey();
         host.sync_suspension();
         host.sync_visibility();
         host.draw(None);
@@ -393,6 +408,8 @@ pub fn stop() {
         // Hand the volume keys back to Windows.
         host.flyouts.volume = false;
         host.sync_volume_keys();
+        host.launcher.config.enabled = false;
+        host.sync_launcher_hotkey();
     });
     set_input_handler(None);
     if let Some(host) = HOST.take() {
@@ -427,6 +444,7 @@ impl Host {
         self.areas = read_areas();
         self.drop_bar_surfaces();
         self.hide_flyout();
+        self.close_launcher();
         if self.should_suspend() {
             // A display change during a game: note the new monitors, but stay
             // suspended. Everything is rebuilt when the game ends.
@@ -561,8 +579,8 @@ impl Host {
     /// Whether nothing at all should be on screen: the user paused the
     /// widgets, or a game is in front and every widget hides in games.
     fn should_suspend(&self) -> bool {
-        // "Pause widgets" leaves the bar and the flyout working, so the device is still needed then.
-        (self.user_paused && !self.bar.enabled && !self.flyouts.volume) || (self.paused && self.layout.widgets.iter().all(|w| w.style.hide_in_games))
+        // "Pause widgets" leaves the bar, the flyout and the launcher working, so the device is still needed then.
+        (self.user_paused && !self.bar.enabled && !self.flyouts.volume && !self.launcher.config.enabled) || (self.paused && self.layout.widgets.iter().all(|w| w.style.hide_in_games))
     }
 
     /// Suspends or resumes rendering as a whole. Suspended means the widget
@@ -575,6 +593,7 @@ impl Host {
             self.slots.clear();
             self.drop_bar_surfaces();
             self.hide_flyout();
+            self.close_launcher();
             self.art = None;
             self.gpu = None;
             media::set_paused(true);
@@ -784,6 +803,7 @@ impl Host {
                 self.paint = Paint::from_theme(&theme);
                 self.draw(None);
                 self.draw_flyout();
+                self.draw_launcher();
                 if let Some(edit) = &self.edit {
                     edit::set_dim_colour(&self.paint);
                     edit.dims.iter().for_each(|dim| edit::repaint_dim(*dim));
@@ -830,6 +850,7 @@ impl Host {
             Command::SetBar(config) => self.set_bar(*config),
             Command::SetFlyouts(config) => self.set_flyouts(*config),
             Command::ShowFlyout => self.show_flyout_now(),
+            Command::SetLauncher(config) => self.set_launcher(config),
             Command::Resume(id) => {
                 if self.governor.resume(&id) {
                     info!("the widget {id} was resumed");
@@ -1330,10 +1351,18 @@ fn on_dim_click() {
 }
 
 /// Mouse input on a widget window (only delivered in edit mode).
-fn on_input(window: isize, message: u32, _wparam: usize, lparam: isize) -> Option<isize> {
+fn on_input(window: isize, message: u32, wparam: usize, lparam: isize) -> Option<isize> {
     // Client coordinates are packed as two signed 16-bit numbers.
     let x = i32::from((lparam & 0xFFFF) as u16 as i16);
     let y = i32::from(((lparam >> 16) & 0xFFFF) as u16 as i16);
+    // The launcher is the one surface that takes typing; all its messages go to it.
+    if with_host(|host| host.is_launcher_window(window)) == Some(true) {
+        if matches!(message, WM_CHAR | WM_KEYDOWN | WM_ACTIVATE | WM_LBUTTONUP) {
+            with_host(|host| host.on_launcher_message(message, wparam, y));
+            return Some(0);
+        }
+        return None;
+    }
     match message {
         WM_LBUTTONDOWN => with_host(|host| host.on_mouse_down(window, x, y)).map(|()| 0),
         WM_MOUSEMOVE => with_host(|host| host.on_mouse_move(window, x, y)).map(|()| 0),
@@ -1379,6 +1408,7 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
                 let on = match wparam.0 as i32 {
                     HOTKEY_EDIT => host.edit.is_none(),
                     HOTKEY_ESCAPE => false,
+                    launchers::HOTKEY_LAUNCHER => return host.toggle_launcher(),
                     key @ (flyouts::HOTKEY_VOLUME_UP | flyouts::HOTKEY_VOLUME_DOWN | flyouts::HOTKEY_VOLUME_MUTE) => return host.on_volume_key(key),
                     _ => return,
                 };
