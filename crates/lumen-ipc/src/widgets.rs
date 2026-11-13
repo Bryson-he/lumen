@@ -14,10 +14,13 @@ pub enum WidgetKind {
     Clock,
     SystemStats,
     NowPlaying,
+    Weather,
 }
 
 impl WidgetKind {
-    pub const ALL: [Self; 3] = [Self::Clock, Self::SystemStats, Self::NowPlaying];
+    pub const ALL: [Self; 4] = [Self::Clock, Self::SystemStats, Self::NowPlaying, Self::Weather];
+    /// The widgets a new install starts with (weather needs setting up first).
+    pub const FIRST_RUN: [Self; 3] = [Self::Clock, Self::SystemStats, Self::NowPlaying];
 
     /// Default size in logical pixels.
     pub const fn default_size(self) -> (f32, f32) {
@@ -25,6 +28,7 @@ impl WidgetKind {
             Self::Clock => (190.0, 92.0),
             Self::SystemStats => (190.0, 150.0),
             Self::NowPlaying => (320.0, 96.0),
+            Self::Weather => (240.0, 132.0),
         }
     }
 
@@ -34,6 +38,7 @@ impl WidgetKind {
             Self::Clock => "clock",
             Self::SystemStats => "system",
             Self::NowPlaying => "now-playing",
+            Self::Weather => "weather",
         }
     }
 }
@@ -119,7 +124,7 @@ impl Default for Layout {
     /// The first-run layout: clock, system stats and now playing down the left edge.
     fn default() -> Self {
         let mut y = 48.0;
-        let widgets = WidgetKind::ALL
+        let widgets = WidgetKind::FIRST_RUN
             .into_iter()
             .map(|kind| {
                 let (width, height) = kind.default_size();
@@ -314,7 +319,7 @@ mod tests {
     #[test]
     fn default_layout_has_the_three_widgets_without_overlap() {
         let layout = Layout::default();
-        assert_eq!(layout.widgets.iter().map(|w| w.kind).collect::<Vec<_>>(), WidgetKind::ALL);
+        assert_eq!(layout.widgets.iter().map(|w| w.kind).collect::<Vec<_>>(), WidgetKind::FIRST_RUN);
         assert!(layout.snap && !layout.locked);
         for pair in layout.widgets.windows(2) {
             assert!(pair[0].y + pair[0].height < pair[1].y, "{} overlaps {}", pair[0].id, pair[1].id);

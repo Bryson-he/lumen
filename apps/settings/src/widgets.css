@@ -623,3 +623,43 @@ button.preview-chip:hover:not(:disabled) {
   user-select: text;
   cursor: text;
 }
+
+/* ---------- Weather ---------- */
+
+.weather-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.weather-place {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+}
+.weather-results {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+  background: var(--surface-raised);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.weather-results .menu-item {
+  width: 100%;
+  color: var(--text);
+}
+.weather-problem {
+  color: var(--danger);
+}
+.weather-credit {
+  font-weight: 500;
+}
+.field[hidden] {
+  display: none;
+}

@@ -40,6 +40,7 @@ pub struct Data<'a> {
     pub clock: &'a ClockData,
     pub stats: &'a StatsData,
     pub media: Option<&'a MediaInfo>,
+    pub weather: &'a lumen_ipc::weather::WeatherState,
 }
 
 /// One module, measured and ready to place.
@@ -119,6 +120,11 @@ pub fn needs(config: &BarConfig) -> (bool, bool, bool) {
     (has(|m| matches!(m, BarModule::Clock | BarModule::Date)), has(|m| matches!(m, BarModule::Cpu | BarModule::Memory | BarModule::Gpu)), has(|m| matches!(m, BarModule::Media)))
 }
 
+/// Whether any module shows the weather.
+pub fn needs_weather(config: &BarConfig) -> bool {
+    config.modules().any(|module| matches!(module, BarModule::Weather))
+}
+
 /// The paths of every launcher app in the bar.
 pub fn launcher_paths(config: &BarConfig) -> Vec<&str> {
     config.modules().filter_map(|m| if let BarModule::Launcher { apps } = m { Some(apps) } else { None }).flatten().map(|app| app.path.as_str()).collect()
@@ -151,6 +157,7 @@ fn piece<'a>(canvas: &Canvas<'_>, paint: &Paint, module: &'a BarModule, data: &D
         BarModule::Cpu => stat("CPU", Some(data.stats.cpu)),
         BarModule::Memory => stat("RAM", Some(data.stats.memory)),
         BarModule::Gpu => stat("GPU", data.stats.gpu),
+        BarModule::Weather => text(crate::weather::bar_text(data.weather), Weight::Regular, None),
         BarModule::Media => {
             let media = data.media?;
             let shown = if media.artist.is_empty() { media.title.clone() } else { format!("{} · {}", media.title, media.artist) };

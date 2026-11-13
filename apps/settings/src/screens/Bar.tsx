@@ -20,6 +20,7 @@ import {
   type Theme,
 } from "../types";
 import { Button, Check, Segmented, Slider, Tip } from "../ui";
+import { WeatherSettings } from "./Weather";
 
 const SLOTS: { slot: BarSlot; label: string }[] = [
   { slot: "left", label: "Left" },
@@ -35,6 +36,7 @@ const MODULES: { type: BarModule["type"]; label: string; about: string }[] = [
   { type: "memory", label: "Memory", about: "RAM in use" },
   { type: "gpu", label: "GPU", about: "Graphics card use" },
   { type: "media", label: "Now playing", about: "Click plays or pauses" },
+  { type: "weather", label: "Weather", about: "Temperature and conditions" },
   { type: "launcher", label: "App launcher", about: "Icons that open your apps" },
 ];
 const LABEL = Object.fromEntries(MODULES.map((m) => [m.type, m.label])) as Record<BarModule["type"], string>;
@@ -230,6 +232,13 @@ export function BarScreen() {
                   ))}
                 </ul>
               )}
+            </section>
+          )}
+
+          {[...bar.left, ...bar.centre, ...bar.right].some((module) => module.type === "weather") && (
+            <section className="panel" aria-label="Weather">
+              <h2 className="panel-title">Weather</h2>
+              <WeatherSettings />
             </section>
           )}
 
@@ -492,6 +501,8 @@ function BarPreview({ bar, theme, picked }: { bar: BarConfig; theme: Theme; pick
         return <Stat label="RAM" value="41%" />;
       case "gpu":
         return <Stat label="GPU" value="8%" />;
+      case "weather":
+        return <span>⛅ 18° Partly cloudy</span>;
       case "media":
         return (
           <span className="bar-pv-media">

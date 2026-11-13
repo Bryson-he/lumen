@@ -24,6 +24,7 @@ pub mod paint;
 pub mod parts;
 pub mod snap;
 pub mod stats;
+pub mod weather;
 
 /// The fonts shipped with Lumen, for [`lumen_render::Gpu::new`].
 pub const BUNDLED_FONTS: &[&[u8]] = &[

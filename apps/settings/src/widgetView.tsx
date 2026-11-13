@@ -142,6 +142,17 @@ export function sampleValues(now: Date): Record<string, string> {
     "media.title": "Track title",
     "media.artist": "Artist",
     "media.progress": "64%",
+    "weather.temp": "18°",
+    "weather.condition": "Partly cloudy",
+    "weather.icon": "⛅",
+    "weather.feels": "17°",
+    "weather.high": "21°",
+    "weather.low": "12°",
+    "weather.wind": "14 km/h",
+    "weather.humidity": "62%",
+    "weather.place": "Your place",
+    "weather.updated": "Updated 10:42",
+    ...Object.fromEntries([1, 2, 3].flatMap((day) => [[`weather.day${day}.name`, ["Mon", "Tue", "Wed"][day - 1]], [`weather.day${day}.icon`, ["🌧️", "☁️", "☀️"][day - 1]], [`weather.day${day}.high`, `${20 - day}°`], [`weather.day${day}.low`, `${11 - day}°`]])),
   };
 }
 const SAMPLE_FRACTIONS: Record<string, number> = { "stats.cpu": 0.12, "stats.memory": 0.41, "stats.gpu": 0.08, "media.progress": 0.64 };

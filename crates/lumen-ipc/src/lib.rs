@@ -14,12 +14,14 @@ pub mod launcher;
 pub mod parts;
 pub mod presets;
 pub mod style;
+pub mod weather;
 pub mod widget_file;
 pub mod widgets;
 
 pub use flyout::{FlyoutConfig, FlyoutPosition, FlyoutStyle};
 pub use launcher::{LauncherConfig, LauncherHotkey};
 pub use parts::{FontList, ImportFontParams, Part, PartAlign, PartColor, PartKind, PartWeight};
+pub use weather::{Place, Units, WeatherConfig, WeatherData, WeatherState};
 pub use widget_file::WidgetFileInfo;
 pub use style::{ComponentStyle, ExportStyleParams, ImportStyleParams, Role, StyleAssignments, StyleBackground, StyleSheet, StylesState};
 pub use bar::{BarConfig, BarModule, BarPosition, LauncherApp};
@@ -122,6 +124,14 @@ pub mod method {
     pub const EXPORT_STYLE: &str = "exportStyle";
     /// Adds the style in a `.lumenstyle` file. Params: [`ImportStyleParams`](super::ImportStyleParams). Result: the new style.
     pub const IMPORT_STYLE: &str = "importStyle";
+    /// Result: [`WeatherState`](super::WeatherState).
+    pub const GET_WEATHER: &str = "getWeather";
+    /// Params: [`WeatherConfig`](super::WeatherConfig). Lumen only goes online for weather while it is enabled and a place is chosen.
+    pub const SET_WEATHER: &str = "setWeather";
+    /// Fetches the forecast now.
+    pub const REFRESH_WEATHER: &str = "refreshWeather";
+    /// Finds places by name. Params: `{ query }`. Result: a list of [`Place`](super::Place). Goes online.
+    pub const SEARCH_PLACES: &str = "searchPlaces";
     /// The widget files in the widgets folder. Result: a list of [`WidgetFileInfo`](super::WidgetFileInfo).
     pub const GET_WIDGET_FILES: &str = "getWidgetFiles";
     /// Params: `{ file }`. Result: `{ file, text }`.
@@ -163,6 +173,8 @@ pub mod event {
     pub const STYLES_CHANGED: &str = "stylesChanged";
     /// Params: a list of [`WidgetFileInfo`](super::WidgetFileInfo).
     pub const WIDGET_FILES_CHANGED: &str = "widgetFilesChanged";
+    /// Params: [`WeatherState`](super::WeatherState).
+    pub const WEATHER_CHANGED: &str = "weatherChanged";
 }
 
 /// JSON-RPC error codes: the standard ones plus Lumen's own (positive).

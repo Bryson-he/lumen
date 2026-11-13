@@ -24,13 +24,14 @@ import {
 import { Arrow, Button, Check, Segmented, Slider, Tip, WallpaperArt } from "../ui";
 import { lookFor, partsOf, useSampleValues, WidgetView } from "../widgetView";
 import { Designer } from "./Designer";
+import { WeatherSettings } from "./Weather";
 import { PartsTab } from "./Parts";
 
 const LIBRARY: { kind: WidgetKind | null; label: string }[] = [
   { kind: "clock", label: "Clock" },
   { kind: "nowPlaying", label: "Now playing" },
   { kind: "systemStats", label: "System stats" },
-  { kind: null, label: "Weather" },
+  { kind: "weather", label: "Weather" },
   { kind: null, label: "Calendar" },
   { kind: null, label: "Notes" },
   { kind: null, label: "App launcher" },
@@ -684,9 +685,10 @@ function Inspector({
 
       {tab === "parts" && <PartsTab placement={placement} locked={locked} openId={partId} designing={designing} onOpen={onPart} onDesign={onDesign} onUpdate={onUpdate} />}
 
+      {tab === "data" && placement.kind === "weather" && <WeatherSettings />}
       {tab === "data" && (
         <>
-          <div className="field">
+          <div className="field" hidden={placement.kind === "weather"}>
             <label htmlFor={sourceId} className="small-14">
               Data source
             </label>

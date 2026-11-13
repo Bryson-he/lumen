@@ -253,6 +253,29 @@ pub fn default_parts(kind: WidgetKind) -> Vec<Part> {
             Part { x: 96.0, color: PartColor::Muted, ..text("artist", "Artist", "media.artist", 38.0, 210.0, 18.0) },
             Part { kind: PartKind::Bar, x: 96.0, color: PartColor::Highlight, from_bottom: true, ..text("progress", "Progress", "media.progress", 73.0, 210.0, 5.0) },
         ],
+        WidgetKind::Weather => {
+            let mut parts = vec![
+                Part { color: PartColor::Muted, ..text("place", "Place", "weather.place", 12.0, 120.0, 18.0) },
+                Part { text: "↑{weather.high}  ↓{weather.low}".to_owned(), color: PartColor::Muted, align: PartAlign::Right, ..text("range", "High and low", "", 12.0, 208.0, 18.0) },
+                // The picture is an emoji; Windows' emoji font draws it in colour.
+                Part { font: Some("Segoe UI Emoji".to_owned()), size: 28.0, stretch: false, ..text("picture", "Picture", "weather.icon", 34.0, 44.0, 42.0) },
+                Part { x: 66.0, font: Some("Space Grotesk".to_owned()), size: 34.0, weight: PartWeight::SemiBold, stretch: false, ..text("temperature", "Temperature", "weather.temp", 32.0, 90.0, 44.0) },
+                Part { x: 150.0, align: PartAlign::Right, stretch: false, ..text("conditions", "Conditions", "weather.condition", 46.0, 74.0, 18.0) },
+            ];
+            for day in 1..=3usize {
+                let x = 16.0 + (day - 1) as f32 * 72.0;
+                parts.push(Part {
+                    x,
+                    text: format!("{{weather.day{day}.name}} {{weather.day{day}.icon}} {{weather.day{day}.high}}"),
+                    size: 12.0,
+                    color: PartColor::Muted,
+                    stretch: false,
+                    from_bottom: true,
+                    ..text(&format!("day-{day}"), &format!("Day {day}"), "", 100.0, 68.0, 18.0)
+                });
+            }
+            parts
+        }
     }
 }
 
@@ -269,6 +292,18 @@ pub fn sources_for(kind: WidgetKind) -> Vec<(&'static str, &'static str)> {
         WidgetKind::Clock => vec![("clock.time", "Time"), ("clock.suffix", "AM / PM"), ("clock.date", "Date")],
         WidgetKind::SystemStats => vec![("stats.cpu", "CPU use"), ("stats.memory", "Memory use"), ("stats.gpu", "GPU use")],
         WidgetKind::NowPlaying => vec![("media.title", "Title"), ("media.artist", "Artist"), ("media.progress", "Progress"), ("media.art", "Cover")],
+        WidgetKind::Weather => vec![
+            ("weather.temp", "Temperature"),
+            ("weather.condition", "Conditions"),
+            ("weather.icon", "Weather picture"),
+            ("weather.feels", "Feels like"),
+            ("weather.high", "Today's high"),
+            ("weather.low", "Today's low"),
+            ("weather.wind", "Wind"),
+            ("weather.humidity", "Humidity"),
+            ("weather.place", "Place"),
+            ("weather.updated", "Last updated"),
+        ],
     }
 }
 
@@ -276,7 +311,7 @@ pub fn sources_for(kind: WidgetKind) -> Vec<(&'static str, &'static str)> {
 mod tests {
     use super::*;
 
-    const KINDS: [WidgetKind; 3] = [WidgetKind::Clock, WidgetKind::SystemStats, WidgetKind::NowPlaying];
+    const KINDS: [WidgetKind; 4] = WidgetKind::ALL;
 
     #[test]
     fn default_parts_are_valid_and_fit_their_widget() {

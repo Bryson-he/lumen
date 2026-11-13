@@ -15,6 +15,7 @@ mod files;
 mod flyouts;
 mod launchers;
 mod styles;
+mod weathers;
 
 use std::{
     cell::RefCell,
@@ -100,6 +101,8 @@ pub struct Options {
     pub fonts_dir: PathBuf,
     /// The folder of widget files (`widgets/`): every `.yaml` in it is read, and read again when saved.
     pub widget_files_dir: PathBuf,
+    /// Where the weather settings are kept (`weather.json`); the last forecast is kept beside it.
+    pub weather_path: PathBuf,
     /// Keep widgets above other windows (for testing; normally they sit on the desktop).
     pub topmost: bool,
 }
@@ -131,6 +134,10 @@ pub enum Command {
     SetStyles(Box<StyleSheet>),
     /// A font file was added: load the fonts again and redraw.
     ReloadFonts,
+    /// Replace the weather settings.
+    SetWeather(lumen_ipc::weather::WeatherConfig),
+    /// Fetch the forecast now.
+    RefreshWeather,
 }
 
 /// What the host tells its owner.
@@ -146,6 +153,8 @@ pub enum Report {
     Styles(StyleSheet),
     /// The widget files changed: one was added, saved, or has a mistake (also sent once at start-up).
     Files(Vec<lumen_ipc::widget_file::WidgetFileInfo>),
+    /// The weather settings or the forecast changed (also sent once at start-up).
+    Weather(lumen_ipc::weather::WeatherState),
     /// The layout, selection, edit mode or list of switched-off widgets changed.
     State(WidgetsState),
     /// Fresh per-widget costs, about every ten seconds while widgets are running.
@@ -164,6 +173,8 @@ struct Inbox {
     commands: VecDeque<Command>,
     /// `Some(None)` means "nothing is playing now".
     media: Option<Option<MediaInfo>>,
+    /// A forecast fetch that finished, with the settings it was for.
+    weather: Option<(lumen_ipc::weather::WeatherConfig, Result<lumen_ipc::weather::WeatherData, String>)>,
 }
 
 impl HostHandle {
@@ -174,6 +185,11 @@ impl HostHandle {
 
     fn set_media(&self, media: Option<MediaInfo>) {
         self.inbox.lock().unwrap_or_else(|p| p.into_inner()).media = Some(media);
+        self.wake();
+    }
+
+    fn set_weather(&self, config: lumen_ipc::weather::WeatherConfig, result: Result<lumen_ipc::weather::WeatherData, String>) {
+        self.inbox.lock().unwrap_or_else(|p| p.into_inner()).weather = Some((config, result));
         self.wake();
     }
 
@@ -282,6 +298,8 @@ struct Host {
     paints: styles::Paints,
 
     files: files::Files,
+
+    weather: weathers::Weather,
 }
 
 thread_local! {
@@ -336,8 +354,10 @@ pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'stat
         styles: StyleSheet::default(),
         paints: styles::Paints::plain(&Paint::from_theme(theme)),
         files: files::Files::default(),
+        weather: weathers::Weather::default(),
     };
     host.start_files();
+    host.load_weather();
     host.styles = styles::load_styles(&host.options.styles_path);
     host.refresh_paints();
     host.bar = bars::load_bar(&host.options.bar_path);
@@ -363,6 +383,7 @@ pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'stat
     (host.on_state)(Report::Launcher(host.launcher.config.clone()));
     (host.on_state)(Report::Styles(host.styles.clone()));
     (host.on_state)(Report::Files(host.files.list.clone()));
+    (host.on_state)(Report::Weather(host.weather.state.clone()));
     HOST.set(Some(host));
 
     let handle = HostHandle { window: window.0 as isize, inbox };
@@ -446,7 +467,7 @@ pub fn stop() {
     set_input_handler(None);
     if let Some(host) = HOST.take() {
         unsafe {
-            for timer in [TIMER_CLOCK, TIMER_STATS, TIMER_MEDIA, TIMER_HOVER, files::TIMER_FILES] {
+            for timer in [TIMER_CLOCK, TIMER_STATS, TIMER_MEDIA, TIMER_HOVER, files::TIMER_FILES, weathers::TIMER_WEATHER] {
                 let _ = KillTimer(Some(host.window), timer);
             }
             let _ = UnregisterHotKey(Some(host.window), HOTKEY_EDIT);
@@ -683,7 +704,7 @@ impl Host {
             let (width, height) = self.slots[index].surface.size();
             // Its file's parts, its own, or the arrangement its kind comes with.
             let Some((parts, default_size)) = self.placement(&id).map(|placement| self.parts_of(placement)) else { continue };
-            let (clock, stats, media) = (&self.clock, &self.stats, self.media.as_ref());
+            let (clock, stats, media, weather) = (&self.clock, &self.stats, self.media.as_ref(), &self.weather.state);
             let art = &mut self.art;
             let started = Instant::now();
             let result = self.slots[index].surface.draw(|canvas| {
@@ -692,7 +713,7 @@ impl Host {
                 {
                     *art = canvas.bitmap_from_rgba(cover.size, cover.size, &cover.rgba).ok();
                 }
-                let data = parts::Data { clock, stats, media, art: art.as_ref() };
+                let data = parts::Data { clock, stats, media, art: art.as_ref(), weather };
                 parts::draw(canvas, &paint, &parts, &data, (width, height), default_size);
             });
             self.governor.record_draw(&id, started.elapsed());
@@ -716,6 +737,7 @@ impl Host {
             Some(Kind::Clock) => clock,
             Some(Kind::SystemStats) => stats,
             Some(Kind::NowPlaying) => media,
+            Some(Kind::Weather) => bar::needs_weather(&self.bar),
         };
         if affected {
             self.draw_bars();
@@ -735,6 +757,7 @@ impl Host {
             Kind::Clock => "clock",
             Kind::SystemStats => "stats",
             Kind::NowPlaying => "media",
+            Kind::Weather => "weather",
         };
         match self.placement(id) {
             Some(placement) if placement.parts.is_some() || placement.file.is_some() => lumen_ipc::parts::parts_use(&self.parts_of(placement).0, name),
@@ -758,10 +781,13 @@ impl Host {
         timer(TIMER_MEDIA, self.any_visible(Kind::NowPlaying) && self.media.as_ref().is_some_and(MediaInfo::is_advancing), MEDIA_TICK_MS);
         let hovering = self.edit.is_none() && self.gpu.is_some() && self.layout.widgets.iter().any(|w| w.style.show_on_hover && !(self.paused && w.style.hide_in_games));
         timer(TIMER_HOVER, hovering, HOVER_TICK_MS);
+        // Weather is fetched only while something shows it; the timer is aimed at when the forecast goes stale.
+        let weather_due = self.weather_due_in();
+        timer(weathers::TIMER_WEATHER, weather_due.is_some(), weather_due.unwrap_or(0));
     }
 
     fn on_timer(&mut self, timer: usize) {
-        if self.on_flyout_timer(timer) || self.on_files_timer(timer) {
+        if self.on_flyout_timer(timer) || self.on_files_timer(timer) || self.on_weather_timer(timer) {
             return;
         }
         match timer {
@@ -825,10 +851,13 @@ impl Host {
 
     /// Handles what other threads left in the inbox.
     fn on_wake(&mut self) {
-        let (commands, media) = {
+        let (commands, media, weather) = {
             let mut inbox = self.inbox.lock().unwrap_or_else(|p| p.into_inner());
-            (std::mem::take(&mut inbox.commands), inbox.media.take())
+            (std::mem::take(&mut inbox.commands), inbox.media.take(), inbox.weather.take())
         };
+        if let Some((config, result)) = weather {
+            self.on_weather_result(config, result);
+        }
         if let Some(media) = media {
             let same_cover = match (&media, &self.media) {
                 (Some(new), Some(old)) => new.title == old.title && new.artist == old.artist && new.art.is_some() == old.art.is_some(),
@@ -902,6 +931,8 @@ impl Host {
             Command::ShowFlyout => self.show_flyout_now(),
             Command::SetLauncher(config) => self.set_launcher(config),
             Command::SetStyles(sheet) => self.set_styles(*sheet),
+            Command::SetWeather(config) => self.set_weather(config),
+            Command::RefreshWeather => self.refresh_weather(),
             Command::ReloadFonts => {
                 if let Err(error) = self.rebuild() {
                     warn!("could not reload the fonts: {error}");

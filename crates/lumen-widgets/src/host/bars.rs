@@ -209,7 +209,7 @@ impl Host {
             return;
         }
         let started = Instant::now();
-        let data = bar::Data { clock: &self.clock, stats: &self.stats, media: self.media.as_ref() };
+        let data = bar::Data { clock: &self.clock, stats: &self.stats, media: self.media.as_ref(), weather: &self.weather.state };
         let (paint, config, icons, pixels) = (if self.bar.reserve_space { &self.paints.bar } else { &self.paints.bar_floating }, &self.bar, &mut self.icons, &self.icon_pixels);
         for slot in &mut self.bars {
             let Some(surface) = &slot.surface else {

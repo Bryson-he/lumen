@@ -108,7 +108,7 @@ export const ROLE_NAMES: [keyof Roles, string][] = [
 
 // ----- Desktop widgets (crates/lumen-ipc/src/widgets.rs) -----
 
-export type WidgetKind = "clock" | "systemStats" | "nowPlaying";
+export type WidgetKind = "clock" | "systemStats" | "nowPlaying" | "weather";
 export type WidgetBackground = "glass" | "solid" | "none";
 
 export interface WidgetStyle {
@@ -187,6 +187,7 @@ export const WIDGET_NAMES: Record<WidgetKind, string> = {
   clock: "Clock",
   systemStats: "System stats",
   nowPlaying: "Now playing",
+  weather: "Weather",
 };
 
 /** The grid widgets snap to, in logical pixels (GRID in lumen-ipc). */
@@ -236,7 +237,7 @@ export interface LauncherApp {
 }
 
 export type BarModule =
-  | { type: "lumen" | "clock" | "date" | "cpu" | "memory" | "gpu" | "media" }
+  | { type: "lumen" | "clock" | "date" | "cpu" | "memory" | "gpu" | "media" | "weather" }
   | { type: "launcher"; apps: LauncherApp[] };
 
 export type BarSlot = "left" | "centre" | "right";
@@ -405,4 +406,40 @@ export interface WidgetFileInfo {
   /** What is wrong with the file as it is now, if anything. */
   error: string | null;
   errorLine: number | null;
+}
+
+// ----- Weather (crates/lumen-ipc/src/weather.rs) -----
+
+export interface Place {
+  /** "London, England, United Kingdom". */
+  name: string;
+  latitude: number;
+  longitude: number;
+}
+
+/** Lumen only goes online for weather while enabled is on and a place is chosen. */
+export interface WeatherConfig {
+  enabled: boolean;
+  place: Place | null;
+  units: "celsius" | "fahrenheit";
+}
+
+export interface WeatherData {
+  temperature: number;
+  feelsLike: number;
+  code: number;
+  isDay: boolean;
+  wind: number;
+  humidity: number;
+  days: { name: string; code: number; high: number; low: number }[];
+  /** "10:42", local time. */
+  fetchedTime: string;
+}
+
+export interface WeatherState {
+  config: WeatherConfig;
+  /** The last forecast fetched for this place, if any (kept while offline). */
+  data: WeatherData | null;
+  /** Why the latest fetch failed, if it did. */
+  error: string | null;
 }

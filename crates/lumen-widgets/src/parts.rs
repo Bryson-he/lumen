@@ -15,6 +15,7 @@ pub struct Data<'a> {
     pub media: Option<&'a MediaInfo>,
     /// The cover of what is playing, if it has one.
     pub art: Option<&'a Bitmap>,
+    pub weather: &'a lumen_ipc::weather::WeatherState,
 }
 
 /// Draws the card and every visible part. `default_size` is the widget size
@@ -85,7 +86,7 @@ fn value_of(source: &str, data: &Data<'_>) -> Option<String> {
         "media.title" => data.media.map_or("Nothing playing".to_owned(), |media| media.title.clone()),
         "media.artist" => data.media.map_or("Start some music or a video".to_owned(), |media| media.artist.clone()),
         "media.progress" => data.media.and_then(MediaInfo::progress).map_or(String::new(), |p| format!("{}%", (p * 100.0).round() as u8)),
-        _ => return None,
+        other => return crate::weather::value_of(other, data.weather),
     })
 }
 
@@ -131,7 +132,7 @@ mod tests {
     use super::*;
 
     fn data<'a>(clock: &'a ClockData, stats: &'a StatsData) -> Data<'a> {
-        Data { clock, stats, media: None, art: None }
+        Data { clock, stats, media: None, art: None, weather: Box::leak(Box::default()) }
     }
 
     #[test]
@@ -158,6 +159,7 @@ mod tests {
         assert_eq!(fill("{nope} and {unclosed", &data), "{nope} and {unclosed", "anything else is left as typed");
         assert_eq!(fill("plain", &data), "plain");
         assert_eq!(fill("é{clock.time}é", &data), "é9:45é");
+        assert_eq!(fill("{weather.condition}, {weather.temp}", &data), "Weather is off, –", "weather values work in text too");
     }
 
     #[test]

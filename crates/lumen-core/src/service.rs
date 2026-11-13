@@ -63,6 +63,10 @@ pub struct Service<D: Desktop> {
     styles: Option<StyleSheet>,
     /// The widget files, as the widget host last read them.
     widget_files: Vec<lumen_ipc::WidgetFileInfo>,
+    /// The weather settings and the last forecast, as the widget host last reported them.
+    weather: Option<lumen_ipc::WeatherState>,
+    /// Finds places by name (online, through the weather service).
+    place_search: PlaceSearch,
     /// A copy of the preset list for the tray menu, which lives on another thread.
     preset_mirror: Option<Arc<Mutex<Vec<PresetInfo>>>>,
 }
@@ -94,6 +98,8 @@ impl<D: Desktop> Service<D> {
             launcher: None,
             styles: None,
             widget_files: Vec::new(),
+            weather: None,
+            place_search: Box::new(lumen_widgets::weather::search),
             preset_mirror: None,
         }
     }
@@ -222,6 +228,24 @@ impl<D: Desktop> Service<D> {
                 let added = sheet.resolve(&style.id);
                 host(WidgetCommand::SetStyles(Box::new(sheet)));
                 json(added)
+            }
+            method::GET_WEATHER => json(self.weather.clone().unwrap_or_default()),
+            method::SET_WEATHER => {
+                let config = parse::<lumen_ipc::WeatherConfig>(params)?.sanitised();
+                let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets are not running, so weather cannot be shown"))?;
+                host(WidgetCommand::SetWeather(config.clone()));
+                json(config)
+            }
+            method::REFRESH_WEATHER => {
+                let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets are not running, so weather cannot be shown"))?;
+                host(WidgetCommand::RefreshWeather);
+                Ok(Value::Null)
+            }
+            method::SEARCH_PLACES => {
+                let query: String = params.get("query").and_then(Value::as_str).unwrap_or_default().trim().chars().take(80).collect();
+                // Asks the place search online; the answer comes within a few seconds or not at all.
+                let places = (self.place_search)(&query).map_err(|error| RpcError::new(code::INTERNAL_ERROR, format!("could not search for places: {error}")))?;
+                json(places)
             }
             method::GET_WIDGET_FILES => json(&self.widget_files),
             method::READ_WIDGET_FILE => {
@@ -539,6 +563,16 @@ impl<D: Desktop> Service<D> {
         }
     }
 
+    /// The widget host reports the weather settings and forecast (at start-up and on every change).
+    pub fn weather_changed(&mut self, state: lumen_ipc::WeatherState) {
+        if self.weather.as_ref() != Some(&state) {
+            if self.weather.is_some() {
+                self.emit(event::WEATHER_CHANGED, &state);
+            }
+            self.weather = Some(state);
+        }
+    }
+
     /// The widget host read the widget files (at start-up, and whenever one changes).
     pub fn widget_files_changed(&mut self, files: Vec<lumen_ipc::WidgetFileInfo>) {
         if self.widget_files != files {
@@ -693,6 +727,9 @@ pub async fn auto_revert<D: Desktop>(service: Rc<std::cell::RefCell<Service<D>>>
         }
     }
 }
+
+/// Finds places by name; the real one asks the weather service online.
+type PlaceSearch = Box<dyn Fn(&str) -> Result<Vec<lumen_ipc::Place>, String>>;
 
 /// The `file` of a request: a plain file name in the widgets folder, never a path.
 fn file_param(params: &Value) -> Result<String, RpcError> {
@@ -1521,6 +1558,53 @@ mod tests {
             assert_eq!(service.handle(method::WRITE_WIDGET_FILE, json!({ "file": bad, "text": "x" })).unwrap_err().code, code::INVALID_PARAMS, "{bad}");
             assert_eq!(service.handle(method::DELETE_WIDGET_FILE, json!({ "file": bad })).unwrap_err().code, code::INVALID_PARAMS, "{bad}");
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn weather_settings_go_to_the_host_and_places_are_searched() {
+        let mut service = service();
+        let london = json!({ "name": "London, England, United Kingdom", "latitude": 51.5, "longitude": -0.12 });
+        let wanted = json!({ "enabled": true, "place": london, "units": "fahrenheit" });
+        assert_eq!(service.handle(method::SET_WEATHER, wanted.clone()).unwrap_err().code, code::WIDGETS_UNAVAILABLE, "no host yet");
+        let off: lumen_ipc::WeatherState = call(&mut service, method::GET_WEATHER, Value::Null);
+        assert!(!off.config.enabled && off.config.place.is_none(), "off, with no place, until the user sets it up");
+
+        let sent: Rc<RefCell<Vec<WidgetCommand>>> = Rc::default();
+        let log = sent.clone();
+        service.set_widget_host(move |command| log.borrow_mut().push(command));
+        let set: lumen_ipc::WeatherConfig = call(&mut service, method::SET_WEATHER, wanted);
+        assert!(set.active() && set.units == lumen_ipc::Units::Fahrenheit);
+        let _: Value = call(&mut service, method::REFRESH_WEATHER, Value::Null);
+        assert!(sent.borrow().iter().any(|c| matches!(c, WidgetCommand::SetWeather(config) if config == &set)));
+        assert!(sent.borrow().iter().any(|c| matches!(c, WidgetCommand::RefreshWeather)));
+        let off_map: lumen_ipc::WeatherConfig = call(&mut service, method::SET_WEATHER, json!({ "enabled": true, "place": { "name": "Nowhere", "latitude": 500, "longitude": 0 } }));
+        assert_eq!(off_map.place, None, "a place off the map is dropped");
+
+        // The host's reports reach clients, once per change.
+        let mut rx = service.subscribe();
+        let state = lumen_ipc::WeatherState { config: set, data: None, error: None };
+        service.weather_changed(lumen_ipc::WeatherState::default());
+        service.weather_changed(state.clone());
+        service.weather_changed(state);
+        let heard = events(&mut rx);
+        assert_eq!((heard.len(), heard[0]["method"].as_str(), heard[0]["params"]["config"]["place"]["name"].as_str()), (1, Some("weatherChanged"), Some("London, England, United Kingdom")));
+
+        // Searching goes through the service's place search (the real one goes online; this one does not).
+        service.place_search = Box::new(|query| if query == "lon" { Ok(vec![lumen_ipc::Place { name: "London".into(), latitude: 51.5, longitude: -0.12 }]) } else { Err("no internet".into()) });
+        let found: Vec<lumen_ipc::Place> = call(&mut service, method::SEARCH_PLACES, json!({ "query": "  lon " }));
+        assert_eq!(found[0].name, "London");
+        assert_eq!(service.handle(method::SEARCH_PLACES, json!({ "query": "x" })).unwrap_err().code, code::INTERNAL_ERROR);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn weather_is_not_part_of_a_preset() {
+        let mut service = service();
+        service.set_widget_host(|_| {});
+        service.weather_changed(lumen_ipc::WeatherState { config: lumen_ipc::WeatherConfig { enabled: true, place: Some(lumen_ipc::Place { name: "Hometown".into(), latitude: 1.0, longitude: 2.0 }), ..Default::default() }, data: None, error: None });
+        preview_blue(&mut service);
+        let _: lumen_ipc::PresetInfo = call(&mut service, method::SAVE_PRESET, json!({ "name": "Shareable" }));
+        let saved = fs::read_to_string(service.store.root().join("presets").join("shareable.json")).unwrap();
+        assert!(!saved.contains("Hometown") && !saved.contains("latitude"), "a preset shared with someone must not carry where you live");
     }
 
     #[tokio::test(start_paused = true)]

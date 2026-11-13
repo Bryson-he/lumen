@@ -38,6 +38,8 @@ pub enum BarModule {
     Gpu,
     /// What is playing; click plays or pauses.
     Media,
+    /// The temperature and conditions, once weather is set up.
+    Weather,
     /// A row of program icons; click opens one.
     Launcher {
         apps: Vec<LauncherApp>,
