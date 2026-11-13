@@ -1,0 +1,178 @@
+/* Styles for the component style editor (Theme & colours → Component styles).
+   Colours are tokens; the preview uses the theme's own colours, passed in as
+   --s-* variables worked out from the style being shown. */
+
+.theme-columns[hidden] {
+  display: none;
+}
+
+.styles-split {
+  gap: 20px;
+}
+.styles-list {
+  flex: 0 1 220px;
+  min-width: 190px;
+  gap: 14px;
+}
+.styles-editor {
+  flex: 3 1 420px;
+  min-width: 0;
+}
+.styles-side {
+  flex: 1 1 260px;
+  max-width: 340px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.styles-items {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.styles-item {
+  width: 100%;
+  min-height: var(--size-control-min);
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-nav);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+}
+.styles-item:hover {
+  background: var(--surface-raised);
+}
+.styles-item[aria-pressed="true"] {
+  background: var(--surface-selected);
+  border-color: var(--pencil);
+  font-weight: 500;
+}
+
+.styles-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 14px 20px;
+  align-items: start;
+}
+.styles-wide {
+  grid-column: 1 / -1;
+}
+.styles-fields h3.label {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.styles-name {
+  max-width: 320px;
+  padding: 9px 10px;
+  min-height: var(--size-control-min);
+  font-size: 14px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-input);
+  user-select: text;
+  cursor: text;
+}
+.styles-role {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.styles-role select {
+  flex: 1;
+  min-width: 0;
+}
+.styles-role-dot {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+}
+
+/* ---------- Preview ---------- */
+
+.style-pv {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-tile);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: linear-gradient(160deg, var(--s-desktop-b), var(--s-desktop-a) 55%, var(--s-accent) 240%);
+  color: var(--s-text);
+  font-family: var(--s-font);
+  font-size: calc(12px * var(--s-text-scale));
+}
+.style-pv-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(12px * var(--s-spacing));
+  height: 30px;
+  padding: 0 calc(12px * var(--s-spacing));
+  background: var(--s-background);
+  border-bottom: max(1px, var(--s-border-width)) solid var(--s-border);
+  white-space: nowrap;
+}
+.style-pv-pieces {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 14px 18px;
+}
+.style-pv-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+  padding: 10px 14px;
+  background: var(--s-background);
+  border: var(--s-border-width) solid var(--s-border);
+  border-radius: min(var(--s-radius), 40px);
+}
+.style-pv-flyout {
+  flex-direction: row;
+  align-items: center;
+  gap: calc(10px * var(--s-spacing));
+  width: 100%;
+  padding: 9px calc(14px * var(--s-spacing));
+  border-radius: min(var(--s-radius), 20px);
+}
+.style-pv-strong {
+  font-weight: 600;
+}
+.style-pv-muted {
+  opacity: 0.72;
+}
+.style-pv-time {
+  font-family: var(--font-display);
+  font-size: calc(26px * var(--s-text-scale));
+  font-weight: 600;
+  line-height: 1.1;
+}
+.style-pv-track {
+  flex: 1;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--s-track);
+  overflow: hidden;
+}
+.style-pv-track > span {
+  display: block;
+  width: 64%;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--s-accent);
+}

@@ -125,7 +125,7 @@ impl Store {
             }
             wallpapers.push(PresetWallpaper { monitor: wallpaper.monitor, file: inside });
         }
-        let manifest = PresetManifest { format_version: PRESET_FORMAT, name: preset.name.clone(), theme: "theme.json".to_owned(), wallpapers, widgets: preset.widgets.clone(), bar: preset.bar.clone(), flyouts: preset.flyouts.clone(), launcher: preset.launcher.clone() };
+        let manifest = PresetManifest { format_version: PRESET_FORMAT, name: preset.name.clone(), theme: "theme.json".to_owned(), wallpapers, widgets: preset.widgets.clone(), bar: preset.bar.clone(), flyouts: preset.flyouts.clone(), launcher: preset.launcher.clone(), styles: preset.styles.clone() };
 
         // Write beside the destination first, so a failure never leaves a broken file in its place.
         let temp = destination.with_extension(format!("{PRESET_EXTENSION}.tmp"));
@@ -217,6 +217,7 @@ impl Store {
             bar: manifest.bar,
             flyouts: manifest.flyouts,
             launcher: manifest.launcher,
+            styles: manifest.styles,
         };
         let id = self.new_preset_id(&preset.name);
         self.save_preset(&id, &preset)?;
@@ -272,6 +273,7 @@ mod tests {
             bar: serde_json::Value::Null,
             flyouts: serde_json::Value::Null,
             launcher: serde_json::Value::Null,
+            styles: serde_json::Value::Null,
         };
         let id = store.new_preset_id(name);
         store.save_preset(&id, &preset).unwrap();

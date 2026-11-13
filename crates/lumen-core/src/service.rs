@@ -14,7 +14,7 @@ use std::{
 };
 
 use lumen_ipc::{
-    BarConfig, EditModeParams, FlyoutConfig, LauncherConfig, GameModeChanged, ImportWallpaperParams, Notification, PREVIEW_SECONDS, PresetInfo, PreviewState, PreviewThemeParams, RpcError, SelectWidgetParams,
+    BarConfig, EditModeParams, ExportStyleParams, FlyoutConfig, ImportStyleParams, LauncherConfig, StyleSheet, StylesState, GameModeChanged, ImportWallpaperParams, Notification, PREVIEW_SECONDS, PresetInfo, PreviewState, PreviewThemeParams, RpcError, SelectWidgetParams,
     SetWallpaperParams, Status, ThemeChangeReason, ThemeChanged, ThemeState, UpdateWallpaperParams, WidgetCost, WidgetIdParams, WidgetsState, code, event, method,
 };
 use lumen_theme::{Mode, Source, SourceColors, Theme, Variant};
@@ -59,6 +59,8 @@ pub struct Service<D: Desktop> {
     flyouts: Option<FlyoutConfig>,
     /// The launcher's settings, as the widget host last reported them.
     launcher: Option<LauncherConfig>,
+    /// The user's component styles, as the widget host last reported them.
+    styles: Option<StyleSheet>,
     /// A copy of the preset list for the tray menu, which lives on another thread.
     preset_mirror: Option<Arc<Mutex<Vec<PresetInfo>>>>,
 }
@@ -88,6 +90,7 @@ impl<D: Desktop> Service<D> {
             bar: None,
             flyouts: None,
             launcher: None,
+            styles: None,
             preset_mirror: None,
         }
     }
@@ -168,6 +171,54 @@ impl<D: Desktop> Service<D> {
                 let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets and flyouts are not running"))?;
                 host(WidgetCommand::ShowFlyout);
                 Ok(Value::Null)
+            }
+            method::GET_STYLES => json(StylesState::from(self.styles.clone().unwrap_or_default())),
+            method::SET_STYLES => {
+                let sheet = parse::<StyleSheet>(params)?.sanitised();
+                let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets are not running, so styles cannot be changed"))?;
+                host(WidgetCommand::SetStyles(Box::new(sheet.clone())));
+                json(StylesState::from(sheet))
+            }
+            method::EXPORT_STYLE => {
+                let params: ExportStyleParams = parse(params)?;
+                let sheet = self.styles.clone().unwrap_or_default();
+                if !sheet.exists(&params.id) {
+                    return Err(RpcError::new(code::INVALID_PARAMS, format!("there is no style \"{}\"", params.id)));
+                }
+                let file = serde_json::json!({ "lumenStyle": 1, "style": sheet.resolve(&params.id) });
+                let text = serde_json::to_string_pretty(&file).map_err(|e| RpcError::new(code::INTERNAL_ERROR, e.to_string()))?;
+                let mut path = std::path::PathBuf::from(&params.path);
+                if !path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("lumenstyle")) {
+                    path.as_mut_os_string().push(".lumenstyle");
+                }
+                std::fs::write(&path, text).map_err(|e| RpcError::new(code::INTERNAL_ERROR, format!("could not write {}: {e}", path.display())))?;
+                json(path.to_string_lossy())
+            }
+            method::IMPORT_STYLE => {
+                let params: ImportStyleParams = parse(params)?;
+                let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets are not running, so styles cannot be changed"))?;
+                let not_a_style = |why: String| RpcError::new(code::INVALID_PARAMS, format!("{} is not a Lumen style file ({why})", params.path));
+                // A style is a few hundred bytes; anything large is something else.
+                if std::fs::metadata(&params.path).map_err(|e| not_a_style(e.to_string()))?.len() > 64 * 1024 {
+                    return Err(not_a_style("the file is too large".to_owned()));
+                }
+                let text = std::fs::read_to_string(&params.path).map_err(|e| not_a_style(e.to_string()))?;
+                let file: Value = serde_json::from_str(text.trim_start_matches('\u{feff}')).map_err(|e| not_a_style(e.to_string()))?;
+                if file.get("lumenStyle").and_then(Value::as_u64) != Some(1) {
+                    return Err(not_a_style("it does not say it is one".to_owned()));
+                }
+                let mut style: lumen_ipc::ComponentStyle = serde_json::from_value(file["style"].clone()).map_err(|e| not_a_style(e.to_string()))?;
+                let mut sheet = self.styles.clone().unwrap_or_default();
+                if sheet.styles.len() >= lumen_ipc::style::MAX_STYLES {
+                    return Err(RpcError::new(code::INVALID_PARAMS, "there is no room for another style; delete one first"));
+                }
+                // Always added as a new style of the user's own, never over an existing one.
+                style.id = sheet.new_id(&style.name);
+                sheet.styles.push(style.clone());
+                let sheet = sheet.sanitised();
+                let added = sheet.resolve(&style.id);
+                host(WidgetCommand::SetStyles(Box::new(sheet)));
+                json(added)
             }
             method::GET_LAUNCHER => json(self.launcher.clone().unwrap_or_default()),
             method::SET_LAUNCHER => {
@@ -386,6 +437,16 @@ impl<D: Desktop> Service<D> {
         if self.widgets.as_ref() != Some(&state) {
             self.emit(event::WIDGETS_CHANGED, &state);
             self.widgets = Some(state);
+        }
+    }
+
+    /// The widget host reports the component styles (at start-up and on every change).
+    pub fn styles_changed(&mut self, sheet: StyleSheet) {
+        if self.styles.as_ref() != Some(&sheet) {
+            if self.styles.is_some() {
+                self.emit(event::STYLES_CHANGED, StylesState::from(sheet.clone()));
+            }
+            self.styles = Some(sheet);
         }
     }
 
@@ -1123,6 +1184,60 @@ mod tests {
         let _: Theme = call(&mut service, method::APPLY_PRESET, json!({ "id": "with-launcher" }));
         assert_eq!(launchers(), [set]);
         assert!(service.handle(method::SET_LAUNCHER, json!({ "hotkey": "f13" })).is_err(), "an unknown hotkey is refused");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn styles_go_through_the_host_export_import_and_presets() {
+        let mut service = service();
+        let root = service.store.root().to_owned();
+        let mine = json!({ "styles": [{ "id": "neon", "name": "Neon", "background": "gradient", "gradientRole": "accent", "radius": 200 }], "assigned": { "bar": "neon", "flyout": "missing" } });
+        assert_eq!(service.handle(method::SET_STYLES, mine.clone()).unwrap_err().code, code::WIDGETS_UNAVAILABLE, "no host yet");
+        let empty: StylesState = call(&mut service, method::GET_STYLES, Value::Null);
+        assert!(empty.styles.is_empty() && empty.builtin.len() >= 5 && empty.assigned.bar == "default");
+
+        let sent: Rc<RefCell<Vec<WidgetCommand>>> = Rc::default();
+        let log = sent.clone();
+        service.set_widget_host(move |command| log.borrow_mut().push(command));
+        let sheets = || sent.borrow().iter().filter_map(|c| if let WidgetCommand::SetStyles(s) = c { Some((**s).clone()) } else { None }).collect::<Vec<_>>();
+        let mut rx = service.subscribe();
+        service.styles_changed(StyleSheet::default());
+        assert!(events(&mut rx).is_empty(), "the host's first report is what it loaded, not a change");
+
+        let set: StylesState = call(&mut service, method::SET_STYLES, mine);
+        assert_eq!(set.styles[0].radius, 60, "values are kept in range");
+        assert_eq!((set.assigned.bar.as_str(), set.assigned.flyout.as_str()), ("neon", "default"), "a missing style falls back");
+        let sheet = sheets().pop().unwrap();
+        service.styles_changed(sheet.clone());
+        let heard = events(&mut rx);
+        assert_eq!(heard.len(), 1);
+        assert_eq!(heard[0]["method"], "stylesChanged");
+        assert_eq!(heard[0]["params"]["styles"][0]["gradientRole"], "accent");
+
+        // Out to a file and back in: a second style with a new id, nothing overwritten.
+        let file = root.join("neon");
+        let written: String = call(&mut service, method::EXPORT_STYLE, json!({ "id": "neon", "path": file }));
+        assert!(written.ends_with("neon.lumenstyle"));
+        assert!(!fs::read_to_string(&written).unwrap().contains('#'), "the file holds role names, no colours");
+        let added: lumen_ipc::ComponentStyle = call(&mut service, method::IMPORT_STYLE, json!({ "path": written }));
+        assert_eq!((added.id.as_str(), added.name.as_str(), added.radius), ("neon-2", "Neon", 60));
+        assert_eq!(sheets().pop().unwrap().styles.len(), 2);
+        assert_eq!(service.handle(method::EXPORT_STYLE, json!({ "id": "nope", "path": file })).unwrap_err().code, code::INVALID_PARAMS);
+        let junk = root.join("junk.lumenstyle");
+        fs::write(&junk, "{ \"hello\": 1 }").unwrap();
+        assert_eq!(service.handle(method::IMPORT_STYLE, json!({ "path": junk })).unwrap_err().code, code::INVALID_PARAMS);
+
+        // A preset carries the styles; applying it adds them to whatever the user has now.
+        preview_blue(&mut service);
+        let _: lumen_ipc::PresetInfo = call(&mut service, method::SAVE_PRESET, json!({ "name": "Styled" }));
+        let other: StyleSheet = serde_json::from_value(json!({ "styles": [{ "id": "other", "name": "Other" }] })).unwrap();
+        service.styles_changed(other);
+        sent.borrow_mut().clear();
+        let _: Theme = call(&mut service, method::APPLY_PRESET, json!({ "id": "styled" }));
+        let applied = sheets().pop().unwrap();
+        let mut ids: Vec<&str> = applied.styles.iter().map(|style| style.id.as_str()).collect();
+        ids.sort_unstable();
+        assert_eq!(ids, ["neon", "other"]);
+        assert_eq!(applied.assigned.bar, "neon");
     }
 
     #[tokio::test(start_paused = true)]

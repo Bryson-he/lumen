@@ -83,17 +83,17 @@ impl Piece<'_> {
 /// Draws the bar and returns its clickable regions.
 pub fn draw(canvas: &Canvas<'_>, paint: &Paint, config: &BarConfig, data: &Data<'_>, icons: &HashMap<String, Bitmap>, width: f32, height: f32) -> Vec<Region> {
     // Background, with a hairline on the edge that faces the desktop.
-    // A bar with its own strip of the screen has only wallpaper behind it, so
-    // it can be glass. A floating one sits over windows and must stay readable.
-    let background = if config.reserve_space { paint.glass } else { paint.surface };
-    canvas.fill_round_rect(Rect::new(0.0, 0.0, width, height), 0.0, background);
-    let line_y = if config.position == BarPosition::Top { height - 1.0 } else { 0.0 };
-    canvas.fill_round_rect(Rect::new(0.0, line_y, width, 1.0), 0.0, paint.border);
+    // The background is the style's. (For a floating bar the host hands over
+    // a paint whose glass is solid, since it sits over windows.)
+    paint.fill_background(canvas, Rect::new(0.0, 0.0, width, height), 0.0);
+    let (edge, gap) = (paint.space(EDGE), paint.space(GAP));
+    let line_y = if config.position == BarPosition::Top { height - paint.border_width.max(1.0) } else { 0.0 };
+    canvas.fill_round_rect(Rect::new(0.0, line_y, width, paint.border_width.max(1.0)), 0.0, paint.border);
 
     fn measure<'a>(canvas: &Canvas<'_>, paint: &Paint, slot: &'a [BarModule], data: &Data<'_>, height: f32) -> Vec<Piece<'a>> {
         slot.iter().filter_map(|module| piece(canvas, paint, module, data, height)).collect()
     }
-    let total = |pieces: &[Piece<'_>]| pieces.iter().map(Piece::width).sum::<f32>() + GAP * pieces.len().saturating_sub(1) as f32;
+    let total = |pieces: &[Piece<'_>]| pieces.iter().map(Piece::width).sum::<f32>() + gap * pieces.len().saturating_sub(1) as f32;
     let left = measure(canvas, paint, &config.left, data, height);
     let centre = measure(canvas, paint, &config.centre, data, height);
     let right = measure(canvas, paint, &config.right, data, height);
@@ -102,13 +102,13 @@ pub fn draw(canvas: &Canvas<'_>, paint: &Paint, config: &BarConfig, data: &Data<
     let mut place = |pieces: &[Piece<'_>], mut x: f32| {
         for item in pieces {
             draw_piece(canvas, paint, item, x, height, icons, &mut regions);
-            x += item.width() + GAP;
+            x += item.width() + gap;
         }
     };
-    place(&left, EDGE);
-    place(&right, width - EDGE - total(&right));
+    place(&left, edge);
+    place(&right, width - edge - total(&right));
     // The centre slot is centred on the bar, but never runs under the left slot.
-    let centre_start = ((width - total(&centre)) / 2.0).max(EDGE + total(&left) + GAP);
+    let centre_start = ((width - total(&centre)) / 2.0).max(edge + total(&left) + gap);
     place(&centre, centre_start);
     regions
 }

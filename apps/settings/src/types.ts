@@ -131,6 +131,8 @@ export interface Placement {
   width: number;
   height: number;
   style: WidgetStyle;
+  /** A component style for this widget only; absent uses the one all widgets share. */
+  componentStyle?: string;
 }
 
 export interface WidgetLayout {
@@ -167,6 +169,8 @@ export interface UpdateWidgetParams {
   height?: number;
   monitor?: string;
   style?: WidgetStyle;
+  /** Its own component style; "" goes back to the one all widgets share. */
+  componentStyle?: string;
   /** True while still dragging: snapped and shown, not yet saved. */
   dragging?: boolean;
 }
@@ -267,3 +271,53 @@ export interface LauncherConfig {
   enabled: boolean;
   hotkey: LauncherHotkey;
 }
+
+// ----- Component styles (crates/lumen-ipc/src/style.rs) -----
+
+/** A colour of the active theme. A style names roles, never colours. */
+export type StyleRole = keyof Roles;
+export type StyleBackground = "glass" | "solid" | "gradient" | "none";
+
+export interface ComponentStyle {
+  id: string;
+  name: string;
+  background: StyleBackground;
+  backgroundRole: StyleRole;
+  gradientRole: StyleRole;
+  /** How solid the background is, in percent (not used by glass). */
+  opacity: number;
+  cornersFollowTheme: boolean;
+  radius: number;
+  borderFollowsTheme: boolean;
+  borderWidth: number;
+  borderRole: StyleRole;
+  textRole: StyleRole;
+  /** Level bars, the caret, "playing" dots and other highlights. */
+  accentRole: StyleRole;
+  /** Null uses the theme's font. */
+  font: string | null;
+  /** Percent of the normal text size. */
+  textScale: number;
+  /** Percent of the normal padding and gaps. */
+  spacing: number;
+}
+
+/** Which style each kind of piece uses. */
+export interface StyleAssignments {
+  widgets: string;
+  bar: string;
+  flyout: string;
+  launcher: string;
+}
+
+export interface StylesState {
+  /** The styles that come with Lumen (read-only). */
+  builtin: ComponentStyle[];
+  /** The user's own. */
+  styles: ComponentStyle[];
+  assigned: StyleAssignments;
+}
+
+/** The limits in lumen-ipc's style.rs. */
+export const STYLE_LIMITS = { maxStyles: 40, radius: 60, border: 4, textScale: [85, 125], spacing: [70, 150], opacity: [20, 100] } as const;
+export const STYLE_FONTS = ["Inter", "Space Grotesk"] as const;

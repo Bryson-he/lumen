@@ -494,6 +494,8 @@ function Inspector({
   const { id, style } = placement;
   const setStyle = (changes: Partial<WidgetStyle>) => onUpdate({ id, style: { ...style, ...changes } });
   const backgroundId = useId();
+  const componentStyleId = useId();
+  const { styles } = useLumen();
   const sourceId = useId();
   const monitorSelectId = useId();
 
@@ -552,6 +554,22 @@ function Inspector({
 
       {tab === "style" && (
         <>
+          {styles && (
+            <div className="field">
+              <label htmlFor={componentStyleId} className="small-14">
+                Style
+              </label>
+              <select id={componentStyleId} value={placement.componentStyle ?? ""} onChange={(event) => onUpdate({ id, componentStyle: event.target.value })}>
+                <option value="">Same as all widgets</option>
+                {[...styles.builtin, ...styles.styles].map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </select>
+              <span className="muted small-13">Make your own under Theme &amp; colours → Component styles.</span>
+            </div>
+          )}
           <div className="field">
             <label htmlFor={backgroundId} className="small-14">
               Background

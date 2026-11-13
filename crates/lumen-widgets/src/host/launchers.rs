@@ -164,7 +164,7 @@ impl Host {
     pub(super) fn draw_launcher(&mut self) {
         let Some(open) = &mut self.launcher.open else { return };
         let (width, height) = open.surface.size();
-        let paint = &self.paint;
+        let paint = &self.paints.launcher;
         let Open { surface, query, results, selected, icon_pixels, icons } = open;
         let shown: Vec<&App> = results.iter().collect();
         let result = surface.draw(|canvas| {

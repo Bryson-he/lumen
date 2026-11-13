@@ -99,29 +99,28 @@ pub struct View<'a> {
 
 pub fn draw(canvas: &Canvas<'_>, paint: &Paint, view: &View<'_>, icons: &HashMap<String, Bitmap>, width: f32, height: f32) {
     let View { query, results, selected } = *view;
-    // A panel over other windows: solid, so the text stays readable.
-    let mut card = paint.clone();
-    card.glass = paint.surface;
-    card.card(canvas, width, height);
+    // (The host's paint for the launcher already has solid glass: it sits over windows.)
+    paint.card(canvas, width, height);
+    let side = paint.space(SIDE);
 
     // What was typed, with a caret after it.
     let text_y = (SEARCH_ROW - 26.0) / 2.0;
-    let line = Rect::new(SIDE, text_y, width - SIDE * 2.0, 26.0);
+    let line = Rect::new(side, text_y, width - side * 2.0, 26.0);
     if query.is_empty() {
         canvas.text("Search apps", line, paint.display(19.0, paint.text_muted));
-        canvas.fill_round_rect(Rect::new(SIDE - 4.0, text_y + 2.0, 2.0, 22.0), 1.0, paint.primary);
+        canvas.fill_round_rect(Rect::new(side - 4.0, text_y + 2.0, 2.0, 22.0), 1.0, paint.primary);
     } else {
         canvas.text(query, line, paint.display(19.0, paint.text));
         // Trailing spaces are not measured, so stand in a character for each.
         let measured = query.replace(' ', "\u{a0}");
-        let caret_x = (SIDE + canvas.text_width(&measured, paint.display(19.0, paint.text)) + 2.0).min(width - SIDE);
+        let caret_x = (side + canvas.text_width(&measured, paint.display(19.0, paint.text)) + 2.0).min(width - side);
         canvas.fill_round_rect(Rect::new(caret_x, text_y + 2.0, 2.0, 22.0), 1.0, paint.primary);
     }
     canvas.fill_round_rect(Rect::new(0.0, SEARCH_ROW - 1.0, width, 1.0), 0.0, paint.border);
 
     let top = SEARCH_ROW + LIST_PAD;
     if results.is_empty() {
-        canvas.text("No apps match", Rect::new(SIDE, top + (ROW - 18.0) / 2.0, width - SIDE * 2.0, 18.0), paint.body(14.0, Weight::Regular, paint.text_muted));
+        canvas.text("No apps match", Rect::new(side, top + (ROW - 18.0) / 2.0, width - side * 2.0, 18.0), paint.body(14.0, Weight::Regular, paint.text_muted));
         return;
     }
     for (index, app) in results.iter().enumerate() {
@@ -131,7 +130,7 @@ pub fn draw(canvas: &Canvas<'_>, paint: &Paint, view: &View<'_>, icons: &HashMap
             canvas.fill_round_rect(highlight, paint.radius.min(10.0), paint.track);
             canvas.fill_round_rect(Rect::new(LIST_PAD, y + 12.0, 3.0, ROW - 24.0), 1.5, paint.primary);
         }
-        let icon = Rect::new(SIDE, y + (ROW - ICON) / 2.0, ICON, ICON);
+        let icon = Rect::new(side, y + (ROW - ICON) / 2.0, ICON, ICON);
         match icons.get(&app.target) {
             Some(bitmap) => canvas.image(bitmap, icon, 0.0),
             None => {
@@ -141,7 +140,7 @@ pub fn draw(canvas: &Canvas<'_>, paint: &Paint, view: &View<'_>, icons: &HashMap
             }
         }
         let weight = if index == selected { Weight::Medium } else { Weight::Regular };
-        canvas.text(&app.name, Rect::new(SIDE + ICON + 14.0, y + (ROW - 20.0) / 2.0, width - SIDE * 2.0 - ICON - 14.0, 20.0), paint.body(15.0, weight, paint.text));
+        canvas.text(&app.name, Rect::new(side + ICON + 14.0, y + (ROW - 20.0) / 2.0, width - side * 2.0 - ICON - 14.0, 20.0), paint.body(15.0, weight, paint.text));
     }
 }
 

@@ -13,6 +13,7 @@
 mod bars;
 mod flyouts;
 mod launchers;
+mod styles;
 
 use std::{
     cell::RefCell,
@@ -27,6 +28,7 @@ use std::{
 use lumen_ipc::bar::BarConfig;
 use lumen_ipc::flyout::FlyoutConfig;
 use lumen_ipc::launcher::LauncherConfig;
+use lumen_ipc::style::StyleSheet;
 use lumen_ipc::widgets::{
     AddWidgetParams, Guides, Layout, LayoutOptionsParams, MIN_SIZE, MonitorArea, Placement, UpdateWidgetParams, WidgetCost, WidgetKind as Kind, WidgetsState,
 };
@@ -90,6 +92,8 @@ pub struct Options {
     pub flyouts_path: PathBuf,
     /// Where the launcher's settings are kept (`launcher.json`).
     pub launcher_path: PathBuf,
+    /// Where the user's component styles are kept (`styles.json`).
+    pub styles_path: PathBuf,
     /// Keep widgets above other windows (for testing; normally they sit on the desktop).
     pub topmost: bool,
 }
@@ -117,6 +121,8 @@ pub enum Command {
     ShowFlyout,
     /// Replace the launcher's settings.
     SetLauncher(LauncherConfig),
+    /// Replace the user's component styles and what uses which.
+    SetStyles(Box<StyleSheet>),
 }
 
 /// What the host tells its owner.
@@ -128,6 +134,8 @@ pub enum Report {
     Flyouts(FlyoutConfig),
     /// The launcher's settings changed (also sent once at start-up).
     Launcher(LauncherConfig),
+    /// The component styles changed (also sent once at start-up).
+    Styles(StyleSheet),
     /// The layout, selection, edit mode or list of switched-off widgets changed.
     State(WidgetsState),
     /// Fresh per-widget costs, about every ten seconds while widgets are running.
@@ -258,6 +266,10 @@ struct Host {
     flyout: Option<flyouts::Shown>,
 
     launcher: launchers::Launcher,
+
+    /// The user's component styles, and the paint each kind of piece draws with.
+    styles: StyleSheet,
+    paints: styles::Paints,
 }
 
 thread_local! {
@@ -309,7 +321,11 @@ pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'stat
         volume: None,
         flyout: None,
         launcher: launchers::Launcher::default(),
+        styles: StyleSheet::default(),
+        paints: styles::Paints::plain(&Paint::from_theme(theme)),
     };
+    host.styles = styles::load_styles(&host.options.styles_path);
+    host.refresh_paints();
     host.bar = bars::load_bar(&host.options.bar_path);
     host.flyouts = flyouts::load_flyouts(&host.options.flyouts_path);
     host.load_launcher();
@@ -331,6 +347,7 @@ pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'stat
     (host.on_state)(Report::Bar(host.bar.clone()));
     (host.on_state)(Report::Flyouts(host.flyouts.clone()));
     (host.on_state)(Report::Launcher(host.launcher.config.clone()));
+    (host.on_state)(Report::Styles(host.styles.clone()));
     HOST.set(Some(host));
 
     let handle = HostHandle { window: window.0 as isize, inbox };
@@ -642,10 +659,9 @@ impl Host {
             if only.is_some_and(|wanted| wanted != kind) || !self.slots[index].surface.is_visible() {
                 continue;
             }
-            let Some(style) = self.placement(&id).map(|p| p.style) else {
+            let Some(paint) = self.placement(&id).map(|placement| self.widget_paint(placement)) else {
                 continue;
             };
-            let paint = self.paint.for_widget(&style);
             let (width, height) = self.slots[index].surface.size();
             let (clock, stats, media) = (&self.clock, &self.stats, self.media.as_ref());
             let art = &mut self.art;
@@ -801,6 +817,7 @@ impl Host {
         match command {
             Command::Theme(theme) => {
                 self.paint = Paint::from_theme(&theme);
+                self.refresh_paints();
                 self.draw(None);
                 self.draw_flyout();
                 self.draw_launcher();
@@ -851,6 +868,7 @@ impl Host {
             Command::SetFlyouts(config) => self.set_flyouts(*config),
             Command::ShowFlyout => self.show_flyout_now(),
             Command::SetLauncher(config) => self.set_launcher(config),
+            Command::SetStyles(sheet) => self.set_styles(*sheet),
             Command::Resume(id) => {
                 if self.governor.resume(&id) {
                     info!("the widget {id} was resumed");
@@ -903,6 +921,10 @@ impl Host {
         if let Some(style) = params.style {
             after.style = style;
             after.style.opacity = after.style.opacity.clamp(20, 100);
+        }
+        if let Some(id) = params.component_style {
+            // Empty, or a style that is not there: back to the one all widgets share.
+            after.component_style = Some(id).filter(|id| !id.is_empty() && self.styles.exists(id));
         }
         let moved = params.x.is_some() || params.y.is_some();
         let resized = params.width.is_some() || params.height.is_some();
@@ -977,6 +999,7 @@ impl Host {
             width: size.0,
             height: size.1,
             style: Default::default(),
+            component_style: None,
         };
         if let Some(slot) = self.create_slot(&placement) {
             self.slots.push(slot);
@@ -1043,7 +1066,7 @@ impl Host {
             let scale = self.areas.get(area).map_or(1.0, |a| a.scale);
             let (x, y) = self.to_physical(area, placement.x - edit::CHROME_SIDE, placement.y - edit::CHROME_TOP);
             let size = (placement.width + 2.0 * edit::CHROME_SIDE, placement.height + edit::CHROME_TOP + edit::CHROME_SIDE);
-            let radius = paint.for_widget(&placement.style).radius;
+            let radius = self.widget_paint(placement).radius;
             (x, y, size, scale, (placement.width, placement.height), radius)
         });
 

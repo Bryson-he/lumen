@@ -42,10 +42,10 @@ pub fn origin(position: FlyoutPosition, work: (i32, i32, i32, i32), size: (i32, 
 }
 
 pub fn draw(canvas: &Canvas<'_>, paint: &Paint, style: FlyoutStyle, level: Level, media: Option<&MediaInfo>, width: f32, height: f32) {
-    // A flyout appears over windows, so it is solid rather than glass, and
-    // the pill is fully rounded whatever the theme's corner radius.
+    // The pill is fully rounded whatever the style's corner radius. (The
+    // host's paint for flyouts already has solid glass: it sits over windows.)
     let mut card = paint.clone();
-    card.glass = paint.surface;
+    let padding = paint.space(PADDING);
     if style == FlyoutStyle::Pill {
         card.radius = height / 2.0;
     }
@@ -58,20 +58,20 @@ pub fn draw(canvas: &Canvas<'_>, paint: &Paint, style: FlyoutStyle, level: Level
     let label_width = canvas.text_width("Volume", label_style()) + 2.0;
     let value_width = canvas.text_width("100%", paint.body(TEXT_SIZE, Weight::Medium, paint.text)) + 2.0;
     let text_y = (ROW - LINE) / 2.0;
-    canvas.text(label, Rect::new(PADDING, text_y, label_width, LINE), label_style());
+    canvas.text(label, Rect::new(padding, text_y, label_width, LINE), label_style());
 
     let mut value = paint.body(TEXT_SIZE, Weight::Medium, if level.muted { paint.text_muted } else { paint.text });
     value.align_right = true;
-    canvas.text(&format!("{}%", level.percent), Rect::new(width - PADDING - value_width, text_y, value_width, LINE), value);
+    canvas.text(&format!("{}%", level.percent), Rect::new(width - padding - value_width, text_y, value_width, LINE), value);
 
-    let track_x = PADDING + label_width + 14.0;
-    let track = Rect::new(track_x, (ROW - TRACK) / 2.0, width - PADDING - value_width - 14.0 - track_x, TRACK);
+    let track_x = padding + label_width + 14.0;
+    let track = Rect::new(track_x, (ROW - TRACK) / 2.0, width - padding - value_width - 14.0 - track_x, TRACK);
     let fill = if level.muted { paint.text_muted } else { paint.primary };
     paint.bar(canvas, track, f32::from(level.percent) / 100.0, fill);
 
     if style == FlyoutStyle::Card {
         let y = ROW - 4.0;
-        canvas.fill_round_rect(Rect::new(PADDING, y, width - PADDING * 2.0, 1.0), 0.0, paint.border);
+        canvas.fill_round_rect(Rect::new(padding, y, width - padding * 2.0, 1.0), 0.0, paint.border);
         let line_y = y + (height - y - LINE) / 2.0;
         let (text, colour, dot) = match media {
             Some(media) => {
@@ -80,8 +80,8 @@ pub fn draw(canvas: &Canvas<'_>, paint: &Paint, style: FlyoutStyle, level: Level
             }
             None => ("Nothing playing".to_owned(), paint.text_muted, paint.track),
         };
-        canvas.fill_round_rect(Rect::new(PADDING, line_y + LINE / 2.0 - 3.0, 6.0, 6.0), 3.0, dot);
-        canvas.text(&text, Rect::new(PADDING + 14.0, line_y, width - PADDING * 2.0 - 14.0, LINE), paint.body(TEXT_SIZE, Weight::Regular, colour));
+        canvas.fill_round_rect(Rect::new(padding, line_y + LINE / 2.0 - 3.0, 6.0, 6.0), 3.0, dot);
+        canvas.text(&text, Rect::new(padding + 14.0, line_y, width - padding * 2.0 - 14.0, LINE), paint.body(TEXT_SIZE, Weight::Regular, colour));
     }
 }
 

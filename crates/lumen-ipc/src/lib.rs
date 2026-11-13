@@ -12,10 +12,12 @@ pub mod bar;
 pub mod flyout;
 pub mod launcher;
 pub mod presets;
+pub mod style;
 pub mod widgets;
 
 pub use flyout::{FlyoutConfig, FlyoutPosition, FlyoutStyle};
 pub use launcher::{LauncherConfig, LauncherHotkey};
+pub use style::{ComponentStyle, ExportStyleParams, ImportStyleParams, Role, StyleAssignments, StyleBackground, StyleSheet, StylesState};
 pub use bar::{BarConfig, BarModule, BarPosition, LauncherApp};
 pub use presets::{ExportPresetParams, ImportPresetParams, Preset, PresetIdParams, PresetInfo, PresetManifest, PresetWallpaper, RenamePresetParams, SavePresetParams};
 pub use widgets::{
@@ -108,6 +110,14 @@ pub mod method {
     pub const SHOW_FLYOUT: &str = "showFlyout";
     pub const GET_LAUNCHER: &str = "getLauncher";
     pub const SET_LAUNCHER: &str = "setLauncher";
+    /// Result: [`StylesState`](super::StylesState).
+    pub const GET_STYLES: &str = "getStyles";
+    /// Params: [`StyleSheet`](super::StyleSheet) (the user's styles and what uses which).
+    pub const SET_STYLES: &str = "setStyles";
+    /// Writes one style to a `.lumenstyle` file. Params: [`ExportStyleParams`](super::ExportStyleParams).
+    pub const EXPORT_STYLE: &str = "exportStyle";
+    /// Adds the style in a `.lumenstyle` file. Params: [`ImportStyleParams`](super::ImportStyleParams). Result: the new style.
+    pub const IMPORT_STYLE: &str = "importStyle";
 }
 
 /// Notification names pushed by the core.
@@ -124,6 +134,8 @@ pub mod event {
     pub const BAR_CHANGED: &str = "barChanged";
     pub const FLYOUTS_CHANGED: &str = "flyoutsChanged";
     pub const LAUNCHER_CHANGED: &str = "launcherChanged";
+    /// Params: [`StylesState`](super::StylesState).
+    pub const STYLES_CHANGED: &str = "stylesChanged";
 }
 
 /// JSON-RPC error codes: the standard ones plus Lumen's own (positive).

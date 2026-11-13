@@ -87,6 +87,9 @@ pub struct Placement {
     pub height: f32,
     #[serde(default)]
     pub style: WidgetStyle,
+    /// A component style for this widget only; absent uses the style assigned to all widgets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component_style: Option<String>,
 }
 
 /// `widgets/layout.json`.
@@ -114,7 +117,7 @@ impl Default for Layout {
             .into_iter()
             .map(|kind| {
                 let (width, height) = kind.default_size();
-                let placement = Placement { id: format!("{}-1", kind.id_prefix()), kind, monitor: None, x: 48.0, y, width, height, style: WidgetStyle::default() };
+                let placement = Placement { id: format!("{}-1", kind.id_prefix()), kind, monitor: None, x: 48.0, y, width, height, style: WidgetStyle::default(), component_style: None };
                 y += height + GRID;
                 placement
             })
@@ -231,6 +234,9 @@ pub struct UpdateWidgetParams {
     pub monitor: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<WidgetStyle>,
+    /// Give this widget its own component style; an empty string goes back to the one all widgets share.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub component_style: Option<String>,
     /// True while the user is still dragging: the position is snapped and
     /// shown with guides, but not written to disk until a final update.
     #[serde(default)]

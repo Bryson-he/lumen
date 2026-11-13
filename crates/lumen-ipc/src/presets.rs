@@ -71,6 +71,9 @@ pub struct Preset {
     /// The launcher's settings ([`LauncherConfig`](crate::LauncherConfig)); null in presets saved before the launcher existed.
     #[serde(default)]
     pub launcher: Value,
+    /// The component styles ([`StyleSheet`](crate::StyleSheet)); null in presets saved before styles existed.
+    #[serde(default)]
+    pub styles: Value,
 }
 
 fn current_format() -> u32 {
@@ -96,6 +99,8 @@ pub struct PresetManifest {
     pub flyouts: Value,
     #[serde(default)]
     pub launcher: Value,
+    #[serde(default)]
+    pub styles: Value,
 }
 
 /// Params of `savePreset`: save the look that is on the desktop now.

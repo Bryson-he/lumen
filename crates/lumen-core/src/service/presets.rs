@@ -107,6 +107,7 @@ impl<D: Desktop> Service<D> {
             bar: self.bar.as_ref().and_then(|bar| serde_json::to_value(bar).ok()).unwrap_or(Value::Null),
             flyouts: self.flyouts.as_ref().and_then(|flyouts| serde_json::to_value(flyouts).ok()).unwrap_or(Value::Null),
             launcher: self.launcher.as_ref().and_then(|launcher| serde_json::to_value(launcher).ok()).unwrap_or(Value::Null),
+            styles: self.styles.as_ref().and_then(|styles| serde_json::to_value(styles).ok()).unwrap_or(Value::Null),
         };
         let id = self.store.new_preset_id(&preset.name);
         self.store.save_preset(&id, &preset).map_err(store_error)?;
@@ -147,6 +148,21 @@ impl<D: Desktop> Service<D> {
         self.desktop.apply(&plan).map_err(desktop_error)?;
         self.store.save_active_theme(&preset.theme).map_err(store_error)?;
         self.committed = Some(preset.theme.clone());
+        // Styles go first, so the widgets, bar and the rest are drawn in them straight away.
+        // The preset's own styles are added to the user's; none of the user's are lost.
+        if let (Ok(theirs), Some(widgets)) = (serde_json::from_value::<lumen_ipc::StyleSheet>(preset.styles.clone()), &self.widget_host)
+            && preset.styles.is_object()
+        {
+            let mut sheet = self.styles.clone().unwrap_or_default();
+            for style in theirs.styles {
+                match sheet.styles.iter_mut().find(|mine| mine.id == style.id) {
+                    Some(mine) => *mine = style,
+                    None => sheet.styles.push(style),
+                }
+            }
+            sheet.assigned = theirs.assigned;
+            widgets(WidgetCommand::SetStyles(Box::new(sheet.sanitised())));
+        }
         if let (Some(layout), Some(widgets)) = (&preset.widgets, &self.widget_host) {
             widgets(WidgetCommand::SetLayout(Box::new(local_layout(layout, &monitors))));
         }

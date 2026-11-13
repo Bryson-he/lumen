@@ -3,7 +3,7 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { call, CoreError, onConnection, onCoreEvent } from "./core";
-import type { BarConfig, FlyoutConfig, LauncherConfig, MonitorInfo, PresetInfo, PreviewState, PreviewThemeParams, Status, Theme, ThemeState, WallpaperEntry, WidgetsState } from "./types";
+import type { BarConfig, ComponentStyle, FlyoutConfig, LauncherConfig, MonitorInfo, StyleAssignments, StylesState, PresetInfo, PreviewState, PreviewThemeParams, Status, Theme, ThemeState, WallpaperEntry, WidgetsState } from "./types";
 
 export type Screen = "home" | "presets" | "wallpapers" | "theme" | "widgets" | "bar" | "plugins" | "gallery" | "settings";
 
@@ -49,6 +49,12 @@ interface Lumen {
   /** The launcher's settings. Null until the core reports them. */
   launcher: LauncherConfig | null;
   setLauncher: (config: LauncherConfig) => Promise<void>;
+  /** Component styles: the built-in ones, the user's own, and what uses which. Null until the core reports them. */
+  styles: StylesState | null;
+  /** Replaces the user's styles and assignments. The desktop redraws at once. */
+  setStyles: (sheet: { styles: ComponentStyle[]; assigned: StyleAssignments }) => Promise<void>;
+  /** Sends exportStyle or importStyle. Null if it failed. */
+  styleRequest: <T>(method: string, params: unknown) => Promise<T | null>;
   /** Saved looks, most recently used first. */
   presets: PresetInfo[];
   /** Sends a preset request (savePreset, applyPreset, renamePreset, ...). Null if it failed. */
@@ -94,6 +100,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
   const [bar, setBarState] = useState<BarConfig | null>(null);
   const [flyouts, setFlyoutsState] = useState<FlyoutConfig | null>(null);
   const [launcher, setLauncherState] = useState<LauncherConfig | null>(null);
+  const [styles, setStylesState] = useState<StylesState | null>(null);
   const [presets, setPresets] = useState<PresetInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [dropping, setDropping] = useState(false);
@@ -147,6 +154,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       call<BarConfig>("getBar").then(setBarState, () => setBarState(null)),
       call<FlyoutConfig>("getFlyouts").then(setFlyoutsState, () => setFlyoutsState(null)),
       call<LauncherConfig>("getLauncher").then(setLauncherState, () => setLauncherState(null)),
+      call<StylesState>("getStyles").then(setStylesState, () => setStylesState(null)),
     ]);
   }, [refreshTheme, refreshWallpapers, refreshStatus, attempt]);
 
@@ -170,6 +178,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
         if (method === "barChanged") setBarState(params as BarConfig);
         if (method === "flyoutsChanged") setFlyoutsState(params as FlyoutConfig);
         if (method === "launcherChanged") setLauncherState(params as LauncherConfig);
+        if (method === "stylesChanged") setStylesState(params as StylesState);
         if (method === "presetsChanged") {
           setPresets(params as PresetInfo[]);
           // Presets can bring new wallpapers into the library (saving, importing).
@@ -344,6 +353,18 @@ export function LumenProvider({ children }: { children: ReactNode }) {
     [attempt],
   );
 
+  const setStyles = useCallback(
+    async (sheet: { styles: ComponentStyle[]; assigned: StyleAssignments }) => {
+      setStylesState((current) => (current ? { ...current, ...sheet } : current));
+      const set = await attempt(() => call<StylesState>("setStyles", sheet));
+      if (set) setStylesState(set);
+      else await call<StylesState>("getStyles").then(setStylesState, () => {});
+    },
+    [attempt],
+  );
+
+  const styleRequest = useCallback(<T,>(method: string, params: unknown) => attempt(() => call<T>(method, params)), [attempt]);
+
   const showFlyout = useCallback(async () => {
     await attempt(() => call<null>("showFlyout"));
   }, [attempt]);
@@ -381,6 +402,9 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       showFlyout,
       launcher,
       setLauncher,
+      styles,
+      setStyles,
+      styleRequest,
       presets,
       presetRequest,
       importPresets,
@@ -395,7 +419,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       setWallpaperOnly,
       wallpaperOf,
     }),
-    [screen, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, widgets, widgetRequest, bar, setBar, flyouts, setFlyouts, showFlyout, launcher, setLauncher, presets, presetRequest, importPresets, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
+    [screen, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, widgets, widgetRequest, bar, setBar, flyouts, setFlyouts, showFlyout, launcher, setLauncher, styles, setStyles, styleRequest, presets, presetRequest, importPresets, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;

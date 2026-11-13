@@ -153,7 +153,7 @@ impl Host {
     pub(super) fn draw_flyout(&mut self) {
         let Some(shown) = &self.flyout else { return };
         let (width, height) = shown.surface.size();
-        let (paint, style, level, media) = (&self.paint, self.flyouts.style, shown.level, self.media.as_ref());
+        let (paint, style, level, media) = (&self.paints.flyout, self.flyouts.style, shown.level, self.media.as_ref());
         if let Err(error) = shown.surface.draw(|canvas| flyout::draw(canvas, paint, style, level, media, width, height)) {
             warn!("{error}");
         }

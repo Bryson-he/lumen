@@ -13,6 +13,7 @@ import "./styles.css";
 import "./widgets.css";
 import "./presets.css";
 import "./bar.css";
+import "./styles-editor.css";
 import App from "./App";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

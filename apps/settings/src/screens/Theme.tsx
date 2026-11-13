@@ -6,6 +6,7 @@ import { PageHeader } from "../Shell";
 import { useLumen } from "../store";
 import { ROLE_NAMES, type Blur, type Mode, type Motion, type Roles, type Style, type Theme, type Variant } from "../types";
 import { Button, Check, Segmented, Slider, Tip, WallpaperArt } from "../ui";
+import { StylesView } from "./Styles";
 
 type SourceKind = "wallpaper" | "color" | "manual";
 
@@ -32,6 +33,8 @@ export function ThemeScreen() {
   const [picked, setPicked] = useState<SourceKind | null>(null);
   // "Auto" stays highlighted until Light or Dark is chosen by hand.
   const [auto, setAuto] = useState(false);
+  // Colours and theme-wide style, or the styles of the individual pieces.
+  const [view, setView] = useState<"colours" | "styles">("colours");
   const sourceKind: SourceKind = picked ?? shown?.source.type ?? "wallpaper";
   useEffect(() => setPicked(null), [shown?.source.type]);
 
@@ -57,21 +60,36 @@ export function ThemeScreen() {
 
   return (
     <>
-      <PageHeader title="Theme & colours" tip="every widget, bar and menu reads from these">
-        <Segmented
-          label="Colour source"
-          look="track"
-          value={sourceKind}
-          onChange={chooseSource}
-          options={[
-            { value: "wallpaper", label: "From wallpaper" },
-            { value: "color", label: "Pick a colour" },
-            { value: "manual", label: "Manual", disabled: !shown },
-          ]}
-        />
+      <PageHeader title="Theme & colours" tip={view === "colours" ? "every widget, bar and menu reads from these" : "shape each piece your way; the colours still follow the theme"}>
+        <div className="header-actions header-actions-center">
+          <Segmented
+            label="What to edit"
+            look="track"
+            value={view}
+            onChange={setView}
+            options={[
+              { value: "colours", label: "Colours" },
+              { value: "styles", label: "Component styles" },
+            ]}
+          />
+          {view === "colours" && (
+            <Segmented
+              label="Colour source"
+              look="track"
+              value={sourceKind}
+              onChange={chooseSource}
+              options={[
+                { value: "wallpaper", label: "From wallpaper" },
+                { value: "color", label: "Pick a colour" },
+                { value: "manual", label: "Manual", disabled: !shown },
+              ]}
+            />
+          )}
+        </div>
       </PageHeader>
 
-      <div className="theme-columns">
+      {view === "styles" && <StylesView />}
+      <div className="theme-columns" hidden={view === "styles"}>
         <div className="theme-left">
           {sourceKind === "wallpaper" && (
             <section className="panel" aria-label="Source wallpaper">
