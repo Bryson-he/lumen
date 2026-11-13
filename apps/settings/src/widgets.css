@@ -1,0 +1,377 @@
+/*
+ * Styles for the Widgets screen. As in styles.css, every colour is a token
+ * or theme data passed in as a variable (--w-*).
+ */
+
+.header-actions-center {
+  align-items: center;
+}
+.btn-plain {
+  font-size: 14px;
+  padding: 10px 16px;
+}
+.btn[aria-pressed="true"]:not(.btn-primary) {
+  background: var(--surface-selected);
+  border-color: var(--pencil);
+}
+
+.menu-anchor {
+  position: relative;
+}
+.menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 10;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-tile);
+}
+.menu-item {
+  min-height: var(--size-control-min);
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--radius-nav);
+  background: transparent;
+  text-align: left;
+  font-size: 14px;
+}
+.menu-item:hover {
+  background: var(--surface-raised);
+}
+
+.main-widgets {
+  gap: var(--space-gap-sm);
+}
+.widgets-split {
+  gap: 20px;
+}
+.widgets-main {
+  flex: 3 1 480px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.stack-10 {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ---------- The desktop picture ---------- */
+
+.preview-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.preview-box {
+  overflow: auto;
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+.preview-canvas {
+  position: relative;
+  overflow: hidden;
+  color: var(--w-text, var(--text));
+  font-family: var(--w-font, var(--font-body));
+  touch-action: none;
+}
+.preview-wallpaper,
+.preview-grid {
+  position: absolute;
+  inset: 0;
+}
+.preview-grid {
+  background-image: linear-gradient(var(--preview-grid) 1px, transparent 1px), linear-gradient(90deg, var(--preview-grid) 1px, transparent 1px);
+  background-size: var(--preview-grid-size, 24px) var(--preview-grid-size, 24px);
+  pointer-events: none;
+}
+.guide {
+  position: absolute;
+  pointer-events: none;
+  z-index: 3;
+}
+.guide-x {
+  top: 0;
+  bottom: 0;
+  border-left: 1.5px dashed var(--pencil);
+}
+.guide-y {
+  left: 0;
+  right: 0;
+  border-top: 1.5px dashed var(--pencil);
+}
+.preview-empty {
+  position: absolute;
+  left: 24px;
+  top: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.preview-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.preview-zoom {
+  display: flex;
+  gap: 4px;
+}
+.preview-chip {
+  font-size: 12px;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+button.preview-chip:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+/* A widget in the picture: a box at its scaled position, holding a
+   full-size replica shrunk with a transform so text stays in proportion. */
+.pw {
+  position: absolute;
+  z-index: 2;
+  cursor: grab;
+  border-radius: calc(var(--w-radius, 12px) * var(--pw-scale, 1));
+}
+.pw:active {
+  cursor: grabbing;
+}
+.pw-locked,
+.pw-locked:active {
+  cursor: default;
+}
+.pw-selected {
+  z-index: 4;
+  outline: 2px solid var(--pencil);
+  outline-offset: 3px;
+}
+.pw:focus-visible {
+  outline: 2px solid var(--pencil);
+  outline-offset: 3px;
+}
+.pw-scale {
+  transform-origin: top left;
+  pointer-events: none;
+}
+.pw-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: var(--text);
+  border: 2px solid var(--pencil);
+  border-radius: 3px;
+  pointer-events: none;
+}
+.pw-handle-tl {
+  left: -9px;
+  top: -9px;
+}
+.pw-handle-tr {
+  right: -9px;
+  top: -9px;
+}
+.pw-handle-bl {
+  left: -9px;
+  bottom: -9px;
+}
+.pw-handle-br {
+  right: -9px;
+  bottom: -9px;
+}
+.pw-badge {
+  position: absolute;
+  right: 0;
+  top: -34px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-kbd);
+  background: var(--pencil);
+  color: var(--bg);
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* Near the top edge there is no room above the widget. */
+.pw-badge-below {
+  top: calc(100% + 12px);
+}
+
+/* ---------- Widget replicas ----------
+   Same measurements as the desktop renderer (crates/lumen-widgets). */
+
+.wd {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--w-radius, 12px);
+  background: rgba(var(--w-surface-rgb, 28, 29, 33), var(--w-glass-opacity, 0.78));
+  border: var(--w-border-width, 1px) solid var(--w-border, var(--widget-glass-border));
+  color: var(--w-text, var(--text));
+  font-size: 13px;
+  line-height: 1.3;
+  overflow: hidden;
+}
+.wd-muted {
+  color: var(--w-text-muted, var(--text-muted));
+}
+.wd-strong {
+  font-weight: 600;
+}
+.wd-clock {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+}
+.wd-time {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 600;
+  line-height: 1.15;
+}
+.wd-suffix {
+  position: absolute;
+  right: 16px;
+  top: 55px;
+  font-weight: 500;
+  color: var(--w-text-muted, var(--text-muted));
+}
+.wd-stats {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.wd-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.wd-row-label {
+  display: flex;
+  justify-content: space-between;
+}
+.wd-bar {
+  display: block;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--w-track, var(--border-strong));
+}
+.wd-bar > span {
+  display: block;
+  height: 5px;
+  border-radius: 3px;
+}
+.wd-media {
+  padding: 12px;
+  display: flex;
+  gap: 12px;
+}
+.wd-art {
+  height: 100%;
+  aspect-ratio: 1;
+  flex-shrink: 0;
+  border-radius: min(8px, var(--w-radius, 12px));
+  background: linear-gradient(135deg, var(--w-primary, var(--pencil)), var(--w-tertiary, var(--success)));
+}
+.wd-media-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 2px;
+}
+.wd-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.wd-media-bar {
+  margin-top: auto;
+  margin-bottom: 6px;
+}
+
+/* ---------- Library and inspector ---------- */
+
+.library {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.library-item {
+  font-size: 14px;
+  padding: 9px 14px;
+  min-height: var(--size-control-min);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-button);
+}
+.library-item:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+.library-gallery {
+  background: transparent;
+  color: var(--pencil);
+  border: 1px dashed var(--border-strong);
+}
+.inspector {
+  flex: 1 1 250px;
+  min-width: 0;
+  gap: 16px;
+}
+.segmented-inset {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg);
+  border-radius: var(--radius-button);
+}
+.segmented-inset button {
+  font-size: 13px;
+  min-height: 36px;
+  border: none;
+  border-radius: var(--radius-segment);
+}
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.number-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.number-field input {
+  font-size: 14px;
+  padding: 8px 10px;
+  min-height: 38px;
+  width: 100%;
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-input);
+  user-select: text;
+}
+.inspector select {
+  width: 100%;
+}

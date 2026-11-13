@@ -105,3 +105,75 @@ export const ROLE_NAMES: [keyof Roles, string][] = [
   ["outline", "Outline"],
   ["accent", "Accent"],
 ];
+
+// ----- Desktop widgets (crates/lumen-ipc/src/widgets.rs) -----
+
+export type WidgetKind = "clock" | "systemStats" | "nowPlaying";
+export type WidgetBackground = "glass" | "solid" | "none";
+
+export interface WidgetStyle {
+  background: WidgetBackground;
+  /** 20–100 percent. */
+  opacity: number;
+  /** Corner radius in px; null follows the theme. */
+  radius: number | null;
+  showOnHover: boolean;
+  hideInGames: boolean;
+}
+
+export interface Placement {
+  id: string;
+  kind: WidgetKind;
+  /** Monitor id; absent means the primary monitor. */
+  monitor?: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  style: WidgetStyle;
+}
+
+export interface WidgetLayout {
+  widgets: Placement[];
+  snap: boolean;
+  locked: boolean;
+}
+
+export interface MonitorArea {
+  id: string;
+  number: number;
+  primary: boolean;
+  /** Work area size in logical pixels. */
+  width: number;
+  height: number;
+  wallpaper: string | null;
+}
+
+export interface WidgetsState {
+  layout: WidgetLayout;
+  monitors: MonitorArea[];
+  editMode: boolean;
+  selected: string | null;
+  guides: { x: number | null; y: number | null; monitor: string | null };
+}
+
+export interface UpdateWidgetParams {
+  id: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  monitor?: string;
+  style?: WidgetStyle;
+  /** True while still dragging: snapped and shown, not yet saved. */
+  dragging?: boolean;
+}
+
+export const WIDGET_NAMES: Record<WidgetKind, string> = {
+  clock: "Clock",
+  systemStats: "System stats",
+  nowPlaying: "Now playing",
+};
+
+/** The grid widgets snap to, in logical pixels (GRID in lumen-ipc). */
+export const WIDGET_GRID = 24;

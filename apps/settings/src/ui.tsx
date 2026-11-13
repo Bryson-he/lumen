@@ -51,8 +51,8 @@ export function Segmented<T extends string>({
   options: { value: T; label: string; disabled?: boolean }[];
   value: T | null;
   onChange: (value: T) => void;
-  /** "track": pills inside one rounded track. "grid": separate outlined buttons. */
-  look: "track" | "grid-2" | "grid-3";
+  /** "track": pills inside one rounded track ("inset": a sunken one). "grid": separate outlined buttons. */
+  look: "track" | "inset" | "grid-2" | "grid-3";
 }) {
   return (
     <div role="group" aria-label={label} className={`segmented segmented-${look}`}>

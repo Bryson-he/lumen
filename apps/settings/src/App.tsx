@@ -3,6 +3,7 @@ import { ComingSoon } from "./screens/ComingSoon";
 import { Home } from "./screens/Home";
 import { ThemeScreen } from "./screens/Theme";
 import { Wallpapers } from "./screens/Wallpapers";
+import { WidgetsScreen } from "./screens/Widgets";
 import { Shell } from "./Shell";
 import { LumenProvider, useLumen } from "./store";
 
@@ -26,6 +27,8 @@ function CurrentScreen() {
       return <ThemeScreen />;
     case "wallpapers":
       return <Wallpapers />;
+    case "widgets":
+      return <WidgetsScreen />;
     default:
       return <ComingSoon screen={screen} />;
   }

@@ -274,9 +274,7 @@ mod tests {
 
     #[test]
     fn styles_and_options_round_trip() {
-        let mut layout = Layout::default();
-        layout.locked = true;
-        layout.snap = false;
+        let mut layout = Layout { locked: true, snap: false, ..Default::default() };
         layout.widgets[2].monitor = Some("MONITOR-B".into());
         layout.widgets[2].style = WidgetStyle { background: Background::Solid, opacity: 80, radius: Some(4), show_on_hover: true, hide_in_games: false };
         let text = serde_json::to_string(&layout).unwrap();

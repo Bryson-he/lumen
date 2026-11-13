@@ -3,7 +3,7 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { call, CoreError, onConnection, onCoreEvent } from "./core";
-import type { MonitorInfo, PreviewState, PreviewThemeParams, Status, Theme, ThemeState, WallpaperEntry } from "./types";
+import type { MonitorInfo, PreviewState, PreviewThemeParams, Status, Theme, ThemeState, WallpaperEntry, WidgetsState } from "./types";
 
 export type Screen = "home" | "presets" | "wallpapers" | "theme" | "widgets" | "bar" | "plugins" | "gallery" | "settings";
 
@@ -29,6 +29,13 @@ interface Lumen {
   wallpapers: WallpaperEntry[];
   monitors: MonitorInfo[];
   status: Status | null;
+  /** The desktop widgets: layout, monitors, selection, edit mode. Null until the core reports it. */
+  widgets: WidgetsState | null;
+  /**
+   * Sends a widget request (updateWidget, addWidget, removeWidget, selectWidget,
+   * setLayoutOptions, setEditMode). The result arrives as a new `widgets` value.
+   */
+  widgetRequest: (method: string, params: unknown) => Promise<void>;
 
   /** The last thing that went wrong, for the message strip. */
   error: string | null;
@@ -64,6 +71,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
   const [wallpapers, setWallpapers] = useState<WallpaperEntry[]>([]);
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
   const [status, setStatus] = useState<Status | null>(null);
+  const [widgets, setWidgets] = useState<WidgetsState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dropping, setDropping] = useState(false);
 
@@ -110,6 +118,8 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       refreshWallpapers(),
       refreshStatus(),
       attempt(() => call<MonitorInfo[]>("listMonitors")).then((list) => list && setMonitors(list)),
+      // Widgets may be unavailable (no graphics device); the Widgets screen says so.
+      call<WidgetsState>("getWidgets").then(setWidgets, () => setWidgets(null)),
     ]);
   }, [refreshTheme, refreshWallpapers, refreshStatus, attempt]);
 
@@ -127,6 +137,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       }),
       onCoreEvent((method, params) => {
         if (method === "themeChanged") void refreshThemeRef.current();
+        if (method === "widgetsChanged") setWidgets(params as WidgetsState);
         if (method === "gameModeChanged") {
           const gameMode = params as Status["gameMode"];
           setStatus((s) => (s ? { ...s, gameMode } : s));
@@ -227,6 +238,13 @@ export function LumenProvider({ children }: { children: ReactNode }) {
     [attempt],
   );
 
+  const widgetRequest = useCallback(
+    async (method: string, params: unknown) => {
+      await attempt(() => call<WidgetsState>(method, params));
+    },
+    [attempt],
+  );
+
   const wallpaperOf = useCallback(
     (t: Theme | null) => {
       if (!t || t.source.type !== "wallpaper") return null;
@@ -251,6 +269,8 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       wallpapers,
       monitors,
       status,
+      widgets,
+      widgetRequest,
       error,
       dismissError: () => setError(null),
       dropping,
@@ -262,7 +282,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       setWallpaperOnly,
       wallpaperOf,
     }),
-    [screen, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
+    [screen, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, widgets, widgetRequest, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;
