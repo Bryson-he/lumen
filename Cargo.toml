@@ -1,0 +1,29 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/lumen-core",
+    "crates/lumen-theme",
+    "crates/lumen-win",
+    "crates/lumen-render",
+    "crates/lumen-widgets",
+    "crates/lumen-ipc",
+    "apps/settings/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+lumen-theme = { path = "crates/lumen-theme" }
+lumen-win = { path = "crates/lumen-win" }
+lumen-render = { path = "crates/lumen-render" }
+lumen-widgets = { path = "crates/lumen-widgets" }
+lumen-ipc = { path = "crates/lumen-ipc" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

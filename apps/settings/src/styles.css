@@ -1,0 +1,15 @@
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background-color: var(--bg);
+  background-image: radial-gradient(var(--bg-dots) 1px, transparent 1.2px);
+  background-size: var(--space-dot-grid) var(--space-dot-grid);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 15px;
+}

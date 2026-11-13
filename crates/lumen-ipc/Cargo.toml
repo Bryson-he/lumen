@@ -1,0 +1,8 @@
+[package]
+name = "lumen-ipc"
+description = "Shared message types for lumen-core <-> settings app."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]

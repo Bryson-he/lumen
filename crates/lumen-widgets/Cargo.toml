@@ -1,0 +1,8 @@
+[package]
+name = "lumen-widgets"
+description = "Widget file parser, Luau runtime and built-in widgets."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]

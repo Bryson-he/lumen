@@ -1,0 +1,13 @@
+[package]
+name = "lumen-core"
+description = "Always-on Lumen service: state, preview/commit, governor, tray, IPC server."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+lumen-theme.workspace = true
+lumen-win.workspace = true
+lumen-render.workspace = true
+lumen-widgets.workspace = true
+lumen-ipc.workspace = true

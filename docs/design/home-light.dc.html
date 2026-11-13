@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lumen Home — Clean modern with pencil accents</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1E1F22}a:hover{color:#000000}
+</style>
+</helmet>
+<div style="min-height: 820px; box-sizing: border-box; display: flex; flex-wrap: wrap; background-color: #FAFAF7; background-image: radial-gradient(rgba(30,31,34,0.13) 1px, transparent 1.2px); background-size: 22px 22px; font-family: 'Inter', system-ui, sans-serif; color: #1E1F22; font-size: 15px">
+
+  <nav aria-label="Main" style="flex: 1 1 220px; box-sizing: border-box; padding: 28px 18px; background: #FFFFFF; border-right: 1px solid #E3E1DA; display: flex; flex-direction: column; gap: 2px">
+    <div style="font-family: 'Caveat', cursive; font-size: 38px; font-weight: 700; line-height: 1; padding: 0 12px; margin-bottom: 24px">Lumen</div>
+    <a href="#" style="text-decoration: none; display: flex; flex-direction: column; padding: 9px 12px; border-radius: 8px; background: #F2F1EC; font-weight: 600">Home<svg width="54" height="8" viewBox="0 0 54 8" aria-hidden="true"><path d="M1 5 C 12 1, 24 7, 36 4 S 50 3, 53 5" fill="none" stroke="{{accent}}" stroke-width="2" stroke-linecap="round"></path></svg></a>
+    <a href="#" style="text-decoration: none; padding: 9px 12px; border-radius: 8px">Presets</a>
+    <a href="#" style="text-decoration: none; padding: 9px 12px; border-radius: 8px">Wallpapers</a>
+    <a href="#" style="text-decoration: none; padding: 9px 12px; border-radius: 8px">Theme &amp; colours</a>
+    <a href="#" style="text-decoration: none; padding: 9px 12px; border-radius: 8px">Widgets</a>
+    <a href="#" style="text-decoration: none; padding: 9px 12px; border-radius: 8px">Bar, dock &amp; menus</a>
+    <a href="#" style="text-decoration: none; padding: 9px 12px; border-radius: 8px">Plugins &amp; editor</a>
+    <a href="#" style="text-decoration: none; padding: 9px 12px; border-radius: 8px">Gallery</a>
+    <a href="#" style="text-decoration: none; padding: 9px 12px; border-radius: 8px; margin-top: auto; color: #5F5E58">Settings</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 30px 40px; display: flex; flex-direction: column; gap: 28px">
+    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px">
+      <h1 style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 32px; font-weight: 600">Home</h1>
+      <label style="display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: #FFFFFF; border: 1px solid #E3E1DA; border-radius: 10px">
+        <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6.5" fill="none" stroke="#5F5E58" stroke-width="1.8"></circle><path d="M15 15 L21 21" stroke="#5F5E58" stroke-width="1.8" stroke-linecap="round"></path></svg>
+        <input aria-label="Search everything" placeholder="Search everything" style="border: none; background: transparent; font-family: inherit; font-size: 15px; color: #1E1F22; outline: none; width: 200px">
+        <span style="font-size: 12px; color: #5F5E58; padding: 2px 6px; border: 1px solid #E3E1DA; border-radius: 6px">Ctrl K</span>
+      </label>
+    </div>
+
+    <section aria-label="Active preset" style="display: flex; flex-wrap: wrap; gap: 28px; padding: 24px; background: #FFFFFF; border: 1px solid #E3E1DA; border-radius: 16px">
+      <div style="flex: 1 1 320px; min-width: 0; height: 220px; border-radius: 12px; overflow: hidden; background: #1B2436">
+        <svg viewBox="0 0 400 220" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Preview of the active wallpaper, a harbour at night">
+          <rect width="400" height="220" fill="#1B2436"></rect>
+          <circle cx="300" cy="58" r="24" fill="#F2CC8F"></circle>
+          <path d="M0 150 L60 92 L104 128 L160 70 L224 138 L270 108 L330 150 L400 118 L400 220 L0 220 Z" fill="#3B5B8C"></path>
+          <path d="M0 160 L400 160 L400 220 L0 220 Z" fill="#26344F"></path>
+          <path d="M30 178 L110 178 M150 188 L250 188 M60 200 L170 200 M260 198 L360 198" stroke="#81B29A" stroke-width="2" stroke-linecap="round"></path>
+        </svg>
+      </div>
+      <div style="flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 14px; justify-content: center">
+        <div style="font-size: 13px; font-weight: 500; color: #5F5E58">Active preset</div>
+        <h2 style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 30px; font-weight: 600; line-height: 1.1">Midnight Harbour</h2>
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap">
+          <div aria-hidden="true" style="width: 30px; height: 30px; border-radius: 50%; background: #3B5B8C"></div>
+          <div aria-hidden="true" style="width: 30px; height: 30px; border-radius: 50%; background: #E07A5F"></div>
+          <div aria-hidden="true" style="width: 30px; height: 30px; border-radius: 50%; background: #81B29A"></div>
+          <div aria-hidden="true" style="width: 30px; height: 30px; border-radius: 50%; background: #F2CC8F"></div>
+          <div aria-hidden="true" style="width: 30px; height: 30px; border-radius: 50%; background: #1B2436"></div>
+          <svg width="34" height="22" viewBox="0 0 34 22" aria-hidden="true"><path d="M32 12 C 24 18, 12 16, 4 8 M4 8 L5 15 M4 8 L11 7" fill="none" stroke="{{accent}}" stroke-width="1.8" stroke-linecap="round"></path></svg>
+          <span style="font-family: 'Caveat', cursive; font-size: 22px; color: {{accent}}">from your wallpaper</span>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px">
+          <button style="font-family: inherit; font-size: 15px; font-weight: 600; padding: 12px 22px; min-height: 46px; background: #1E1F22; color: #FFFFFF; border: none; border-radius: 10px; cursor: pointer">Edit preset</button>
+          <button style="font-family: inherit; font-size: 15px; font-weight: 500; padding: 12px 22px; min-height: 46px; background: #FFFFFF; color: #1E1F22; border: 1px solid #D6D3C9; border-radius: 10px; cursor: pointer">Shuffle</button>
+        </div>
+      </div>
+    </section>
+
+    <section aria-label="Quick switch" style="display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; align-items: baseline; gap: 12px">
+        <h3 style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 600">Quick switch</h3>
+        <span style="font-family: 'Caveat', cursive; font-size: 20px; color: #5F5E58">one click, whole desktop changes</span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 18px">
+        <a href="#" style="flex: 1 1 200px; text-decoration: none; display: flex; flex-direction: column; background: #FFFFFF; border: 1px solid #E3E1DA; border-radius: 12px; overflow: hidden">
+          <svg viewBox="0 0 200 80" width="100%" height="80" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="200" height="80" fill="#E7EFE3"></rect><path d="M20 70 L40 30 L60 70 Z M55 70 L80 18 L105 70 Z M100 70 L118 38 L136 70 Z M130 70 L155 24 L180 70 Z" fill="#5E8C61"></path></svg>
+          <span style="padding: 10px 14px; font-weight: 500">Forest Day</span>
+        </a>
+        <a href="#" style="flex: 1 1 200px; text-decoration: none; display: flex; flex-direction: column; background: #FFFFFF; border: 1px solid #E3E1DA; border-radius: 12px; overflow: hidden">
+          <svg viewBox="0 0 200 80" width="100%" height="80" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="200" height="80" fill="#1D1830"></rect><path d="M20 80 L20 34 L44 34 L44 80 Z M50 80 L50 14 L76 14 L76 80 Z M82 80 L82 40 L104 40 L104 80 Z M110 80 L110 24 L140 24 L140 80 Z M146 80 L146 46 L178 46 L178 80 Z" fill="#3A2F5C"></path><path d="M58 24 L68 24 M58 34 L68 34 M118 34 L132 34 M118 46 L132 46" stroke="#FF5FA2" stroke-width="2"></path></svg>
+          <span style="padding: 10px 14px; font-weight: 500">Neon City</span>
+        </a>
+        <a href="#" style="flex: 1 1 200px; text-decoration: none; display: flex; flex-direction: column; background: #FFFFFF; border: 1px solid #E3E1DA; border-radius: 12px; overflow: hidden">
+          <svg viewBox="0 0 200 80" width="100%" height="80" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="200" height="80" fill="#F6F1E4"></rect><circle cx="100" cy="42" r="18" fill="#F2CC8F"></circle></svg>
+          <span style="padding: 10px 14px; font-weight: 500">Paper Light</span>
+        </a>
+      </div>
+    </section>
+
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: auto; padding-top: 14px; border-top: 1px solid #E3E1DA; font-size: 13px; color: #5F5E58">
+      <span style="width: 8px; height: 8px; border-radius: 50%; background: #2E7D4F"></span>
+      <span>Memory and CPU readout · Game mode: auto-pause on</span>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#2F5BEA","options":["#2F5BEA","#C0392B","#2E7D4F","#7A4FD6"]},"$preview":{"width":1280,"height":820}}'>
+class Component extends DCLogic {
+renderVals() {
+return { accent: this.props.accent ?? '#2F5BEA' };
+}
+}
+</script>
+</body>
+</html>

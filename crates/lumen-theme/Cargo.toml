@@ -1,0 +1,8 @@
+[package]
+name = "lumen-theme"
+description = "Wallpaper -> palette -> roles -> tokens."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]

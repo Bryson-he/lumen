@@ -1,0 +1,8 @@
+[package]
+name = "lumen-win"
+description = "Windows API wrappers: wallpaper, accent, dark mode, fullscreen, hotkeys."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]

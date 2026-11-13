@@ -1,0 +1,12 @@
+[package]
+name = "lumen-settings"
+description = "Lumen settings and editor app (separate process, frees its memory on close)."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }

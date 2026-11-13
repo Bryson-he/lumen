@@ -1,0 +1,8 @@
+[package]
+name = "lumen-render"
+description = "Direct2D + DirectComposition windows for widgets and the bar."
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]

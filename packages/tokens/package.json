@@ -1,0 +1,14 @@
+{
+  "name": "@lumen/tokens",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Lumen app design tokens (Direction D). tokens.json is the single source; build.mjs generates CSS variables for the app (Rust constants for the core follow when the core needs them).",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "exports": {
+    "./tokens.json": "./tokens.json",
+    "./tokens.css": "./dist/tokens.css"
+  }
+}

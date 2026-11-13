@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lumen — Wallpapers, dark</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#ECECEA}a:hover{color:#FFFFFF}
+</style>
+</helmet>
+<div style="min-height: 900px; box-sizing: border-box; display: flex; flex-wrap: wrap; background-color: #121315; background-image: radial-gradient(rgba(236,236,234,0.09) 1px, transparent 1.2px); background-size: 22px 22px; font-family: 'Inter', system-ui, sans-serif; color: #ECECEA; font-size: 15px">
+
+  <nav aria-label="Main" style="flex: 1 1 220px; box-sizing: border-box; padding: 28px 18px; background: #18191C; border-right: 1px solid #2A2C31; display: flex; flex-direction: column; gap: 2px">
+    <div style="font-family: 'Caveat', cursive; font-size: 38px; font-weight: 700; line-height: 1; padding: 0 12px; margin-bottom: 24px">Lumen</div>
+    <a href="HybridDark.dc.html" style="text-decoration: none; padding: 9px 12px; border-radius: 8px">Home</a>
+    <a href="#" style="text-decoration: none; padding: 9px 12px; border-radius: 8px">Presets</a>
+    <a href="WallpapersDark.dc.html" style="text-decoration: none; display: flex; flex-direction: column; padding: 9px 12px; border-radius: 8px; background: #25272C; font-weight: 600">Wallpapers<svg width="54" height="8" viewBox="0 0 54 8" aria-hidden="true"><path d="M1 5 C 12 1, 24 7, 36 4 S 50 3, 53 5" fill="none" stroke="{{accent}}" stroke-width="2" stroke-linecap="round"></path></svg></a>
+    <a href="ThemeDark.dc.html" style="text-decoration: none; padding: 9px 12px; border-radius: 8px">Theme &amp; colours</a>
+    <a href="WidgetsDark.dc.html" style="text-decoration: none; padding: 9px 12px; border-radius: 8px">Widgets</a>
+    <a href="#" style="text-decoration: none; padding: 9px 12px; border-radius: 8px">Bar, dock &amp; menus</a>
+    <a href="#" style="text-decoration: none; padding: 9px 12px; border-radius: 8px">Plugins &amp; editor</a>
+    <a href="#" style="text-decoration: none; padding: 9px 12px; border-radius: 8px">Gallery</a>
+    <a href="#" style="text-decoration: none; padding: 9px 12px; border-radius: 8px; margin-top: auto; color: #A3A29C">Settings</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 30px 40px; display: flex; flex-direction: column; gap: 20px">
+    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 2px">
+        <h1 style="margin: 0; font-family: 'Space Grotesk', sans-serif; font-size: 32px; font-weight: 600">Wallpapers</h1>
+        <span style="font-family: 'Caveat', cursive; font-size: 21px; color: #A3A29C">each one keeps its own palette, ready to go</span>
+      </div>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap">
+        <label style="display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: #1C1D21; border: 1px solid #2E3036; border-radius: 10px">
+          <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6.5" fill="none" stroke="#A3A29C" stroke-width="1.8"></circle><path d="M15 15 L21 21" stroke="#A3A29C" stroke-width="1.8" stroke-linecap="round"></path></svg>
+          <input aria-label="Search wallpapers" placeholder="Search or filter by colour" style="border: none; background: transparent; font-family: inherit; font-size: 15px; color: #ECECEA; outline: none; width: 190px">
+        </label>
+        <button style="font-family: inherit; font-size: 15px; font-weight: 600; padding: 10px 18px; min-height: 44px; background: #ECECEA; color: #121315; border: none; border-radius: 10px; cursor: pointer">+ Import</button>
+      </div>
+    </div>
+
+    <div role="group" aria-label="Filter" style="display: flex; flex-wrap: wrap; gap: 8px">
+      <button style="font-family: inherit; font-size: 14px; font-weight: 600; padding: 8px 14px; min-height: 40px; background: #2C2E34; color: #ECECEA; border: 1.5px solid {{accent}}; border-radius: 999px; cursor: pointer">All</button>
+      <button style="font-family: inherit; font-size: 14px; padding: 8px 14px; min-height: 40px; background: transparent; color: #A3A29C; border: 1px solid #2E3036; border-radius: 999px; cursor: pointer">Static</button>
+      <button style="font-family: inherit; font-size: 14px; padding: 8px 14px; min-height: 40px; background: transparent; color: #A3A29C; border: 1px solid #2E3036; border-radius: 999px; cursor: pointer">Animated</button>
+      <button style="font-family: inherit; font-size: 14px; padding: 8px 14px; min-height: 40px; background: transparent; color: #A3A29C; border: 1px solid #2E3036; border-radius: 999px; cursor: pointer">Favourites</button>
+      <button style="font-family: inherit; font-size: 14px; padding: 8px 14px; min-height: 40px; background: transparent; color: #A3A29C; border: 1px dashed #3A3D44; border-radius: 999px; cursor: pointer">+ Tag</button>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-start">
+      <div style="flex: 3 1 480px; min-width: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 16px">
+        <sc-for list="{{walls}}" as="w" hint-placeholder-count="8">
+          <button onClick="{{w.pick}}" aria-pressed="{{w.pressed}}" style="{{w.tile}}">
+            <svg viewBox="0 0 200 120" width="100%" height="120" preserveAspectRatio="xMidYMid slice" aria-hidden="true" style="display: block">
+              <rect width="200" height="120" fill="{{w.sky}}"></rect>
+              <circle cx="150" cy="34" r="14" fill="{{w.sun}}"></circle>
+              <path d="M0 84 L30 52 L54 72 L82 40 L114 78 L138 60 L168 84 L200 66 L200 120 L0 120 Z" fill="{{w.hill}}"></path>
+              <path d="M0 92 L200 92 L200 120 L0 120 Z" fill="{{w.water}}"></path>
+            </svg>
+            <span style="display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 10px 12px">
+              <span style="font-weight: 500; text-align: left">{{w.name}}</span>
+              <span style="font-size: 12px; color: #A3A29C">{{w.kind}}</span>
+            </span>
+          </button>
+        </sc-for>
+      </div>
+
+      <aside aria-label="Selected wallpaper" style="flex: 1 1 260px; min-width: 0; padding: 18px; background: #1C1D21; border: 1px solid #2E3036; border-radius: 14px; display: flex; flex-direction: column; gap: 14px">
+        <div style="border-radius: 10px; overflow: hidden; border: 1px solid #2E3036">
+          <svg viewBox="0 0 200 120" width="100%" height="150" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Preview of {{sel.name}}" style="display: block">
+            <rect width="200" height="120" fill="{{sel.sky}}"></rect>
+            <circle cx="150" cy="34" r="14" fill="{{sel.sun}}"></circle>
+            <path d="M0 84 L30 52 L54 72 L82 40 L114 78 L138 60 L168 84 L200 66 L200 120 L0 120 Z" fill="{{sel.hill}}"></path>
+            <path d="M0 92 L200 92 L200 120 L0 120 Z" fill="{{sel.water}}"></path>
+          </svg>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 2px">
+          <span style="font-family: 'Space Grotesk', sans-serif; font-size: 22px; font-weight: 600">{{sel.name}}</span>
+          <span style="font-size: 13px; color: #A3A29C">{{sel.detail}}</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <span style="font-size: 13px; font-weight: 500; color: #A3A29C">Extracted palette</span>
+          <div style="display: flex; gap: 6px">
+            <sc-for list="{{sel.dots}}" as="d" hint-placeholder-count="4">
+              <div style="{{d.style}}"></div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <span style="font-size: 13px; font-weight: 500; color: #A3A29C">Show on</span>
+          <div role="group" aria-label="Monitor" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px">
+            <button style="font-family: inherit; font-size: 13px; min-height: 40px; background: transparent; color: #A3A29C; border: 1px solid #2E3036; border-radius: 8px; cursor: pointer">Monitor 1</button>
+            <button style="font-family: inherit; font-size: 13px; min-height: 40px; background: transparent; color: #A3A29C; border: 1px solid #2E3036; border-radius: 8px; cursor: pointer">Monitor 2</button>
+            <button style="font-family: inherit; font-size: 13px; font-weight: 600; min-height: 40px; background: #2C2E34; color: #ECECEA; border: 1px solid #3A3D44; border-radius: 8px; cursor: pointer">Both</button>
+          </div>
+        </div>
+        <a href="ThemeDark.dc.html" style="text-decoration: none; text-align: center; font-size: 15px; font-weight: 600; padding: 12px 16px; background: #ECECEA; color: #121315; border-radius: 10px">Make theme from this</a>
+        <button style="font-family: inherit; font-size: 15px; padding: 12px 16px; min-height: 46px; background: transparent; color: #ECECEA; border: 1px solid #3A3D44; border-radius: 10px; cursor: pointer">Set as wallpaper only</button>
+        <span style="font-family: 'Caveat', cursive; font-size: 20px; color: {{accent}}">tip: drag any image in to add it</span>
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"accent":{"editor":"color","default":"#8EA6FF","options":["#8EA6FF","#FF8A7A","#6EE7A8","#C4A7FF"]},"$preview":{"width":1280,"height":900}}'>
+class Component extends DCLogic {
+constructor(props) {
+super(props);
+this.state = { picked: 0 };
+}
+renderVals() {
+const accent = this.props.accent ?? '#8EA6FF';
+const data = [
+{ name: 'Midnight Harbour', kind: 'Static', sky: '#1B2436', sun: '#F2CC8F', hill: '#3B5B8C', water: '#26344F' },
+{ name: 'Forest Day', kind: 'Static', sky: '#CFE3D0', sun: '#FFF3C4', hill: '#5E8C61', water: '#3F6B47' },
+{ name: 'Neon City', kind: 'Animated', sky: '#1D1830', sun: '#FF5FA2', hill: '#3A2F5C', water: '#241E3D' },
+{ name: 'Paper Light', kind: 'Static', sky: '#F6F1E4', sun: '#F2CC8F', hill: '#D8CDB4', water: '#E9E0CC' },
+{ name: 'Desert Dusk', kind: 'Static', sky: '#F4A261', sun: '#FFE8B0', hill: '#C76B3B', water: '#8C4A2F' },
+{ name: 'Arctic', kind: 'Static', sky: '#DCEBF5', sun: '#FFFFFF', hill: '#9CBBD3', water: '#6F93B0' },
+{ name: 'Ember', kind: 'Animated', sky: '#2A1414', sun: '#FF7A3D', hill: '#5C2318', water: '#3A1A14' },
+{ name: 'Lavender Hills', kind: 'Static', sky: '#E7DDF4', sun: '#FFF1F6', hill: '#A88BC9', water: '#7D64A3' }
+];
+const walls = data.map((w, i) => {
+const on = this.state.picked === i;
+return {
+...w,
+pressed: on ? 'true' : 'false',
+pick: () => this.setState({ picked: i }),
+tile: 'font-family: inherit; color: #ECECEA; padding: 0; text-align: left; cursor: pointer; overflow: hidden; border-radius: 12px; background: #1C1D21; ' + (on ? 'border: 2px solid ' + accent : 'border: 1px solid #2E3036')
+};
+});
+const s = data[this.state.picked];
+const sel = {
+...s,
+detail: s.kind === 'Animated' ? 'Animated · pauses automatically in games' : 'Static image · no CPU cost',
+dots: [s.hill, s.sun, s.water, s.sky].map((c) => ({ style: 'width: 36px; height: 36px; border-radius: 50%; background: ' + c + '; box-shadow: 0 0 0 1px #3A3D44' }))
+};
+return { accent, walls, sel };
+}
+}
+</script>
+</body>
+</html>
