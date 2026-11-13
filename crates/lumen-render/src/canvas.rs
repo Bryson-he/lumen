@@ -5,12 +5,13 @@ use windows::{
     Win32::Graphics::{
         Direct2D::{
             Common::{D2D_RECT_F, D2D_SIZE_U, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT},
-            D2D1_BITMAP_OPTIONS_NONE, D2D1_BITMAP_PROPERTIES1, D2D1_BRUSH_PROPERTIES, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT,
-            D2D1_BUFFER_PRECISION_8BPC_UNORM, D2D1_COLOR_INTERPOLATION_MODE_PREMULTIPLIED, D2D1_COLOR_SPACE_SRGB, D2D1_EXTEND_MODE_CLAMP, D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_ROUNDED_RECT, ID2D1Bitmap1, ID2D1Brush, ID2D1DeviceContext,
+            D2D1_BITMAP_OPTIONS_NONE, D2D1_BITMAP_PROPERTIES1, D2D1_BRUSH_PROPERTIES, D2D1_BUFFER_PRECISION_8BPC_UNORM, D2D1_COLOR_INTERPOLATION_MODE_PREMULTIPLIED,
+            D2D1_COLOR_SPACE_SRGB, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT, D2D1_EXTEND_MODE_CLAMP, D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_ROUNDED_RECT, ID2D1Bitmap1,
+            ID2D1Brush, ID2D1DeviceContext,
         },
         DirectWrite::{
-            DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_TRIMMING,
-            DWRITE_TRIMMING_GRANULARITY_CHARACTER, DWRITE_WORD_WRAPPING_NO_WRAP,
+            DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_TEXT_METRICS,
+            DWRITE_TRIMMING, DWRITE_TRIMMING_GRANULARITY_CHARACTER, DWRITE_WORD_WRAPPING_NO_WRAP,
         },
         Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM,
     },
@@ -134,13 +135,22 @@ impl Canvas<'_> {
     /// Fills a rounded rectangle with a diagonal gradient (top-left to bottom-right).
     pub fn fill_round_rect_gradient(&self, rect: Rect, radius: f32, from: Rgba, to: Rgba) {
         let stops = [D2D1_GRADIENT_STOP { position: 0.0, color: from.d2d() }, D2D1_GRADIENT_STOP { position: 1.0, color: to.d2d() }];
-        let properties = D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES {
-            startPoint: Vector2 { X: rect.x, Y: rect.y },
-            endPoint: Vector2 { X: rect.x + rect.width, Y: rect.y + rect.height },
-        };
+        let properties =
+            D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES { startPoint: Vector2 { X: rect.x, Y: rect.y }, endPoint: Vector2 { X: rect.x + rect.width, Y: rect.y + rect.height } };
         unsafe {
-            let Ok(collection) = self.dc.CreateGradientStopCollection(&stops, D2D1_COLOR_SPACE_SRGB, D2D1_COLOR_SPACE_SRGB, D2D1_BUFFER_PRECISION_8BPC_UNORM, D2D1_EXTEND_MODE_CLAMP, D2D1_COLOR_INTERPOLATION_MODE_PREMULTIPLIED) else { return };
-            let Ok(brush) = self.dc.CreateLinearGradientBrush(&properties, None, &collection) else { return };
+            let Ok(collection) = self.dc.CreateGradientStopCollection(
+                &stops,
+                D2D1_COLOR_SPACE_SRGB,
+                D2D1_COLOR_SPACE_SRGB,
+                D2D1_BUFFER_PRECISION_8BPC_UNORM,
+                D2D1_EXTEND_MODE_CLAMP,
+                D2D1_COLOR_INTERPOLATION_MODE_PREMULTIPLIED,
+            ) else {
+                return;
+            };
+            let Ok(brush) = self.dc.CreateLinearGradientBrush(&properties, None, &collection) else {
+                return;
+            };
             self.dc.FillRoundedRectangle(&rect.rounded(radius), &brush);
         }
     }
@@ -174,10 +184,47 @@ impl Canvas<'_> {
                 let trimming = DWRITE_TRIMMING { granularity: DWRITE_TRIMMING_GRANULARITY_CHARACTER, delimiter: 0, delimiterCount: 0 };
                 let _ = format.SetTrimming(&trimming, &ellipsis);
             }
-            let Ok(layout) = self.gpu.dwrite.CreateTextLayout(&wide, &format, bounds.width, bounds.height.max(1.0)) else { return };
+            let Ok(layout) = self.gpu.dwrite.CreateTextLayout(&wide, &format, bounds.width, bounds.height.max(1.0)) else {
+                return;
+            };
             if let Some(brush) = self.brush(style.color) {
                 self.dc.DrawTextLayout(Vector2 { X: bounds.x, Y: bounds.y }, &layout, &brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
             }
+        }
+    }
+
+    /// How wide a line of text would be, in logical pixels (0 if it cannot be measured).
+    pub fn text_width(&self, text: &str, style: TextStyle<'_>) -> f32 {
+        if text.is_empty() {
+            return 0.0;
+        }
+        let weight = DWRITE_FONT_WEIGHT(match style.weight {
+            Weight::Regular => 400,
+            Weight::Medium => 500,
+            Weight::SemiBold => 600,
+        });
+        let collection = self.gpu.collection_for(style.family);
+        let wide: Vec<u16> = text.encode_utf16().collect();
+        unsafe {
+            let format = self.gpu.dwrite.CreateTextFormat(
+                &HSTRING::from(style.family),
+                collection.as_ref(),
+                weight,
+                DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL,
+                style.size,
+                w!(""),
+            );
+            let Ok(format) = format else { return 0.0 };
+            let _ = format.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            let Ok(layout) = self.gpu.dwrite.CreateTextLayout(&wide, &format, 10_000.0, 100.0) else {
+                return 0.0;
+            };
+            let mut metrics = DWRITE_TEXT_METRICS::default();
+            if layout.GetMetrics(&mut metrics).is_err() {
+                return 0.0;
+            }
+            metrics.widthIncludingTrailingWhitespace.ceil()
         }
     }
 
@@ -214,7 +261,9 @@ impl Canvas<'_> {
         let transform = Matrix3x2 { M11: scale, M12: 0.0, M21: 0.0, M22: scale, M31: offset_x, M32: offset_y };
         let brush_properties = D2D1_BRUSH_PROPERTIES { opacity: 1.0, transform };
         unsafe {
-            let Ok(brush) = self.dc.CreateBitmapBrush(&bitmap.inner, None, Some(&brush_properties)) else { return };
+            let Ok(brush) = self.dc.CreateBitmapBrush(&bitmap.inner, None, Some(&brush_properties)) else {
+                return;
+            };
             self.dc.FillRoundedRectangle(&rect.rounded(radius), &brush);
         }
     }

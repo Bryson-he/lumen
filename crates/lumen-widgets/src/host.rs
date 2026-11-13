@@ -10,8 +10,11 @@
 //! Desktop edit mode (Win+Alt+E) dims every monitor, raises the widgets above
 //! other windows and makes them draggable; Esc or the hotkey again leaves it.
 
+mod bars;
+
 use std::{
     cell::RefCell,
+    collections::HashMap,
     collections::VecDeque,
     path::PathBuf,
     rc::Rc,
@@ -19,6 +22,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use lumen_ipc::bar::BarConfig;
 use lumen_ipc::widgets::{
     AddWidgetParams, Guides, Layout, LayoutOptionsParams, MIN_SIZE, MonitorArea, Placement, UpdateWidgetParams, WidgetCost, WidgetKind as Kind, WidgetsState,
 };
@@ -34,7 +38,7 @@ use windows::{
             HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
             Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN, RegisterHotKey, ReleaseCapture, SetCapture, UnregisterHotKey, VK_ESCAPE},
             WindowsAndMessaging::{
-                CreateWindowExW, DefWindowProcW, DestroyWindow, GetCursorPos, IDC_ARROW, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENWSE, KillTimer, LoadCursorW, PostMessageW,
+                CreateWindowExW, DefWindowProcW, DestroyWindow, GetCursorPos, IDC_ARROW, IDC_HAND, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENWSE, KillTimer, LoadCursorW, PostMessageW,
                 RegisterClassW, SetCursor, SetTimer, WINDOW_STYLE, WM_APP, WM_CAPTURECHANGED, WM_DISPLAYCHANGE, WM_HOTKEY, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
                 WM_SETCURSOR, WM_TIMECHANGE, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW,
             },
@@ -44,7 +48,7 @@ use windows::{
 };
 
 use crate::{
-    BUNDLED_FONTS,
+    BUNDLED_FONTS, bar,
     clock::{self, ClockData},
     edit,
     governor::{self, Governor},
@@ -68,12 +72,16 @@ const HOTKEY_EDIT: i32 = 1;
 const HOTKEY_ESCAPE: i32 = 2;
 /// While dragging, the settings app is told at most this often.
 const DRAG_REPORT_EVERY: Duration = Duration::from_millis(40);
+/// Windows posts this to a bar's anchor window when reserved screen space changes.
+const BAR_CALLBACK: u32 = WM_APP + 11;
 
 /// How to run the widgets.
 #[derive(Debug, Clone)]
 pub struct Options {
     /// Where the layout is kept (`widgets/layout.json`).
     pub layout_path: PathBuf,
+    /// Where the bar's settings are kept (`bar.json`).
+    pub bar_path: PathBuf,
     /// Keep widgets above other windows (for testing; normally they sit on the desktop).
     pub topmost: bool,
 }
@@ -93,11 +101,15 @@ pub enum Command {
     SetLayout(Box<Layout>),
     /// Let a widget the governor switched off run again.
     Resume(String),
+    /// Replace the bar's settings.
+    SetBar(Box<BarConfig>),
 }
 
 /// What the host tells its owner.
 #[derive(Debug, Clone)]
 pub enum Report {
+    /// The bar's settings changed (also sent once at start-up).
+    Bar(BarConfig),
     /// The layout, selection, edit mode or list of switched-off widgets changed.
     State(WidgetsState),
     /// Fresh per-widget costs, about every ten seconds while widgets are running.
@@ -141,6 +153,8 @@ struct Area {
     info: MonitorArea,
     /// Work area origin and the whole monitor's rectangle, in physical pixels.
     work: (i32, i32),
+    /// The whole work area: x, y, width, height.
+    work_rect: (i32, i32, i32, i32),
     bounds: (i32, i32, i32, i32),
     scale: f32,
 }
@@ -211,6 +225,13 @@ struct Host {
     media: Option<MediaInfo>,
     /// The current track's cover, uploaded to the GPU on first use.
     art: Option<Bitmap>,
+
+    /// The status bar's settings, and one entry per monitor it is on.
+    bar: BarConfig,
+    bars: Vec<bars::BarSlot>,
+    /// Launcher icons as read from disk (`None`: the file has no icon), and on the GPU.
+    icon_pixels: HashMap<String, Option<lumen_win::shell::Icon>>,
+    icons: HashMap<String, Bitmap>,
 }
 
 thread_local! {
@@ -254,8 +275,16 @@ pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'stat
         sampler,
         media: None,
         art: None,
+        bar: BarConfig::default(),
+        bars: Vec::new(),
+        icon_pixels: HashMap::new(),
+        icons: HashMap::new(),
     };
+    host.bar = bars::load_bar(&host.options.bar_path);
     host.rebuild()?;
+    host.load_icons();
+    host.place_bars();
+    host.draw(None);
     host.sync_timers();
     unsafe {
         if RegisterHotKey(Some(window), HOTKEY_EDIT, MOD_WIN | MOD_ALT | MOD_NOREPEAT, u32::from(b'E')).is_err() {
@@ -263,8 +292,9 @@ pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'stat
         }
     }
     set_input_handler(Some(on_input));
-    info!("{} widgets on the desktop", host.slots.len());
+    info!("{} widgets on the desktop{}", host.slots.len(), if host.bar.enabled { ", bar on" } else { "" });
     host.report();
+    (host.on_state)(Report::Bar(host.bar.clone()));
     HOST.set(Some(host));
 
     let handle = HostHandle { window: window.0 as isize, inbox };
@@ -366,12 +396,14 @@ impl Host {
         self.art = None;
         self.gpu = None;
         self.areas = read_areas();
+        self.drop_bar_surfaces();
         if self.should_suspend() {
             // A display change during a game: note the new monitors, but stay
             // suspended. Everything is rebuilt when the game ends.
             return Ok(());
         }
         self.gpu = Some(Gpu::new(BUNDLED_FONTS).map_err(text)?);
+        self.make_bar_surfaces();
 
         for index in 0..self.layout.widgets.len() {
             let placement = self.layout.widgets[index].clone();
@@ -409,10 +441,7 @@ impl Host {
 
     /// The monitor a placement is on: the one named, else the primary, else the first.
     fn area_index(&self, monitor: Option<&str>) -> usize {
-        monitor
-            .and_then(|id| self.areas.iter().position(|a| a.info.id == id))
-            .or_else(|| self.areas.iter().position(|a| a.info.primary))
-            .unwrap_or(0)
+        monitor.and_then(|id| self.areas.iter().position(|a| a.info.id == id)).or_else(|| self.areas.iter().position(|a| a.info.primary)).unwrap_or(0)
     }
 
     fn to_physical(&self, area: usize, x: f32, y: f32) -> (i32, i32) {
@@ -473,6 +502,8 @@ impl Host {
                 }
                 self.governor.cost(&placement.id, bytes as f64 / (1024.0 * 1024.0))
             })
+            // The bar is measured like a widget, under its own name.
+            .chain(self.bar.enabled.then(|| self.governor.cost(bars::BAR_COST_ID, self.bar_memory_bytes() as f64 / (1024.0 * 1024.0))))
             .collect()
     }
 
@@ -500,7 +531,8 @@ impl Host {
     /// Whether nothing at all should be on screen: the user paused the
     /// widgets, or a game is in front and every widget hides in games.
     fn should_suspend(&self) -> bool {
-        self.user_paused || (self.paused && self.layout.widgets.iter().all(|w| w.style.hide_in_games))
+        // "Pause widgets" leaves the bar up, so the device is still needed then.
+        (self.user_paused && !self.bar.enabled) || (self.paused && self.layout.widgets.iter().all(|w| w.style.hide_in_games))
     }
 
     /// Suspends or resumes rendering as a whole. Suspended means the widget
@@ -511,6 +543,7 @@ impl Host {
         if suspend && self.gpu.is_some() {
             self.set_edit_mode(false);
             self.slots.clear();
+            self.drop_bar_surfaces();
             self.art = None;
             self.gpu = None;
             media::set_paused(true);
@@ -534,7 +567,9 @@ impl Host {
 
     /// Whether a widget should be on screen right now.
     fn wants_visible(&self, slot: &Slot) -> bool {
-        let Some(placement) = self.placement(&slot.id) else { return false };
+        let Some(placement) = self.placement(&slot.id) else {
+            return false;
+        };
         if self.user_paused || (self.paused && placement.style.hide_in_games) || self.governor.is_suspended(&slot.id) {
             return false;
         }
@@ -557,7 +592,9 @@ impl Host {
             if only.is_some_and(|wanted| wanted != kind) || !self.slots[index].surface.is_visible() {
                 continue;
             }
-            let Some(style) = self.placement(&id).map(|p| p.style) else { continue };
+            let Some(style) = self.placement(&id).map(|p| p.style) else {
+                continue;
+            };
             let paint = self.paint.for_widget(&style);
             let (width, height) = self.slots[index].surface.size();
             let (clock, stats, media) = (&self.clock, &self.stats, self.media.as_ref());
@@ -587,6 +624,18 @@ impl Host {
             if let Err(error) = self.rebuild() {
                 warn!("could not recreate the widgets: {error}");
             }
+            return;
+        }
+        // The bar shows the same data; redraw it when what changed is on it.
+        let (clock, stats, media) = bar::needs(&self.bar);
+        let affected = match only {
+            None => true,
+            Some(Kind::Clock) => clock,
+            Some(Kind::SystemStats) => stats,
+            Some(Kind::NowPlaying) => media,
+        };
+        if affected {
+            self.draw_bars();
         }
     }
 
@@ -603,8 +652,10 @@ impl Host {
                 let _ = KillTimer(Some(self.window), id);
             }
         };
-        timer(TIMER_CLOCK, self.any_visible(Kind::Clock), clock::millis_until_next_minute());
-        timer(TIMER_STATS, self.any_visible(Kind::SystemStats), stats::SAMPLE_INTERVAL_MS);
+        // The bar's modules need the same clock tick and stats samples as the widgets.
+        let (bar_clock, bar_stats, _) = if self.any_bar_showing() { bar::needs(&self.bar) } else { (false, false, false) };
+        timer(TIMER_CLOCK, self.any_visible(Kind::Clock) || bar_clock, clock::millis_until_next_minute());
+        timer(TIMER_STATS, self.any_visible(Kind::SystemStats) || bar_stats, stats::SAMPLE_INTERVAL_MS);
         timer(TIMER_MEDIA, self.any_visible(Kind::NowPlaying) && self.media.as_ref().is_some_and(MediaInfo::is_advancing), MEDIA_TICK_MS);
         let hovering = self.edit.is_none() && self.gpu.is_some() && self.layout.widgets.iter().any(|w| w.style.show_on_hover && !(self.paused && w.style.hide_in_games));
         timer(TIMER_HOVER, hovering, HOVER_TICK_MS);
@@ -741,6 +792,7 @@ impl Host {
                     self.report();
                 }
             }
+            Command::SetBar(config) => self.set_bar(*config),
             Command::Resume(id) => {
                 if self.governor.resume(&id) {
                     info!("the widget {id} was resumed");
@@ -782,7 +834,9 @@ impl Host {
     }
 
     fn update_widget(&mut self, params: UpdateWidgetParams) {
-        let Some(index) = self.layout.widgets.iter().position(|w| w.id == params.id) else { return };
+        let Some(index) = self.layout.widgets.iter().position(|w| w.id == params.id) else {
+            return;
+        };
         let before = self.layout.widgets[index].clone();
         let mut after = before.clone();
         if let Some(monitor) = params.monitor.filter(|id| self.areas.iter().any(|a| &a.info.id == id)) {
@@ -807,11 +861,8 @@ impl Host {
             let snapping = self.layout.snap && moved && (params.dragging || params.x.is_some() && params.y.is_some());
             let snapped = snap::snap_move(wanted, &self.frames_on(area, &after.id), self.area_size(area), snapping);
             (after.x, after.y) = (snapped.x, snapped.y);
-            self.guides = if params.dragging {
-                Guides { x: snapped.guide_x, y: snapped.guide_y, monitor: self.areas.get(area).map(|a| a.info.id.clone()) }
-            } else {
-                Guides::default()
-            };
+            self.guides =
+                if params.dragging { Guides { x: snapped.guide_x, y: snapped.guide_y, monitor: self.areas.get(area).map(|a| a.info.id.clone()) } } else { Guides::default() };
         }
         if after == before && !params.dragging && self.guides == Guides::default() {
             return;
@@ -824,7 +875,9 @@ impl Host {
     /// Makes a widget's window match its placement.
     fn apply_placement(&mut self, placement: &Placement, monitor_changed: bool) {
         let area = self.area_index(placement.monitor.as_deref());
-        let Some(index) = self.slots.iter().position(|slot| slot.id == placement.id) else { return };
+        let Some(index) = self.slots.iter().position(|slot| slot.id == placement.id) else {
+            return;
+        };
         let scale_changed = self.areas.get(area).is_some_and(|a| (a.scale - self.slots[index].surface.scale()).abs() > 0.001);
         if monitor_changed && scale_changed {
             // A different monitor scale needs a new window at that scale.
@@ -952,7 +1005,9 @@ impl Host {
         let (area_width, area_height) = self.area_size(primary);
         let hint_at = self.to_physical(primary, (area_width - edit::HINT_SIZE.0) / 2.0, area_height - edit::HINT_SIZE.1 - 32.0);
 
-        let Some(edit) = self.edit.as_mut() else { return };
+        let Some(edit) = self.edit.as_mut() else {
+            return;
+        };
         let overlay = |x: i32, y: i32, size: (f32, f32)| SurfaceOptions { x, y, width: size.0, height: size.1, click_through: true, topmost: true };
 
         match selection_target {
@@ -1016,10 +1071,14 @@ impl Host {
         if self.edit.is_none() {
             return;
         }
-        let Some(slot) = self.slots.iter().find(|slot| slot.surface.window() == window) else { return };
+        let Some(slot) = self.slots.iter().find(|slot| slot.surface.window() == window) else {
+            return;
+        };
         let id = slot.id.clone();
         let corner = Self::corner_at(slot, x, y);
-        let Some(placement) = self.placement(&id).cloned() else { return };
+        let Some(placement) = self.placement(&id).cloned() else {
+            return;
+        };
 
         if self.selected.as_deref() != Some(id.as_str()) {
             self.selected = Some(id.clone());
@@ -1045,12 +1104,18 @@ impl Host {
 
     /// `x`, `y`: the mouse, in physical pixels from the dragged window's top-left.
     fn on_mouse_move(&mut self, window: isize, x: i32, y: i32) {
-        let Some(drag) = self.edit.as_ref().and_then(|edit| edit.drag.as_ref()) else { return };
+        let Some(drag) = self.edit.as_ref().and_then(|edit| edit.drag.as_ref()) else {
+            return;
+        };
         let (id, mode, grab, anchor) = (drag.id.clone(), drag.mode, drag.grab, drag.anchor);
-        let Some(slot) = self.slots.iter().find(|slot| slot.surface.window() == window && slot.id == id) else { return };
+        let Some(slot) = self.slots.iter().find(|slot| slot.surface.window() == window && slot.id == id) else {
+            return;
+        };
         let (window_x, window_y) = slot.surface.position();
         let (screen_x, screen_y) = (window_x + x, window_y + y);
-        let Some(placement) = self.placement(&id).cloned() else { return };
+        let Some(placement) = self.placement(&id).cloned() else {
+            return;
+        };
         let current_area = self.area_index(placement.monitor.as_deref());
 
         let mut params = UpdateWidgetParams { id: id.clone(), dragging: true, ..Default::default() };
@@ -1058,7 +1123,9 @@ impl Host {
             DragMode::Move => {
                 // The monitor under the mouse decides where the widget lives.
                 let area = self.area_at(screen_x, screen_y).unwrap_or(current_area);
-                let Some(target) = self.areas.get(area) else { return };
+                let Some(target) = self.areas.get(area) else {
+                    return;
+                };
                 params.x = Some((screen_x - grab.0 - target.work.0) as f32 / target.scale);
                 params.y = Some((screen_y - grab.1 - target.work.1) as f32 / target.scale);
                 if area != current_area {
@@ -1066,7 +1133,9 @@ impl Host {
                 }
             }
             DragMode::Resize(right, bottom) => {
-                let Some(area) = self.areas.get(current_area) else { return };
+                let Some(area) = self.areas.get(current_area) else {
+                    return;
+                };
                 let pointer = ((screen_x - area.work.0) as f32 / area.scale, (screen_y - area.work.1) as f32 / area.scale);
                 let (width, height) = snap::snap_size((pointer.0 - anchor.0).abs(), (pointer.1 - anchor.1).abs(), self.layout.snap);
                 let (width, height) = (width.max(MIN_SIZE.0), height.max(MIN_SIZE.1));
@@ -1086,7 +1155,9 @@ impl Host {
     /// moves so the opposite corner stays fixed. Done directly, without the
     /// move-snapping that would pull the anchored corner off its spot.
     fn resize_from_anchor(&mut self, id: &str, anchor: (f32, f32), size: (f32, f32), (right, bottom): (bool, bool)) {
-        let Some(index) = self.layout.widgets.iter().position(|w| w.id == id) else { return };
+        let Some(index) = self.layout.widgets.iter().position(|w| w.id == id) else {
+            return;
+        };
         let area = self.area_index(self.layout.widgets[index].monitor.as_deref());
         let (area_width, area_height) = self.area_size(area);
         let mut placement = self.layout.widgets[index].clone();
@@ -1104,7 +1175,9 @@ impl Host {
     }
 
     fn drag_update(&mut self, params: UpdateWidgetParams) {
-        let Some(index) = self.layout.widgets.iter().position(|w| w.id == params.id) else { return };
+        let Some(index) = self.layout.widgets.iter().position(|w| w.id == params.id) else {
+            return;
+        };
         let before = (self.layout.widgets[index].clone(), self.guides.clone());
         // Reuse the same path as updates from the settings app, minus its report.
         let report = std::mem::replace(&mut self.on_state, Box::new(|_| {}));
@@ -1181,6 +1254,7 @@ fn read_areas() -> Vec<Area> {
                     wallpaper: m.wallpaper.map(|p| p.display().to_string()),
                 },
                 work: (work.0, work.1),
+                work_rect: work,
                 bounds,
                 scale,
             })
@@ -1191,7 +1265,7 @@ fn read_areas() -> Vec<Area> {
         // The wallpaper service was unavailable: fall back to the primary monitor alone.
         if let Some((work, bounds, scale)) = unsafe { monitor_metrics(MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY)) } {
             let info = MonitorArea { id: String::new(), number: 1, primary: true, width: work.2 as f32 / scale, height: work.3 as f32 / scale, wallpaper: None };
-            areas.push(Area { info, work: (work.0, work.1), bounds, scale });
+            areas.push(Area { info, work: (work.0, work.1), work_rect: work, bounds, scale });
         }
     }
     areas
@@ -1226,9 +1300,28 @@ fn on_input(window: isize, message: u32, _wparam: usize, lparam: isize) -> Optio
     match message {
         WM_LBUTTONDOWN => with_host(|host| host.on_mouse_down(window, x, y)).map(|()| 0),
         WM_MOUSEMOVE => with_host(|host| host.on_mouse_move(window, x, y)).map(|()| 0),
-        WM_LBUTTONUP | WM_CAPTURECHANGED => with_host(Host::on_mouse_up).map(|()| 0),
+        WM_LBUTTONUP => with_host(|host| {
+            if host.is_bar_window(window) {
+                host.on_bar_click(window, x);
+            } else {
+                host.on_mouse_up();
+            }
+        })
+        .map(|()| 0),
+        WM_CAPTURECHANGED => with_host(Host::on_mouse_up).map(|()| 0),
         WM_SETCURSOR => {
-            let cursor = with_host(|host| host.cursor_for(window)).flatten()?;
+            let cursor = with_host(|host| {
+                if host.is_bar_window(window) {
+                    // A pointing hand over anything on the bar that can be clicked.
+                    let mut cursor = POINT::default();
+                    let _ = unsafe { GetCursorPos(&mut cursor) };
+                    let left = host.bars_left_edge(window).unwrap_or(0);
+                    Some(if host.bar_hot(window, cursor.x - left) { IDC_HAND } else { IDC_ARROW })
+                } else {
+                    host.cursor_for(window)
+                }
+            })
+            .flatten()?;
             unsafe { SetCursor(LoadCursorW(None, cursor).ok()) };
             Some(1)
         }
@@ -1259,11 +1352,20 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
             with_host(|host| host.on_timer(TIMER_CLOCK));
         }
         // Monitors were added, removed, rearranged or rescaled.
+        // Something that holds screen space (the taskbar, another bar) moved.
+        BAR_CALLBACK => {
+            if wparam.0 == lumen_win::appbar::POSITION_CHANGED {
+                with_host(Host::reposition_bars);
+            }
+        }
         WM_DISPLAYCHANGE => {
             with_host(|host| {
                 if let Err(error) = host.rebuild() {
                     warn!("could not move the widgets after a display change: {error}");
                 }
+                // The monitors changed, so the bars need new places too.
+                host.place_bars();
+                host.draw(None);
                 host.sync_timers();
                 host.report();
             });

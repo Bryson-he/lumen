@@ -212,3 +212,37 @@ export interface WidgetCost {
 /** What one widget may use before the governor steps in. */
 export const WIDGET_CPU_BUDGET = 0.1;
 export const WIDGET_MEMORY_BUDGET_MB = 5;
+
+// ----- The status bar (crates/lumen-ipc/src/bar.rs) -----
+
+export interface LauncherApp {
+  name: string;
+  /** Full path of the program or shortcut to open. */
+  path: string;
+}
+
+export type BarModule =
+  | { type: "lumen" | "clock" | "date" | "cpu" | "memory" | "gpu" | "media" }
+  | { type: "launcher"; apps: LauncherApp[] };
+
+export type BarSlot = "left" | "centre" | "right";
+
+export interface BarConfig {
+  enabled: boolean;
+  position: "top" | "bottom";
+  /** Height in logical pixels. */
+  height: number;
+  /** "main", "all", or "#2" for monitor number 2. */
+  monitor: string;
+  /** Reserve the bar's strip of the screen, so maximised windows stop at it. */
+  reserveSpace: boolean;
+  left: BarModule[];
+  centre: BarModule[];
+  right: BarModule[];
+}
+
+/** BAR_HEIGHT_RANGE and MAX_LAUNCHER_APPS in lumen-ipc. */
+export const BAR_HEIGHT_RANGE = [28, 56] as const;
+export const MAX_LAUNCHER_APPS = 16;
+/** The most modules one slot holds. */
+export const MAX_SLOT_MODULES = 12;

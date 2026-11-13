@@ -1,0 +1,242 @@
+/* Styles for the Bar, dock & menus screen. Colours are tokens, or the theme's
+   own colours passed in as --t-* variables for the preview. */
+
+.bar-split {
+  gap: 20px;
+}
+.bar-main {
+  flex: 3 1 520px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.bar-side {
+  flex: 1 1 260px;
+  max-width: 340px;
+  gap: 14px;
+}
+.bar-slots-label {
+  margin-top: 10px;
+}
+
+/* ---------- Preview ---------- */
+
+.bar-pv {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-tile);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: linear-gradient(160deg, var(--t-surface), var(--t-neutral));
+  color: var(--t-on-surface);
+  font-family: var(--t-font);
+  font-size: 13px;
+}
+.bar-pv-bottom {
+  flex-direction: column-reverse;
+}
+.bar-pv-strip {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 20px;
+  height: var(--bar-height);
+  padding: 0 16px;
+  background: var(--t-surface);
+  border-bottom: 1px solid var(--t-outline);
+  white-space: nowrap;
+  overflow: hidden;
+  transition: height var(--motion-normal) var(--motion-easing);
+}
+.bar-pv-bottom .bar-pv-strip {
+  border-bottom: none;
+  border-top: 1px solid var(--t-outline);
+}
+.bar-pv-off .bar-pv-strip {
+  opacity: 0.35;
+}
+.bar-pv-slot {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+  /* The picture is far narrower than a screen: a full slot is cut short
+     rather than drawn over its neighbour. Room is left for the pick outline. */
+  height: 100%;
+  padding: 0 6px;
+  margin: 0 -6px;
+  overflow: hidden;
+}
+.bar-pv-slot > span {
+  flex-shrink: 0;
+}
+.bar-pv-right {
+  justify-content: flex-end;
+}
+.bar-pv-strong {
+  font-weight: 600;
+}
+.bar-pv-medium {
+  font-weight: 500;
+}
+.bar-pv-muted {
+  opacity: 0.65;
+}
+.bar-pv-media {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.bar-pv-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--t-primary);
+}
+.bar-pv-icons {
+  display: inline-flex;
+  gap: 10px;
+}
+.bar-pv-icon {
+  display: grid;
+  place-items: center;
+  width: calc(var(--bar-height) - 14px);
+  height: calc(var(--bar-height) - 14px);
+  border-radius: 5px;
+  background: var(--t-neutral);
+  font-weight: 600;
+}
+.bar-pv-picked {
+  outline: 2px solid var(--t-primary);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.bar-pv-desktop {
+  display: grid;
+  place-items: center;
+  height: 84px;
+  font-family: var(--font-hand);
+  font-size: 20px;
+  opacity: 0.6;
+}
+
+/* ---------- Slots ---------- */
+
+.bar-slots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-gap-sm);
+  align-items: start;
+}
+.bar-slot {
+  gap: 10px;
+  padding: 12px;
+}
+.bar-slot-empty {
+  padding: 6px 2px;
+}
+.bar-modules,
+.bar-apps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bar-module,
+.bar-app {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 0;
+  border-radius: var(--radius-button);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+}
+.bar-module-picked {
+  border-color: var(--pencil);
+  background: var(--surface-selected);
+}
+.bar-module-name {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--size-control-min);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-button);
+  background: transparent;
+  text-align: left;
+  font-size: 14px;
+  color: var(--text);
+}
+.bar-module-actions {
+  display: flex;
+  flex-shrink: 0;
+}
+.bar-icon-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-button-small);
+  background: transparent;
+  color: var(--text);
+  stroke: currentColor;
+}
+.bar-icon-button:hover:not(:disabled) {
+  background: var(--surface);
+}
+.bar-icon-button:disabled {
+  color: var(--text-muted);
+  opacity: 0.45;
+}
+.bar-menu-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 220px;
+}
+.bar-slot .menu {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.bar-app {
+  padding: 6px 4px 6px 12px;
+}
+.bar-app-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+}
+.bar-app-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-later {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* In a narrow slot the launcher's app count drops under its name. */
+.bar-module-name {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+.bar-module-name > span {
+  white-space: nowrap;
+}

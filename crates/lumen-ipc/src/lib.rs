@@ -8,13 +8,15 @@ use lumen_theme::{Color, Mode, Source, Style, Theme, Variant};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod bar;
 pub mod presets;
 pub mod widgets;
 
+pub use bar::{BarConfig, BarModule, BarPosition, LauncherApp};
 pub use presets::{ExportPresetParams, ImportPresetParams, Preset, PresetIdParams, PresetInfo, PresetManifest, PresetWallpaper, RenamePresetParams, SavePresetParams};
 pub use widgets::{
-    AddWidgetParams, Background, CostStatus, EditModeParams, WidgetCost, Guides, Layout, LayoutOptionsParams, MonitorArea, Placement, SelectWidgetParams, UpdateWidgetParams, WidgetIdParams,
-    WidgetKind, WidgetStyle, WidgetsState,
+    AddWidgetParams, Background, CostStatus, EditModeParams, Guides, Layout, LayoutOptionsParams, MonitorArea, Placement, SelectWidgetParams, UpdateWidgetParams, WidgetCost,
+    WidgetIdParams, WidgetKind, WidgetStyle, WidgetsState,
 };
 
 /// The core's pipe. Override with the `LUMEN_PIPE` environment variable (tests).
@@ -91,6 +93,11 @@ pub mod method {
     /// Params: [`WidgetIdParams`](super::WidgetIdParams). Lets a widget the governor
     /// switched off run again.
     pub const RESUME_WIDGET: &str = "resumeWidget";
+    /// No params. Result: [`BarConfig`](super::BarConfig).
+    pub const GET_BAR: &str = "getBar";
+    /// Params: a whole [`BarConfig`](super::BarConfig). Applied and saved at once;
+    /// the result is the config as it stood, and the change arrives in `barChanged`.
+    pub const SET_BAR: &str = "setBar";
 }
 
 /// Notification names pushed by the core.
@@ -103,6 +110,8 @@ pub mod event {
     pub const WIDGETS_CHANGED: &str = "widgetsChanged";
     /// Params: array of [`PresetInfo`](super::PresetInfo) (the whole list).
     pub const PRESETS_CHANGED: &str = "presetsChanged";
+    /// Params: [`BarConfig`](super::BarConfig).
+    pub const BAR_CHANGED: &str = "barChanged";
 }
 
 /// JSON-RPC error codes: the standard ones plus Lumen's own (positive).
@@ -307,7 +316,6 @@ pub struct ImportWallpaperParams {
     /// Absolute path of the image to copy into the library.
     pub path: String,
 }
-
 
 /// Result of `getStatus`: what the Home status strip shows.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

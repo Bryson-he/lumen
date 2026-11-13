@@ -74,14 +74,17 @@ impl<D: Desktop> Service<D> {
         if self.preview.is_some() {
             self.commit_preview()?;
         }
-        let theme = self.committed.clone().ok_or_else(|| {
-            RpcError::new(code::INVALID_PARAMS, "There is no look to save yet. Make a theme from a wallpaper or a colour first, then save it as a preset.")
-        })?;
+        let theme = self
+            .committed
+            .clone()
+            .ok_or_else(|| RpcError::new(code::INVALID_PARAMS, "There is no look to save yet. Make a theme from a wallpaper or a colour first, then save it as a preset."))?;
 
         let monitors = self.desktop.monitors().map_err(desktop_error)?;
         let mut wallpapers = Vec::new();
         for monitor in &monitors {
-            let Some(path) = &monitor.wallpaper else { continue };
+            let Some(path) = &monitor.wallpaper else {
+                continue;
+            };
             // A wallpaper from outside the library is copied in, so the preset
             // still works if the original file is moved or deleted.
             let entry = self.store.wallpapers().into_iter().find(|w| same_file(&w.path, path)).map(Ok).unwrap_or_else(|| self.store.import_wallpaper(Path::new(path)));
@@ -100,7 +103,8 @@ impl<D: Desktop> Service<D> {
             theme,
             wallpapers,
             widgets: self.widgets.as_ref().map(|state| portable_layout(&state.layout, &monitors)),
-            bar: Value::Null,
+            // The bar already names its monitor portably ("main", "all", "#2").
+            bar: self.bar.as_ref().and_then(|bar| serde_json::to_value(bar).ok()).unwrap_or(Value::Null),
         };
         let id = self.store.new_preset_id(&preset.name);
         self.store.save_preset(&id, &preset).map_err(store_error)?;
@@ -143,6 +147,12 @@ impl<D: Desktop> Service<D> {
         self.committed = Some(preset.theme.clone());
         if let (Some(layout), Some(widgets)) = (&preset.widgets, &self.widget_host) {
             widgets(WidgetCommand::SetLayout(Box::new(local_layout(layout, &monitors))));
+        }
+        // A preset saved before the bar existed has none: the bar is left as it is.
+        if let (Ok(bar), Some(widgets)) = (serde_json::from_value::<lumen_ipc::BarConfig>(preset.bar.clone()), &self.widget_host)
+            && preset.bar.is_object()
+        {
+            widgets(WidgetCommand::SetBar(Box::new(bar)));
         }
 
         preset.last_used_at = now_secs();
@@ -213,13 +223,8 @@ fn portable_layout(layout: &Layout, monitors: &[MonitorInfo]) -> Layout {
 fn local_layout(layout: &Layout, monitors: &[MonitorInfo]) -> Layout {
     let mut layout = layout.clone();
     for widget in &mut layout.widgets {
-        widget.monitor = widget
-            .monitor
-            .as_deref()
-            .and_then(monitor_number)
-            .and_then(|number| monitors.iter().find(|m| m.number == number))
-            .filter(|m| !m.primary)
-            .map(|m| m.id.clone());
+        widget.monitor =
+            widget.monitor.as_deref().and_then(monitor_number).and_then(|number| monitors.iter().find(|m| m.number == number)).filter(|m| !m.primary).map(|m| m.id.clone());
     }
     layout
 }

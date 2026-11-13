@@ -89,6 +89,21 @@ pub fn set_paused(paused: bool) {
     }
 }
 
+/// Plays or pauses whatever Windows' media session is playing, like the
+/// keyboard's play/pause key. Done on a short-lived thread so the caller never waits.
+pub fn toggle_play_pause() {
+    let _ = std::thread::Builder::new().name("media-toggle".into()).spawn(|| {
+        let toggle = || -> windows::core::Result<()> {
+            unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.ok();
+            Manager::RequestAsync()?.join()?.GetCurrentSession()?.TryTogglePlayPauseAsync()?.join()?;
+            Ok(())
+        };
+        if let Err(error) = toggle() {
+            tracing::debug!("nothing to play or pause: {error}");
+        }
+    });
+}
+
 /// Starts the listener thread. `on_change` is called (on that thread) with the
 /// current track whenever it changes, and with `None` when nothing is playing.
 pub fn watch(on_change: impl Fn(Option<MediaInfo>) + Send + 'static) {

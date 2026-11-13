@@ -12,6 +12,7 @@ import "@lumen/tokens/tokens.css";
 import "./styles.css";
 import "./widgets.css";
 import "./presets.css";
+import "./bar.css";
 import App from "./App";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

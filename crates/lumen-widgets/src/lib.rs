@@ -11,9 +11,10 @@
 //! The widget file format and the Luau runtime from the plan arrive with the
 //! creator tools; these three widgets are drawn natively.
 
+pub mod bar;
 pub mod clock;
-pub mod governor;
 mod edit;
+pub mod governor;
 pub mod host;
 pub mod layout;
 pub mod media;

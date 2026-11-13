@@ -14,12 +14,11 @@ use std::{
 };
 
 use lumen_ipc::{
-    GameModeChanged, ImportWallpaperParams, Notification, PREVIEW_SECONDS, PresetInfo, PreviewState, PreviewThemeParams, RpcError,
-    EditModeParams, SelectWidgetParams, SetWallpaperParams, Status, ThemeChangeReason, ThemeChanged, ThemeState, UpdateWallpaperParams, WidgetCost, WidgetIdParams, WidgetsState, code,
-    event, method,
+    BarConfig, EditModeParams, GameModeChanged, ImportWallpaperParams, Notification, PREVIEW_SECONDS, PresetInfo, PreviewState, PreviewThemeParams, RpcError, SelectWidgetParams,
+    SetWallpaperParams, Status, ThemeChangeReason, ThemeChanged, ThemeState, UpdateWallpaperParams, WidgetCost, WidgetIdParams, WidgetsState, code, event, method,
 };
-use lumen_widgets::host::Command as WidgetCommand;
 use lumen_theme::{Mode, Source, SourceColors, Theme, Variant};
+use lumen_widgets::host::Command as WidgetCommand;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use tokio::{
@@ -54,6 +53,8 @@ pub struct Service<D: Desktop> {
     widgets: Option<WidgetsState>,
     /// The governor's latest per-widget measurements.
     widget_costs: Vec<WidgetCost>,
+    /// The bar's settings, as the widget host last reported them.
+    bar: Option<BarConfig>,
     /// A copy of the preset list for the tray menu, which lives on another thread.
     preset_mirror: Option<Arc<Mutex<Vec<PresetInfo>>>>,
 }
@@ -68,7 +69,21 @@ struct Preview<S> {
 impl<D: Desktop> Service<D> {
     pub fn new(store: Store, desktop: D) -> Self {
         let committed = store.active_theme();
-        Self { store, desktop, committed, preview: None, game: None, events: broadcast::channel(64).0, deadline_changed: Rc::new(Notify::new()), stats: ProcessStats::new(), widget_host: None, widgets: None, widget_costs: Vec::new(), preset_mirror: None }
+        Self {
+            store,
+            desktop,
+            committed,
+            preview: None,
+            game: None,
+            events: broadcast::channel(64).0,
+            deadline_changed: Rc::new(Notify::new()),
+            stats: ProcessStats::new(),
+            widget_host: None,
+            widgets: None,
+            widget_costs: Vec::new(),
+            bar: None,
+            preset_mirror: None,
+        }
     }
 
     /// Keeps `mirror` up to date with the preset list (for the tray menu).
@@ -129,6 +144,13 @@ impl<D: Desktop> Service<D> {
             method::SET_EDIT_MODE => self.widget_request(Some(WidgetCommand::EditMode(parse::<EditModeParams>(params)?.on))),
             method::RESUME_WIDGET => self.widget_request(Some(WidgetCommand::Resume(parse::<WidgetIdParams>(params)?.id))),
             method::GET_WIDGET_COSTS => json(&self.widget_costs),
+            method::GET_BAR => json(self.bar.clone().unwrap_or_default()),
+            method::SET_BAR => {
+                let config = parse::<BarConfig>(params)?.sanitised();
+                let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets and bar are not running"))?;
+                host(WidgetCommand::SetBar(Box::new(config.clone())));
+                json(config)
+            }
             other => self.handle_preset(other, params).unwrap_or_else(|| Err(RpcError::new(code::METHOD_NOT_FOUND, format!("unknown method \"{other}\"")))),
         }
     }
@@ -136,10 +158,10 @@ impl<D: Desktop> Service<D> {
     fn theme_state(&self) -> ThemeState {
         ThemeState {
             theme: self.committed.clone(),
-            preview: self.preview.as_ref().map(|p| PreviewState {
-                theme: p.theme.clone(),
-                seconds_left: p.deadline.saturating_duration_since(Instant::now()).as_secs_f64().ceil() as u64,
-            }),
+            preview: self
+                .preview
+                .as_ref()
+                .map(|p| PreviewState { theme: p.theme.clone(), seconds_left: p.deadline.saturating_duration_since(Instant::now()).as_secs_f64().ceil() as u64 }),
         }
     }
 
@@ -211,7 +233,9 @@ impl<D: Desktop> Service<D> {
     /// Puts the desktop back as it was before the preview. Not an error if
     /// nothing is being previewed.
     fn revert_preview(&mut self, reason: ThemeChangeReason) -> Result<(), RpcError> {
-        let Some(preview) = self.preview.take() else { return Ok(()) };
+        let Some(preview) = self.preview.take() else {
+            return Ok(());
+        };
         self.deadline_changed.notify_one();
         let restored = self.desktop.restore(&preview.snapshot);
         info!("reverted \"{}\" ({reason:?})", preview.theme.name);
@@ -337,6 +361,17 @@ impl<D: Desktop> Service<D> {
         if self.widgets.as_ref() != Some(&state) {
             self.emit(event::WIDGETS_CHANGED, &state);
             self.widgets = Some(state);
+        }
+    }
+
+    /// The widget host reports the bar's settings (at start-up and on every change).
+    pub fn bar_changed(&mut self, config: BarConfig) {
+        if self.bar.as_ref() != Some(&config) {
+            // The first report is just the host saying what it loaded.
+            if self.bar.is_some() {
+                self.emit(event::BAR_CHANGED, &config);
+            }
+            self.bar = Some(config);
         }
     }
 
@@ -778,7 +813,8 @@ mod tests {
         assert_eq!(service.store.active_theme(), Some(first_theme));
         let plan = service.desktop.current.clone().unwrap();
         assert_eq!(plan.wallpapers, vec![(Some("NEW-LEFT".into()), PathBuf::from(&sky.path)), (Some("NEW-RIGHT".into()), PathBuf::from(&ember.path))]);
-        let layout = sent.borrow().iter().find_map(|c| if let WidgetCommand::SetLayout(layout) = c { Some(layout.clone()) } else { None }).expect("the widget layout was sent to the host");
+        let layout =
+            sent.borrow().iter().find_map(|c| if let WidgetCommand::SetLayout(layout) = c { Some(layout.clone()) } else { None }).expect("the widget layout was sent to the host");
         assert_eq!(layout.widgets[0].x, 480.0);
         assert_eq!(layout.widgets[2].monitor.as_deref(), Some("NEW-RIGHT"), "monitor 2 on this PC");
         let reasons: Vec<_> = events(&mut rx).iter().filter(|e| e["method"] == "themeChanged").map(|e| e["params"]["reason"].clone()).collect();
@@ -928,6 +964,45 @@ mod tests {
 
         let bad = service.handle(method::UPDATE_WIDGET, json!({ "id": "clock-1", "colour": "red" })).unwrap_err();
         assert_eq!(bad.code, code::INVALID_PARAMS);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_bar_is_set_through_the_host_and_saved_in_presets() {
+        let mut service = service();
+        let wanted = json!({ "enabled": true, "position": "bottom", "height": 250, "monitor": "#2" });
+        assert_eq!(service.handle(method::SET_BAR, wanted.clone()).unwrap_err().code, code::WIDGETS_UNAVAILABLE, "no host yet");
+        let off: BarConfig = call(&mut service, method::GET_BAR, Value::Null);
+        assert!(!off.enabled, "off until the host says otherwise");
+
+        let sent: Rc<RefCell<Vec<WidgetCommand>>> = Rc::default();
+        let log = sent.clone();
+        service.set_widget_host(move |command| log.borrow_mut().push(command));
+        let mut rx = service.subscribe();
+        service.bar_changed(BarConfig::default());
+        assert!(events(&mut rx).is_empty(), "the host's first report is what it loaded, not a change");
+
+        let set: BarConfig = call(&mut service, method::SET_BAR, wanted);
+        assert!(set.enabled && set.monitor == "#2");
+        assert!(set.height < 250, "the height is kept sensible");
+        let bars = || sent.borrow().iter().filter_map(|c| if let WidgetCommand::SetBar(bar) = c { Some((**bar).clone()) } else { None }).collect::<Vec<_>>();
+        assert_eq!(bars(), std::slice::from_ref(&set));
+
+        // The host applies it and reports back; clients hear once.
+        service.bar_changed(set.clone());
+        service.bar_changed(set.clone());
+        let heard = events(&mut rx);
+        assert_eq!(heard.len(), 1);
+        assert_eq!(heard[0]["method"], "barChanged");
+        assert_eq!(heard[0]["params"]["position"], "bottom");
+        assert_eq!(call::<BarConfig>(&mut service, method::GET_BAR, Value::Null), set);
+
+        // A preset carries the bar, and brings it back.
+        preview_blue(&mut service);
+        let _: lumen_ipc::PresetInfo = call(&mut service, method::SAVE_PRESET, json!({ "name": "With Bar" }));
+        service.bar_changed(BarConfig::default());
+        sent.borrow_mut().clear();
+        let _: Theme = call(&mut service, method::APPLY_PRESET, json!({ "id": "with-bar" }));
+        assert_eq!(bars(), [set]);
     }
 
     #[tokio::test(start_paused = true)]

@@ -25,11 +25,11 @@ use std::{
     thread,
 };
 
+use lumen_widgets::host::{self, HostHandle};
 use tokio::{
     sync::{mpsc, oneshot},
     task::LocalSet,
 };
-use lumen_widgets::host::{self, HostHandle};
 use tracing::{error, info};
 
 use crate::{desktop::WindowsDesktop, service::Service, store::Store};
@@ -47,6 +47,7 @@ fn main() -> ExitCode {
     // Before any window exists: draw crisply on every monitor, whatever its scaling.
     lumen_render::enable_per_monitor_dpi();
     let layout_path = store.root().join("widgets").join("layout.json");
+    let bar_path = store.root().join("bar.json");
 
     // Fullscreen changes flow main -> service; the widget host's handle and
     // its state reports flow main -> service; shutdown flows main -> service;
@@ -58,10 +59,8 @@ fn main() -> ExitCode {
     // The tray menu reads the preset list from here; the service keeps it current.
     let presets = Arc::new(Mutex::new(Vec::new()));
     let preset_mirror = presets.clone();
-    let service_thread = thread::Builder::new()
-        .name("service".into())
-        .spawn(move || run_service(store, game_rx, host_rx, shutdown_rx, ready_tx, preset_mirror))
-        .expect("the service thread starts");
+    let service_thread =
+        thread::Builder::new().name("service".into()).spawn(move || run_service(store, game_rx, host_rx, shutdown_rx, ready_tx, preset_mirror)).expect("the service thread starts");
 
     match ready_rx.recv() {
         Ok(Ok(())) => {}
@@ -91,11 +90,12 @@ fn main() -> ExitCode {
 
     // The desktop widgets live on this thread. The service sends the real
     // theme as soon as it has the handle; until then they use the fallback look.
-    let options = host::Options { layout_path, topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
+    let options = host::Options { layout_path, bar_path, topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
     let state_tx = host_tx.clone();
     let on_state = move |report| {
         let _ = state_tx.send(match report {
             host::Report::State(state) => FromHost::State(Box::new(state)),
+            host::Report::Bar(config) => FromHost::Bar(Box::new(config)),
             host::Report::Costs(costs) => FromHost::Costs(costs),
         });
     };
@@ -138,6 +138,8 @@ enum FromHost {
     State(Box<lumen_ipc::WidgetsState>),
     /// The governor measured what each widget costs.
     Costs(Vec<lumen_ipc::WidgetCost>),
+    /// The bar's settings (at start-up, and whenever they change).
+    Bar(Box<lumen_ipc::BarConfig>),
     /// A preset was picked from the tray menu.
     ApplyPreset(String),
 }
@@ -195,6 +197,7 @@ fn run_service(
                     FromHost::Ready(widgets) => widget_service.borrow_mut().set_widget_host(move |command| widgets.send(command)),
                     FromHost::State(state) => widget_service.borrow_mut().widgets_changed(*state),
                     FromHost::Costs(costs) => widget_service.borrow_mut().widget_costs_measured(costs),
+                    FromHost::Bar(config) => widget_service.borrow_mut().bar_changed(*config),
                     FromHost::ApplyPreset(id) => {
                         let params = serde_json::json!({ "id": id });
                         if let Err(error) = widget_service.borrow_mut().handle(lumen_ipc::method::APPLY_PRESET, params) {
@@ -221,7 +224,9 @@ fn start_logging(store: &Store) {
     if fs::metadata(&path).is_ok_and(|m| m.len() > 1_000_000) {
         let _ = fs::rename(&path, dir.join("lumen-core.old.log"));
     }
-    let Ok(file) = fs::OpenOptions::new().create(true).append(true).open(&path) else { return };
+    let Ok(file) = fs::OpenOptions::new().create(true).append(true).open(&path) else {
+        return;
+    };
 
     let level = if cfg!(debug_assertions) { tracing::Level::DEBUG } else { tracing::Level::INFO };
     let builder = tracing_subscriber::fmt().with_max_level(level).with_ansi(false).with_target(false);

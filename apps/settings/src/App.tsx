@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { BarScreen } from "./screens/Bar";
 import { ComingSoon } from "./screens/ComingSoon";
 import { Home } from "./screens/Home";
 import { Presets } from "./screens/Presets";
@@ -30,6 +31,8 @@ function CurrentScreen() {
       return <Wallpapers />;
     case "widgets":
       return <WidgetsScreen />;
+    case "bar":
+      return <BarScreen />;
     case "presets":
       return <Presets />;
     default:

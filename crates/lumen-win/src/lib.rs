@@ -6,8 +6,10 @@
 //! Lumen's own process.
 
 pub mod accent;
+pub mod appbar;
 pub mod appearance;
 pub mod fullscreen;
+pub mod shell;
 pub mod wallpaper;
 
 mod util;
