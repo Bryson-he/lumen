@@ -177,6 +177,40 @@ pub struct WidgetsState {
     pub edit_mode: bool,
     pub selected: Option<String>,
     pub guides: Guides,
+    /// Widgets the governor has switched off for using too much CPU.
+    #[serde(default)]
+    pub suspended: Vec<String>,
+}
+
+/// What one widget may use before the governor steps in: its share of the
+/// whole CPU, in percent, and its memory in megabytes.
+pub const WIDGET_CPU_BUDGET: f64 = 0.1;
+pub const WIDGET_MEMORY_BUDGET_MB: f64 = 5.0;
+
+/// How a widget stands against its budget.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CostStatus {
+    #[default]
+    Ok,
+    /// Over budget; shown as a warning.
+    OverBudget,
+    /// Far over budget for a sustained time; switched off until resumed.
+    Suspended,
+}
+
+/// One widget's measured cost. Result items of `getWidgetCosts`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetCost {
+    pub id: String,
+    /// Share of the whole CPU spent on this widget, in percent, over the last measuring window.
+    pub cpu_percent: f64,
+    /// Memory held for this widget (its drawing surfaces and images), in megabytes.
+    pub memory_mb: f64,
+    /// How often it redrew, per minute, over the last measuring window.
+    pub draws_per_minute: f64,
+    pub status: CostStatus,
 }
 
 /// Params of `updateWidget`. Only the fields given are changed.

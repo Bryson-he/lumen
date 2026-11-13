@@ -13,7 +13,7 @@ pub mod widgets;
 
 pub use presets::{ExportPresetParams, ImportPresetParams, Preset, PresetIdParams, PresetInfo, PresetManifest, PresetWallpaper, RenamePresetParams, SavePresetParams};
 pub use widgets::{
-    AddWidgetParams, Background, EditModeParams, Guides, Layout, LayoutOptionsParams, MonitorArea, Placement, SelectWidgetParams, UpdateWidgetParams, WidgetIdParams,
+    AddWidgetParams, Background, CostStatus, EditModeParams, WidgetCost, Guides, Layout, LayoutOptionsParams, MonitorArea, Placement, SelectWidgetParams, UpdateWidgetParams, WidgetIdParams,
     WidgetKind, WidgetStyle, WidgetsState,
 };
 
@@ -85,6 +85,12 @@ pub mod method {
     pub const SET_LAYOUT_OPTIONS: &str = "setLayoutOptions";
     /// Params: [`EditModeParams`](super::EditModeParams).
     pub const SET_EDIT_MODE: &str = "setEditMode";
+    /// No params. Result: array of [`WidgetCost`](super::WidgetCost), as last measured
+    /// (about every ten seconds while widgets are running).
+    pub const GET_WIDGET_COSTS: &str = "getWidgetCosts";
+    /// Params: [`WidgetIdParams`](super::WidgetIdParams). Lets a widget the governor
+    /// switched off run again.
+    pub const RESUME_WIDGET: &str = "resumeWidget";
 }
 
 /// Notification names pushed by the core.

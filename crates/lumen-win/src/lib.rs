@@ -39,3 +39,14 @@ impl<T> Context<T> for windows::core::Result<T> {
         self.map_err(|source| Error::Windows { what, source })
     }
 }
+
+/// Hands this process's idle memory back to Windows (it is paged in again on
+/// demand). Called when a game starts, so Lumen's footprint is as small as it
+/// can be while the game runs.
+pub fn trim_memory() {
+    use windows::Win32::System::Threading::{GetCurrentProcess, SetProcessWorkingSetSize};
+    unsafe {
+        // The pair (usize::MAX, usize::MAX) means "trim the working set now".
+        let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+    }
+}

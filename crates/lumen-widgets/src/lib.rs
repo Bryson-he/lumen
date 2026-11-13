@@ -12,6 +12,7 @@
 //! creator tools; these three widgets are drawn natively.
 
 pub mod clock;
+pub mod governor;
 mod edit;
 pub mod host;
 pub mod layout;

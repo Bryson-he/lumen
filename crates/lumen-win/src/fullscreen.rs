@@ -101,10 +101,11 @@ pub fn current() -> Option<FullscreenApp> {
 /// (`None`), starting with the current state. Blocks the calling thread,
 /// pumping its message queue, for `duration` or until the thread gets WM_QUIT.
 ///
-/// Event-driven: it wakes only when the foreground window changes, moves or
-/// resizes. There is no polling.
+/// Event-driven: on the desktop it wakes only when the foreground window
+/// changes, moves or resizes. While a fullscreen app is in front it listens
+/// only for the foreground changing, plus one cheap re-check every 5 seconds.
 pub fn watch(duration: Option<Duration>, on_change: impl FnMut(Option<&FullscreenApp>) + 'static) -> Result<()> {
-    WATCH.with_borrow_mut(|watch| *watch = Some(Watch { last: None, on_change: Box::new(on_change), location_hook: None, settle_timer: 0 }));
+    WATCH.with_borrow_mut(|watch| *watch = Some(Watch { last: None, on_change: Box::new(on_change), location_hook: None, settle_timer: 0, game_timer: 0 }));
 
     let result = unsafe {
         let foreground_hook = SetWinEventHook(
@@ -129,8 +130,14 @@ pub fn watch(duration: Option<Duration>, on_change: impl FnMut(Option<&Fullscree
                     if timer == Some(message.wParam.0) {
                         break;
                     }
-                    if settle_timer() == message.wParam.0 {
+                    let (settle, game) = timers();
+                    if settle == message.wParam.0 {
                         let _ = KillTimer(None, message.wParam.0);
+                        report(When::Settled);
+                        continue;
+                    }
+                    if game == message.wParam.0 {
+                        // Still in the game? (The timer keeps running until it is not.)
                         report(When::Settled);
                         continue;
                     }
@@ -164,6 +171,8 @@ struct Watch {
     location_hook: Option<HWINEVENTHOOK>,
     /// One-shot timer for the settle check; 0 when none has been set yet.
     settle_timer: usize,
+    /// Repeating timer that re-checks while a game is in front; 0 otherwise.
+    game_timer: usize,
 }
 
 /// How long after the latest change to look again. Windows' fullscreen flag
@@ -180,8 +189,13 @@ enum When {
     Settled,
 }
 
-fn settle_timer() -> usize {
-    WATCH.with_borrow(|watch| watch.as_ref().map_or(0, |w| w.settle_timer))
+/// How often to re-check while a game is in front. This is the only thing the
+/// watcher does during a game besides waiting for the foreground to change.
+const GAME_RECHECK_MS: u32 = 5000;
+
+/// The ids of the settle timer and the in-game re-check timer (0 = not set).
+fn timers() -> (usize, usize) {
+    WATCH.with_borrow(|watch| watch.as_ref().map_or((0, 0), |w| (w.settle_timer, w.game_timer)))
 }
 
 thread_local! {
@@ -198,8 +212,12 @@ unsafe extern "system" fn on_event(_hook: HWINEVENTHOOK, event: u32, window: HWN
     }
 }
 
-/// Re-points the move/resize hook at the thread that owns the foreground window.
+/// Re-points the move/resize hook at the thread that owns the foreground
+/// window. Does nothing while a game is in front (see [`report`]).
 fn follow_foreground_window() {
+    if WATCH.with_borrow(|watch| watch.as_ref().is_some_and(|w| w.last.is_some())) {
+        return;
+    }
     let hook = unsafe {
         let mut process = 0;
         let thread = GetWindowThreadProcessId(GetForegroundWindow(), Some(&mut process));
@@ -240,15 +258,42 @@ fn report(when: When) {
         When::Event => changed && now.is_none(),
         When::Settled => changed,
     };
+    let mut left_game = false;
     if fire {
         (watch.on_change)(now.as_ref());
+        let was_in_game = watch.last.is_some();
         watch.last = now;
+        let in_game = watch.last.is_some();
+        if in_game && !was_in_game {
+            // While a game is in front, stop listening to its window's
+            // move/resize events: a busy game can produce a stream of them,
+            // and each one would wake this thread. A slow re-check takes over,
+            // for the rare game that leaves fullscreen without losing focus.
+            if let Some(hook) = watch.location_hook.take() {
+                unsafe {
+                    let _ = UnhookWinEvent(hook);
+                }
+            }
+            watch.game_timer = unsafe { SetTimer(None, watch.game_timer, GAME_RECHECK_MS, None) };
+        } else if !in_game && was_in_game {
+            if watch.game_timer != 0 {
+                unsafe {
+                    let _ = KillTimer(None, watch.game_timer);
+                }
+                watch.game_timer = 0;
+            }
+            left_game = true;
+        }
     }
     if when != When::Settled {
         // (Re)start the one-shot settle timer; passing its id back replaces it.
         watch.settle_timer = unsafe { SetTimer(None, watch.settle_timer, SETTLE_MS, None) };
     }
     WATCH.set(Some(watch));
+    if left_game {
+        // Back on the desktop: listen to the foreground window again.
+        follow_foreground_window();
+    }
 }
 
 fn window_rect(window: HWND) -> Option<RECT> {

@@ -3,9 +3,23 @@
 
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { hexToRgb } from "../color";
+import { call } from "../core";
 import { PageHeader } from "../Shell";
 import { useLumen } from "../store";
-import { WIDGET_GRID, WIDGET_NAMES, type MonitorArea, type Placement, type Theme, type UpdateWidgetParams, type WidgetBackground, type WidgetKind, type WidgetStyle } from "../types";
+import {
+  WIDGET_CPU_BUDGET,
+  WIDGET_GRID,
+  WIDGET_MEMORY_BUDGET_MB,
+  WIDGET_NAMES,
+  type MonitorArea,
+  type Placement,
+  type Theme,
+  type UpdateWidgetParams,
+  type WidgetBackground,
+  type WidgetCost,
+  type WidgetKind,
+  type WidgetStyle,
+} from "../types";
 import { Arrow, Button, Check, Segmented, Slider, Tip, WallpaperArt } from "../ui";
 
 const LIBRARY: { kind: WidgetKind | null; label: string }[] = [
@@ -134,8 +148,10 @@ export function WidgetsScreen() {
               locked={layout.locked}
               tab={tab}
               onTab={setTab}
+              suspended={widgets.suspended.includes(selected.id)}
               onUpdate={update}
               onRemove={() => void widgetRequest("removeWidget", { id: selected.id })}
+              onResume={() => void widgetRequest("resumeWidget", { id: selected.id })}
             />
           ) : (
             <>
@@ -457,8 +473,10 @@ function Inspector({
   locked,
   tab,
   onTab,
+  suspended,
   onUpdate,
   onRemove,
+  onResume,
 }: {
   placement: Placement;
   monitors: MonitorArea[];
@@ -467,8 +485,11 @@ function Inspector({
   locked: boolean;
   tab: Tab;
   onTab: (tab: Tab) => void;
+  /** The governor switched this widget off. */
+  suspended: boolean;
   onUpdate: (params: UpdateWidgetParams) => void;
   onRemove: () => void;
+  onResume: () => void;
 }) {
   const { id, style } = placement;
   const setStyle = (changes: Partial<WidgetStyle>) => onUpdate({ id, style: { ...style, ...changes } });
@@ -482,6 +503,14 @@ function Inspector({
         <span className="small-13 muted">Selected</span>
         <span className="panel-title">{WIDGET_NAMES[placement.kind]}</span>
       </div>
+      {suspended && (
+        <div className="strip strip-danger suspended-note" role="alert">
+          <span>Switched off: it was using too much CPU.</span>
+          <button type="button" className="link" onClick={onResume}>
+            Resume
+          </button>
+        </div>
+      )}
       <Segmented
         label="Inspector section"
         look="inset"
@@ -558,6 +587,7 @@ function Inspector({
           <Check checked={style.hideInGames} onChange={(hideInGames) => setStyle({ hideInGames })}>
             Hide when a game is fullscreen
           </Check>
+          <CostLine id={id} />
         </>
       )}
 
@@ -565,6 +595,47 @@ function Inspector({
         Remove widget
       </Button>
     </>
+  );
+}
+
+/**
+ * What this widget costs, as the core's governor last measured it. Asked for
+ * every few seconds, and only while this is on screen and no game is running.
+ */
+function CostLine({ id }: { id: string }) {
+  const { status } = useLumen();
+  const [cost, setCost] = useState<WidgetCost | null>(null);
+  const gameRunning = status?.gameMode.active ?? false;
+  useEffect(() => {
+    if (gameRunning) return;
+    let cancelled = false;
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      call<WidgetCost[]>("getWidgetCosts").then(
+        (costs) => !cancelled && setCost(costs.find((c) => c.id === id) ?? null),
+        () => {},
+      );
+    };
+    refresh();
+    const timer = setInterval(refresh, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [id, gameRunning]);
+
+  return (
+    <div className="field">
+      <span className="small-14">Cost</span>
+      {cost ? (
+        <span className={cost.status === "ok" ? "muted small-13 cost" : "small-13 cost cost-over"}>
+          CPU {cost.cpuPercent.toFixed(3)}% · Memory {cost.memoryMb.toFixed(1)} MB · {Math.round(cost.drawsPerMinute)} redraws a minute
+          {cost.status === "overBudget" && ` — over its budget (${WIDGET_CPU_BUDGET}% CPU, ${WIDGET_MEMORY_BUDGET_MB} MB)`}
+        </span>
+      ) : (
+        <span className="muted small-13">Measuring…</span>
+      )}
+    </div>
   );
 }
 

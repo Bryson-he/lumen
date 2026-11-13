@@ -173,13 +173,15 @@ export function LumenProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Live memory and CPU readout, only while Home is on screen and visible.
+  const gameRunning = status?.gameMode.active ?? false;
   useEffect(() => {
-    if (screen !== "home" || !connected) return;
+    // Not during a game: the app goes quiet too if it was left open behind one.
+    if (screen !== "home" || !connected || gameRunning) return;
     const timer = setInterval(() => {
       if (document.visibilityState === "visible") void refreshStatus();
     }, 2000);
     return () => clearInterval(timer);
-  }, [screen, connected, refreshStatus]);
+  }, [screen, connected, gameRunning, refreshStatus]);
 
   const importWallpapers = useCallback(
     async (paths: string[]) => {

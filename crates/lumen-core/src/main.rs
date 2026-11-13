@@ -93,8 +93,11 @@ fn main() -> ExitCode {
     // theme as soon as it has the handle; until then they use the fallback look.
     let options = host::Options { layout_path, topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
     let state_tx = host_tx.clone();
-    let on_state = move |state| {
-        let _ = state_tx.send(FromHost::State(Box::new(state)));
+    let on_state = move |report| {
+        let _ = state_tx.send(match report {
+            host::Report::State(state) => FromHost::State(Box::new(state)),
+            host::Report::Costs(costs) => FromHost::Costs(costs),
+        });
     };
     match host::start(&lumen_theme::Theme::fallback(), options, on_state) {
         Ok(handle) => {
@@ -106,9 +109,14 @@ fn main() -> ExitCode {
 
     // Blocks here, pumping this thread's messages (tray and widgets included), until Quit.
     let watching = lumen_win::fullscreen::watch(None, move |app| {
-        // Nothing renders while a fullscreen app or game is in front.
+        // Nothing renders while a fullscreen app or game is in front: the
+        // widgets' windows and graphics device are released...
         host::set_paused(app.is_some());
         let _ = game_tx.send(app.map(|app| app.title.clone()));
+        if app.is_some() {
+            // ...and the memory Lumen is not using goes back to Windows.
+            lumen_win::trim_memory();
+        }
     });
     if let Err(error) = watching {
         error!("fullscreen watcher: {error}");
@@ -128,6 +136,8 @@ enum FromHost {
     Ready(HostHandle),
     /// The layout, selection or edit mode changed.
     State(Box<lumen_ipc::WidgetsState>),
+    /// The governor measured what each widget costs.
+    Costs(Vec<lumen_ipc::WidgetCost>),
     /// A preset was picked from the tray menu.
     ApplyPreset(String),
 }
@@ -184,6 +194,7 @@ fn run_service(
                 match message {
                     FromHost::Ready(widgets) => widget_service.borrow_mut().set_widget_host(move |command| widgets.send(command)),
                     FromHost::State(state) => widget_service.borrow_mut().widgets_changed(*state),
+                    FromHost::Costs(costs) => widget_service.borrow_mut().widget_costs_measured(costs),
                     FromHost::ApplyPreset(id) => {
                         let params = serde_json::json!({ "id": id });
                         if let Err(error) = widget_service.borrow_mut().handle(lumen_ipc::method::APPLY_PRESET, params) {

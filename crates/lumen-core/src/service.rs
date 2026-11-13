@@ -15,7 +15,7 @@ use std::{
 
 use lumen_ipc::{
     GameModeChanged, ImportWallpaperParams, Notification, PREVIEW_SECONDS, PresetInfo, PreviewState, PreviewThemeParams, RpcError,
-    EditModeParams, SelectWidgetParams, SetWallpaperParams, Status, ThemeChangeReason, ThemeChanged, ThemeState, UpdateWallpaperParams, WidgetIdParams, WidgetsState, code,
+    EditModeParams, SelectWidgetParams, SetWallpaperParams, Status, ThemeChangeReason, ThemeChanged, ThemeState, UpdateWallpaperParams, WidgetCost, WidgetIdParams, WidgetsState, code,
     event, method,
 };
 use lumen_widgets::host::Command as WidgetCommand;
@@ -52,6 +52,8 @@ pub struct Service<D: Desktop> {
     widget_host: Option<Box<dyn Fn(WidgetCommand)>>,
     /// The widget host's latest report.
     widgets: Option<WidgetsState>,
+    /// The governor's latest per-widget measurements.
+    widget_costs: Vec<WidgetCost>,
     /// A copy of the preset list for the tray menu, which lives on another thread.
     preset_mirror: Option<Arc<Mutex<Vec<PresetInfo>>>>,
 }
@@ -66,7 +68,7 @@ struct Preview<S> {
 impl<D: Desktop> Service<D> {
     pub fn new(store: Store, desktop: D) -> Self {
         let committed = store.active_theme();
-        Self { store, desktop, committed, preview: None, game: None, events: broadcast::channel(64).0, deadline_changed: Rc::new(Notify::new()), stats: ProcessStats::new(), widget_host: None, widgets: None, preset_mirror: None }
+        Self { store, desktop, committed, preview: None, game: None, events: broadcast::channel(64).0, deadline_changed: Rc::new(Notify::new()), stats: ProcessStats::new(), widget_host: None, widgets: None, widget_costs: Vec::new(), preset_mirror: None }
     }
 
     /// Keeps `mirror` up to date with the preset list (for the tray menu).
@@ -125,6 +127,8 @@ impl<D: Desktop> Service<D> {
             method::SELECT_WIDGET => self.widget_request(Some(WidgetCommand::Select(parse::<SelectWidgetParams>(params)?.id))),
             method::SET_LAYOUT_OPTIONS => self.widget_request(Some(WidgetCommand::Options(parse(params)?))),
             method::SET_EDIT_MODE => self.widget_request(Some(WidgetCommand::EditMode(parse::<EditModeParams>(params)?.on))),
+            method::RESUME_WIDGET => self.widget_request(Some(WidgetCommand::Resume(parse::<WidgetIdParams>(params)?.id))),
+            method::GET_WIDGET_COSTS => json(&self.widget_costs),
             other => self.handle_preset(other, params).unwrap_or_else(|| Err(RpcError::new(code::METHOD_NOT_FOUND, format!("unknown method \"{other}\"")))),
         }
     }
@@ -334,6 +338,11 @@ impl<D: Desktop> Service<D> {
             self.emit(event::WIDGETS_CHANGED, &state);
             self.widgets = Some(state);
         }
+    }
+
+    /// The widget host reports what each widget cost over the last window.
+    pub fn widget_costs_measured(&mut self, costs: Vec<WidgetCost>) {
+        self.widget_costs = costs;
     }
 
     /// Passes a widget request on to the host. The answer is the state as it

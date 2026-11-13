@@ -19,7 +19,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use lumen_ipc::widgets::{AddWidgetParams, Guides, Layout, LayoutOptionsParams, MIN_SIZE, MonitorArea, Placement, UpdateWidgetParams, WidgetKind as Kind, WidgetsState};
+use lumen_ipc::widgets::{
+    AddWidgetParams, Guides, Layout, LayoutOptionsParams, MIN_SIZE, MonitorArea, Placement, UpdateWidgetParams, WidgetCost, WidgetKind as Kind, WidgetsState,
+};
 use lumen_render::{Bitmap, Error as RenderError, Gpu, Surface, SurfaceOptions, set_input_handler};
 use lumen_theme::Theme;
 use tracing::{info, warn};
@@ -44,7 +46,9 @@ use windows::{
 use crate::{
     BUNDLED_FONTS,
     clock::{self, ClockData},
-    edit, layout,
+    edit,
+    governor::{self, Governor},
+    layout,
     media::{self, MediaInfo},
     paint::Paint,
     snap::{self, Frame},
@@ -87,6 +91,17 @@ pub enum Command {
     EditMode(bool),
     /// Replace the whole layout (applying a preset).
     SetLayout(Box<Layout>),
+    /// Let a widget the governor switched off run again.
+    Resume(String),
+}
+
+/// What the host tells its owner.
+#[derive(Debug, Clone)]
+pub enum Report {
+    /// The layout, selection, edit mode or list of switched-off widgets changed.
+    State(WidgetsState),
+    /// Fresh per-widget costs, about every ten seconds while widgets are running.
+    Costs(Vec<WidgetCost>),
 }
 
 /// Lets other threads talk to the host.
@@ -177,8 +192,12 @@ struct Host {
     /// The user chose "Pause widgets" in the tray menu: everything is hidden.
     user_paused: bool,
     inbox: Arc<Mutex<Inbox>>,
-    on_state: Box<dyn Fn(WidgetsState)>,
+    on_state: Box<dyn Fn(Report)>,
+    governor: Governor,
+    costs_sent_at: Instant,
 
+    /// `None` while rendering is suspended (a game is running, or the user
+    /// paused the widgets): no graphics device and no widget windows exist.
     gpu: Option<Rc<Gpu>>,
     areas: Vec<Area>,
     slots: Vec<Slot>,
@@ -199,9 +218,10 @@ thread_local! {
 }
 
 /// Starts the widgets on this thread, which must run a message loop.
-/// `on_state` is called on this thread with every change to the layout,
-/// selection or edit mode, starting with the state at start-up.
-pub fn start(theme: &Theme, options: Options, on_state: impl Fn(WidgetsState) + 'static) -> Result<HostHandle, String> {
+/// `on_report` is called on this thread with every change to the layout,
+/// selection or edit mode (starting with the state at start-up), and with
+/// per-widget costs as they are measured.
+pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'static) -> Result<HostHandle, String> {
     let window = unsafe {
         let instance = GetModuleHandleW(None).map_err(text)?;
         let class = w!("LumenWidgetHost");
@@ -220,7 +240,9 @@ pub fn start(theme: &Theme, options: Options, on_state: impl Fn(WidgetsState) + 
         paused: false,
         user_paused: false,
         inbox: inbox.clone(),
-        on_state: Box::new(on_state),
+        on_state: Box::new(on_report),
+        governor: Governor::new(Instant::now()),
+        costs_sent_at: Instant::now(),
         gpu: None,
         areas: Vec::new(),
         slots: Vec::new(),
@@ -266,6 +288,7 @@ pub fn set_paused(paused: bool) {
             host.clock = ClockData::now();
             host.stats = host.sampler.sample();
         }
+        host.sync_suspension();
         host.sync_visibility();
         host.draw(None);
         host.sync_timers();
@@ -286,6 +309,7 @@ pub fn set_user_paused(paused: bool) {
             host.clock = ClockData::now();
             host.stats = host.sampler.sample();
         }
+        host.sync_suspension();
         host.sync_visibility();
         host.draw(None);
         host.sync_timers();
@@ -341,8 +365,13 @@ impl Host {
         self.slots.clear();
         self.art = None;
         self.gpu = None;
-        self.gpu = Some(Gpu::new(BUNDLED_FONTS).map_err(text)?);
         self.areas = read_areas();
+        if self.should_suspend() {
+            // A display change during a game: note the new monitors, but stay
+            // suspended. Everything is rebuilt when the game ends.
+            return Ok(());
+        }
+        self.gpu = Some(Gpu::new(BUNDLED_FONTS).map_err(text)?);
 
         for index in 0..self.layout.widgets.len() {
             let placement = self.layout.widgets[index].clone();
@@ -420,11 +449,79 @@ impl Host {
             edit_mode: self.edit.is_some(),
             selected: self.selected.clone(),
             guides: self.guides.clone(),
+            suspended: self.governor.suspended(),
         }
     }
 
     fn report(&self) {
-        (self.on_state)(self.state());
+        (self.on_state)(Report::State(self.state()));
+    }
+
+    /// What each widget costs right now: measured CPU, and the memory it holds.
+    fn costs(&self) -> Vec<WidgetCost> {
+        self.layout
+            .widgets
+            .iter()
+            .map(|placement| {
+                let slot = self.slots.iter().find(|slot| slot.id == placement.id);
+                let mut bytes = slot.map_or(0, |slot| slot.surface.memory_bytes());
+                if placement.kind == Kind::NowPlaying
+                    && let Some(art) = self.media.as_ref().and_then(|m| m.art.as_ref())
+                {
+                    // The decoded cover, plus its copy on the GPU.
+                    bytes += art.rgba.len() as u64 * 2;
+                }
+                self.governor.cost(&placement.id, bytes as f64 / (1024.0 * 1024.0))
+            })
+            .collect()
+    }
+
+    /// Closes the governor's measuring window when it is due: switches off
+    /// any widget that has been far over budget, and reports the new costs.
+    fn govern(&mut self) {
+        let now = Instant::now();
+        let switched_off = self.governor.roll(now);
+        if !switched_off.is_empty() {
+            for id in &switched_off {
+                warn!("the widget {id} was switched off for using too much CPU");
+            }
+            self.sync_visibility();
+            self.sync_timers();
+            self.report();
+        }
+        if now.duration_since(self.costs_sent_at) >= governor::WINDOW {
+            self.costs_sent_at = now;
+            (self.on_state)(Report::Costs(self.costs()));
+        }
+    }
+
+    // ----- suspending everything -----
+
+    /// Whether nothing at all should be on screen: the user paused the
+    /// widgets, or a game is in front and every widget hides in games.
+    fn should_suspend(&self) -> bool {
+        self.user_paused || (self.paused && self.layout.widgets.iter().all(|w| w.style.hide_in_games))
+    }
+
+    /// Suspends or resumes rendering as a whole. Suspended means the widget
+    /// windows and the graphics device are gone, not merely hidden: no GPU
+    /// memory, no timers, and the media listener ignores what Windows tells it.
+    fn sync_suspension(&mut self) {
+        let suspend = self.should_suspend();
+        if suspend && self.gpu.is_some() {
+            self.set_edit_mode(false);
+            self.slots.clear();
+            self.art = None;
+            self.gpu = None;
+            media::set_paused(true);
+            info!("rendering suspended");
+        } else if !suspend && self.gpu.is_none() {
+            media::set_paused(false);
+            if let Err(error) = self.rebuild() {
+                warn!("could not bring the widgets back: {error}");
+            }
+            info!("rendering resumed");
+        }
     }
 
     fn save(&self) {
@@ -438,7 +535,7 @@ impl Host {
     /// Whether a widget should be on screen right now.
     fn wants_visible(&self, slot: &Slot) -> bool {
         let Some(placement) = self.placement(&slot.id) else { return false };
-        if self.user_paused || (self.paused && placement.style.hide_in_games) {
+        if self.user_paused || (self.paused && placement.style.hide_in_games) || self.governor.is_suspended(&slot.id) {
             return false;
         }
         // In edit mode everything shows, so it can be grabbed.
@@ -465,6 +562,7 @@ impl Host {
             let (width, height) = self.slots[index].surface.size();
             let (clock, stats, media) = (&self.clock, &self.stats, self.media.as_ref());
             let art = &mut self.art;
+            let started = Instant::now();
             let result = self.slots[index].surface.draw(|canvas| match kind {
                 Kind::Clock => clock::draw(canvas, &paint, clock, width, height),
                 Kind::SystemStats => stats::draw(canvas, &paint, stats, width, height),
@@ -477,6 +575,7 @@ impl Host {
                     media::draw(canvas, &paint, media, art.as_ref(), width, height);
                 }
             });
+            self.governor.record_draw(&id, started.elapsed());
             match result {
                 Ok(()) => {}
                 Err(RenderError::DeviceLost) => lost = true,
@@ -507,7 +606,7 @@ impl Host {
         timer(TIMER_CLOCK, self.any_visible(Kind::Clock), clock::millis_until_next_minute());
         timer(TIMER_STATS, self.any_visible(Kind::SystemStats), stats::SAMPLE_INTERVAL_MS);
         timer(TIMER_MEDIA, self.any_visible(Kind::NowPlaying) && self.media.as_ref().is_some_and(MediaInfo::is_advancing), MEDIA_TICK_MS);
-        let hovering = self.edit.is_none() && self.layout.widgets.iter().any(|w| w.style.show_on_hover && !(self.paused && w.style.hide_in_games));
+        let hovering = self.edit.is_none() && self.gpu.is_some() && self.layout.widgets.iter().any(|w| w.style.show_on_hover && !(self.paused && w.style.hide_in_games));
         timer(TIMER_HOVER, hovering, HOVER_TICK_MS);
     }
 
@@ -523,7 +622,14 @@ impl Host {
                 unsafe { SetTimer(Some(self.window), TIMER_CLOCK, clock::millis_until_next_minute(), None) };
             }
             TIMER_STATS => {
+                let started = Instant::now();
                 let now = self.sampler.sample();
+                // Sampling is work done for the stats widgets: share its cost among them.
+                let stats_widgets: Vec<String> = self.slots.iter().filter(|slot| slot.kind == Kind::SystemStats).map(|slot| slot.id.clone()).collect();
+                let share = started.elapsed() / stats_widgets.len().max(1) as u32;
+                for id in &stats_widgets {
+                    self.governor.record_work(id, share);
+                }
                 if now != self.stats {
                     self.stats = now;
                     self.draw(Some(Kind::SystemStats));
@@ -533,6 +639,7 @@ impl Host {
             TIMER_HOVER => self.check_hover(),
             _ => {}
         }
+        self.govern();
     }
 
     /// Shows "only on hover" widgets while the mouse is over where they sit.
@@ -603,6 +710,7 @@ impl Host {
                 let before = self.layout.widgets.len();
                 self.layout.widgets.retain(|w| w.id != id);
                 if self.layout.widgets.len() != before {
+                    self.governor.forget(&id);
                     self.slots.retain(|slot| slot.id != id);
                     if self.selected.as_deref() == Some(id.as_str()) {
                         self.selected = None;
@@ -630,6 +738,15 @@ impl Host {
             Command::EditMode(on) => {
                 if on != self.edit.is_some() {
                     self.set_edit_mode(on);
+                    self.report();
+                }
+            }
+            Command::Resume(id) => {
+                if self.governor.resume(&id) {
+                    info!("the widget {id} was resumed");
+                    self.sync_visibility();
+                    self.draw(None);
+                    self.sync_timers();
                     self.report();
                 }
             }

@@ -143,6 +143,12 @@ impl Surface {
         self.visible
     }
 
+    /// Bytes of pixel memory this surface holds (its two frame buffers).
+    pub fn memory_bytes(&self) -> u64 {
+        let (width, height) = (physical(self.options.width, self.scale), physical(self.options.height, self.scale));
+        u64::from(width) * u64::from(height) * 4 * 2
+    }
+
     /// Draws one frame and shows it. The frame starts fully transparent.
     pub fn draw(&self, paint: impl FnOnce(&Canvas<'_>)) -> Result<()> {
         unsafe {

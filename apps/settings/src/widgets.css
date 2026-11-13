@@ -375,3 +375,15 @@ button.preview-chip:hover:not(:disabled) {
 .inspector select {
   width: 100%;
 }
+
+/* ---------- Governor ---------- */
+
+.cost {
+  font-variant-numeric: tabular-nums;
+}
+.cost-over {
+  color: var(--danger);
+}
+.suspended-note {
+  font-size: 13px;
+}

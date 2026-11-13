@@ -5,7 +5,11 @@
 //! says something changed; there is no polling.
 
 use std::{
-    sync::mpsc,
+    sync::{
+        Mutex,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     time::{Duration, Instant},
 };
 
@@ -70,6 +74,21 @@ impl MediaInfo {
     }
 }
 
+static PAUSED: AtomicBool = AtomicBool::new(false);
+/// Wakes the listener thread when it is resumed.
+static RESUME: Mutex<Option<mpsc::Sender<()>>> = Mutex::new(None);
+
+/// Stops (or restarts) all work in the listener. While paused it ignores
+/// what Windows tells it; on resume it reads the current state again.
+pub fn set_paused(paused: bool) {
+    if PAUSED.swap(paused, Ordering::Relaxed) != paused
+        && !paused
+        && let Some(wake) = RESUME.lock().unwrap_or_else(|p| p.into_inner()).as_ref()
+    {
+        let _ = wake.send(());
+    }
+}
+
 /// Starts the listener thread. `on_change` is called (on that thread) with the
 /// current track whenever it changes, and with `None` when nothing is playing.
 pub fn watch(on_change: impl Fn(Option<MediaInfo>) + Send + 'static) {
@@ -96,10 +115,20 @@ fn listen(on_change: &dyn Fn(Option<MediaInfo>)) -> windows::core::Result<()> {
         Ok(())
     }))?;
 
+    *RESUME.lock().unwrap_or_else(|p| p.into_inner()) = Some(wake.clone());
+
     let mut subscribed: Option<Session> = None;
     let mut last: Option<MediaInfo> = None;
     let mut first = true;
     loop {
+        // While paused (a game is running), events are swallowed: no reading
+        // of titles, no decoding of cover art. Resuming sends one wake-up, so
+        // the state is read fresh then.
+        while PAUSED.load(Ordering::Relaxed) {
+            if woken.recv().is_err() {
+                return Ok(());
+            }
+        }
         let session = manager.GetCurrentSession().ok();
 
         // Follow the current session's own events.

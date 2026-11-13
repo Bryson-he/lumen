@@ -155,6 +155,8 @@ export interface WidgetsState {
   editMode: boolean;
   selected: string | null;
   guides: { x: number | null; y: number | null; monitor: string | null };
+  /** Widgets the governor switched off for using too much CPU. */
+  suspended: string[];
 }
 
 export interface UpdateWidgetParams {
@@ -195,3 +197,18 @@ export interface PresetInfo {
   /** The preset the current look came from, until the look is changed by hand. */
   active: boolean;
 }
+
+// ----- The governor (crates/lumen-ipc/src/widgets.rs) -----
+
+export interface WidgetCost {
+  id: string;
+  /** Share of the whole CPU, in percent, over the last measuring window. */
+  cpuPercent: number;
+  memoryMb: number;
+  drawsPerMinute: number;
+  status: "ok" | "overBudget" | "suspended";
+}
+
+/** What one widget may use before the governor steps in. */
+export const WIDGET_CPU_BUDGET = 0.1;
+export const WIDGET_MEMORY_BUDGET_MB = 5;
