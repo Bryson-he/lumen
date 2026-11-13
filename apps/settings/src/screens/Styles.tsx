@@ -26,7 +26,7 @@ const BACKGROUNDS: { value: StyleBackground; label: string }[] = [
   { value: "glass", label: "Glass (follows theme blur)" },
   { value: "solid", label: "Solid" },
   { value: "gradient", label: "Gradient" },
-  { value: "none", label: "None" },
+  { value: "none", label: "None (just the text and bars)" },
 ];
 
 const PIECES: { key: keyof StyleAssignments; label: string }[] = [
@@ -101,6 +101,8 @@ export function StylesView() {
   };
 
   const full = styles.styles.length >= STYLE_LIMITS.maxStyles;
+  const everywhere = PIECES.every((piece) => styles.assigned[piece.key] === picked.id);
+  const useEverywhere = () => commit({ styles: styles.styles, assigned: { widgets: picked.id, bar: picked.id, flyout: picked.id, launcher: picked.id } });
 
   return (
     <div className="split styles-split">
@@ -127,6 +129,14 @@ export function StylesView() {
         <div className="field-row wrap">
           <h2 className="panel-title">{picked.name}</h2>
           <span className="header-actions">
+            <Button size="bar" kind="primary" disabled={everywhere} onClick={useEverywhere}>
+              {everywhere ? "In use everywhere" : "Use everywhere"}
+            </Button>
+            {!own && (
+              <Button size="bar" disabled={full} onClick={duplicate}>
+                Duplicate to edit
+              </Button>
+            )}
             <Button size="bar" onClick={() => void exportToFile()}>
               Export…
             </Button>
@@ -137,11 +147,19 @@ export function StylesView() {
             )}
           </span>
         </div>
-        {own ? (
-          <p className="muted small-13">{users.length > 0 ? `Changes show on your desktop straight away (used by: ${users.join(", ")}).` : "Not used by anything yet. Pick it under “Used by” to see it on your desktop."}</p>
-        ) : (
-          <p className="muted small-13">Built-in styles can't be changed. Duplicate this one to make your own version.</p>
-        )}
+        <div className="strip styles-status" role="status">
+          <span className="status-dot" />
+          {own ? (
+            <span>
+              <strong>Saved automatically.</strong> There is no Save button: every change is kept as you make it.{" "}
+              {users.length > 0 ? `It is used by: ${users.join(", ")}, so changes show on your desktop straight away.` : "Nothing uses this style yet. Press “Use everywhere”, or choose it per piece under “Used by”."}
+            </span>
+          ) : (
+            <span>
+              <strong>Built-in style.</strong> {users.length > 0 ? `Used by: ${users.join(", ")}.` : "Press “Use everywhere” to put it on your desktop, or choose it per piece under “Used by”."} To change how it looks, press “Duplicate to edit”.
+            </span>
+          )}
+        </div>
         <StyleFields key={picked.id} style={picked} roles={shown?.roles ?? null} disabled={!own} onChange={change} />
       </section>
 

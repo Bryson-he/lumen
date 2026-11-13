@@ -59,6 +59,17 @@
   font-weight: 500;
 }
 
+.styles-status {
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  font-size: 13px;
+}
+.styles-status .status-dot {
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+
 .styles-fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));

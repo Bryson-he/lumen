@@ -9,6 +9,7 @@ import { useLumen } from "../store";
 import {
   WIDGET_CPU_BUDGET,
   WIDGET_GRID,
+  WIDGET_MIN_SIZE,
   WIDGET_MEMORY_BUDGET_MB,
   WIDGET_NAMES,
   type MonitorArea,
@@ -265,6 +266,62 @@ function DesktopPreview({
     if (state.last) onMove({ id: state.id, ...state.last });
   };
 
+  // Resizing by a corner: the opposite corner stays where it is. Sizes move in
+  // grid steps and never go below the smallest widget.
+  const resize = useRef<{ id: string; right: boolean; bottom: boolean; startX: number; startY: number; origin: Placement; last: UpdateWidgetParams | null; frame: number } | null>(null);
+  const beginResize = (event: ReactPointerEvent<HTMLSpanElement>, placement: Placement, right: boolean, bottom: boolean) => {
+    event.stopPropagation();
+    if (locked || event.button !== 0) return;
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // As for moving: the drag still works while the pointer is over the handle.
+    }
+    resize.current = { id: placement.id, right, bottom, startX: event.clientX, startY: event.clientY, origin: placement, last: null, frame: 0 };
+  };
+  const moveResize = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    const state = resize.current;
+    if (!state) return;
+    event.stopPropagation();
+    const { origin } = state;
+    const dx = (event.clientX - state.startX) / scale;
+    const dy = (event.clientY - state.startY) / scale;
+    const stepped = (value: number) => Math.round(value / WIDGET_GRID) * WIDGET_GRID;
+    const width = Math.max(WIDGET_MIN_SIZE[0], stepped(origin.width + (state.right ? dx : -dx)));
+    const height = Math.max(WIDGET_MIN_SIZE[1], stepped(origin.height + (state.bottom ? dy : -dy)));
+    const next: UpdateWidgetParams = { id: state.id, width, height };
+    // Dragging a left or top corner moves that edge, so the far corner stays put.
+    if (!state.right || !state.bottom) {
+      next.x = state.right ? origin.x : Math.max(0, origin.x + origin.width - width);
+      next.y = state.bottom ? origin.y : Math.max(0, origin.y + origin.height - height);
+    }
+    state.last = next;
+    if (!state.frame) {
+      state.frame = requestAnimationFrame(() => {
+        state.frame = 0;
+        if (resize.current === state && state.last) onMove({ ...state.last, dragging: true });
+      });
+    }
+  };
+  const endResize = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    const state = resize.current;
+    resize.current = null;
+    if (!state) return;
+    event.stopPropagation();
+    cancelAnimationFrame(state.frame);
+    if (state.last) onMove(state.last);
+  };
+  const handle = (placement: Placement, corner: "tl" | "tr" | "bl" | "br") => (
+    <span
+      className={`pw-handle pw-handle-${corner}`}
+      aria-hidden="true"
+      onPointerDown={(event) => beginResize(event, placement, corner.endsWith("r"), corner.startsWith("b"))}
+      onPointerMove={moveResize}
+      onPointerUp={endResize}
+      onPointerCancel={endResize}
+    />
+  );
+
   // Bring the selected widget into view when the selection changes (it may be
   // far along a wide monitor, or have been picked on the real desktop).
   useEffect(() => {
@@ -321,10 +378,14 @@ function DesktopPreview({
               </div>
               {placement.id === selectedId && (
                 <>
-                  <span className="pw-handle pw-handle-tl" aria-hidden="true" />
-                  <span className="pw-handle pw-handle-tr" aria-hidden="true" />
-                  <span className="pw-handle pw-handle-bl" aria-hidden="true" />
-                  <span className="pw-handle pw-handle-br" aria-hidden="true" />
+                  {!locked && (
+                    <>
+                      {handle(placement, "tl")}
+                      {handle(placement, "tr")}
+                      {handle(placement, "bl")}
+                      {handle(placement, "br")}
+                    </>
+                  )}
                   <span className={placement.y * scale < 40 ? "pw-badge pw-badge-below" : "pw-badge"} aria-hidden="true">
                     {Math.round(placement.width)} × {Math.round(placement.height)}
                   </span>

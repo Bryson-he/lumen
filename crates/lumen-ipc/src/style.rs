@@ -126,6 +126,8 @@ pub fn builtin_styles() -> Vec<ComponentStyle> {
     vec![
         base(),
         ComponentStyle { background: StyleBackground::Solid, ..named("solid", "Solid") },
+        // Nothing behind the content: just the text and bars, straight on the wallpaper.
+        ComponentStyle { background: StyleBackground::None, border_follows_theme: false, border_width: 0, ..named("bare", "Bare (no background)") },
         ComponentStyle { background: StyleBackground::None, border_follows_theme: false, border_width: 2, border_role: Role::Primary, ..named("outline", "Outline") },
         ComponentStyle { background: StyleBackground::Solid, background_role: Role::Neutral, corners_follow_theme: false, radius: 28, border_follows_theme: false, border_width: 0, spacing: 115, ..named("soft", "Soft") },
         ComponentStyle {

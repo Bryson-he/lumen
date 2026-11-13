@@ -183,6 +183,8 @@ export const WIDGET_NAMES: Record<WidgetKind, string> = {
 
 /** The grid widgets snap to, in logical pixels (GRID in lumen-ipc). */
 export const WIDGET_GRID = 24;
+/** The smallest a widget can be, in logical pixels (MIN_SIZE in lumen-ipc). */
+export const WIDGET_MIN_SIZE = [96, 56] as const;
 
 // ----- Presets (crates/lumen-ipc/src/presets.rs) -----
 

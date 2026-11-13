@@ -171,12 +171,26 @@ button.preview-chip:hover:not(:disabled) {
 }
 .pw-handle {
   position: absolute;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   background: var(--text);
   border: 2px solid var(--pencil);
   border-radius: 3px;
-  pointer-events: none;
+  touch-action: none;
+}
+/* A larger invisible area around each handle, so it is easy to grab. */
+.pw-handle::after {
+  content: "";
+  position: absolute;
+  inset: -9px;
+}
+.pw-handle-tl,
+.pw-handle-br {
+  cursor: nwse-resize;
+}
+.pw-handle-tr,
+.pw-handle-bl {
+  cursor: nesw-resize;
 }
 .pw-handle-tl {
   left: -9px;
