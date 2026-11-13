@@ -470,3 +470,112 @@ button.preview-chip:hover:not(:disabled) {
   user-select: text;
   cursor: text;
 }
+
+/* ---------- A widget drawn from its parts (preview and designer) ---------- */
+
+.wv {
+  position: relative;
+  overflow: hidden;
+  line-height: normal;
+}
+.wv-border {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.wv-text {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.22;
+}
+
+/* ---------- The designer ---------- */
+
+.designer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.designer-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.designer-gap {
+  flex: 1;
+}
+.designer-menu {
+  left: 0;
+  right: auto;
+  min-width: 230px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.designer-canvas {
+  display: grid;
+  place-items: center;
+  min-height: 470px;
+  padding: 48px;
+  border-radius: var(--radius-tile);
+  border: 1px solid var(--border);
+  background: linear-gradient(160deg, var(--d-b), var(--d-a) 60%, var(--d-c) 260%);
+  overflow: hidden;
+}
+.designer-canvas:focus-visible {
+  outline: 2px solid var(--pencil);
+  outline-offset: 2px;
+}
+.designer-stage {
+  position: relative;
+  flex-shrink: 0;
+}
+.designer-widget {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform-origin: top left;
+  pointer-events: none;
+}
+.designer-part {
+  position: absolute;
+  cursor: grab;
+  touch-action: none;
+  outline: 1px dashed transparent;
+  outline-offset: 1px;
+}
+.designer-part:hover {
+  outline-color: var(--pencil);
+}
+.designer-part:active {
+  cursor: grabbing;
+}
+.designer-part-picked {
+  z-index: 3;
+  outline: 2px solid var(--pencil);
+}
+.designer-part-hidden {
+  outline-style: dashed;
+}
+.designer-guide {
+  position: absolute;
+  z-index: 2;
+  background: var(--pencil);
+  pointer-events: none;
+}
+.designer-guide-x {
+  top: -24px;
+  bottom: -24px;
+  width: 1px;
+}
+.designer-guide-y {
+  left: -24px;
+  right: -24px;
+  height: 1px;
+}
+.designer-bar .btn {
+  padding-left: 12px;
+  padding-right: 12px;
+}

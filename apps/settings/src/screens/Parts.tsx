@@ -7,16 +7,31 @@ import { useEffect, useId, useState } from "react";
 import { useLumen } from "../store";
 import { PART_COLORS, PART_LIMITS, ROLE_NAMES, type Part, type PartAlign, type PartColor, type PartWeight, type Placement, type Roles, type UpdateWidgetParams } from "../types";
 import { Button, Check, Segmented, Slider } from "../ui";
+import { allSources, PART_KIND_NAMES } from "../widgetView";
 
 const FONT_FILES = [{ name: "Font files", extensions: ["ttf", "otf", "ttc", "woff", "woff2"] }];
-const KIND_NAMES = { text: "Text", bar: "Bar", image: "Picture" } as const;
 
-export function PartsTab({ placement, locked, onUpdate }: { placement: Placement; locked: boolean; onUpdate: (params: UpdateWidgetParams) => void }) {
+export function PartsTab({
+  placement,
+  locked,
+  openId,
+  designing,
+  onOpen,
+  onDesign,
+  onUpdate,
+}: {
+  placement: Placement;
+  locked: boolean;
+  /** The part whose fields are showing (also the one selected in the designer). */
+  openId: string | null;
+  designing: boolean;
+  onOpen: (id: string | null) => void;
+  onDesign: () => void;
+  onUpdate: (params: UpdateWidgetParams) => void;
+}) {
   const { partDefaults, fonts, refreshFonts, importFonts, shown } = useLumen();
-  const [openId, setOpenId] = useState<string | null>(null);
+  const setOpenId = onOpen;
   useEffect(() => void refreshFonts(), [refreshFonts]);
-  // A different widget: start with everything folded.
-  useEffect(() => setOpenId(null), [placement.id]);
 
   const defaults = partDefaults?.[placement.kind];
   if (!defaults) return <p className="muted small-13">The parts of this widget are not available right now.</p>;
@@ -33,6 +48,11 @@ export function PartsTab({ placement, locked, onUpdate }: { placement: Placement
 
   return (
     <>
+      {!designing && (
+        <Button size="bar" kind="primary" onClick={onDesign}>
+          Design with the mouse
+        </Button>
+      )}
       <p className="muted small-13">Each piece has its own font, size, colour and place. Changes show on your desktop straight away and are saved as you go.</p>
       <ul className="parts-list">
         {parts.map((part) => {
@@ -42,13 +62,13 @@ export function PartsTab({ placement, locked, onUpdate }: { placement: Placement
               <div className="parts-row">
                 <button type="button" className="parts-name" aria-expanded={isOpen} onClick={() => setOpenId(isOpen ? null : part.id)}>
                   <span>{part.name}</span>
-                  <span className="muted small">{part.hidden ? "hidden" : KIND_NAMES[part.kind]}</span>
+                  <span className="muted small">{part.hidden ? "hidden" : PART_KIND_NAMES[part.kind]}</span>
                 </button>
                 <button type="button" className="link small-13" disabled={locked} onClick={() => change(part.id, { hidden: !part.hidden })}>
                   {part.hidden ? "Show" : "Hide"}
                 </button>
               </div>
-              {isOpen && <PartFields part={part} roles={shown?.roles ?? null} fonts={fonts} locked={locked} onChange={(patch) => change(part.id, patch)} />}
+              {isOpen && <PartFields part={part} roles={shown?.roles ?? null} fonts={fonts} sources={allSources(partDefaults)} locked={locked} onChange={(patch) => change(part.id, patch)} />}
             </li>
           );
         })}
@@ -66,7 +86,22 @@ export function PartsTab({ placement, locked, onUpdate }: { placement: Placement
   );
 }
 
-function PartFields({ part, roles, fonts, locked, onChange }: { part: Part; roles: Roles | null; fonts: ReturnType<typeof useLumen>["fonts"]; locked: boolean; onChange: (patch: Partial<Part>) => void }) {
+function PartFields({
+  part,
+  roles,
+  fonts,
+  sources,
+  locked,
+  onChange,
+}: {
+  part: Part;
+  roles: Roles | null;
+  fonts: ReturnType<typeof useLumen>["fonts"];
+  sources: { source: string; label: string }[];
+  locked: boolean;
+  onChange: (patch: Partial<Part>) => void;
+}) {
+  const showsId = useId();
   const fontId = useId();
   const colourId = useId();
   const textId = useId();
@@ -85,6 +120,13 @@ function PartFields({ part, roles, fonts, locked, onChange }: { part: Part; role
           <label htmlFor={textId} className="small-14">
             Text
           </label>
+          <span className="muted small">
+            Mix in live values with braces:{" "}
+            {sources
+              .filter((item) => item.source !== "media.art")
+              .map((item) => `{${item.source}}`)
+              .join("  ")}
+          </span>
           <input
             id={textId}
             className="parts-text"
@@ -97,6 +139,26 @@ function PartFields({ part, roles, fonts, locked, onChange }: { part: Part; role
             onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
           />
         </div>
+      )}
+      {part.kind === "bar" && (
+        <div className="field">
+          <label htmlFor={showsId} className="small-14">
+            Shows
+          </label>
+          <select id={showsId} value={part.source} disabled={locked} onChange={(event) => onChange({ source: event.target.value })}>
+            {!sources.some((item) => item.source === part.source) && <option value={part.source}>{part.source || "Nothing"}</option>}
+            {sources
+              .filter((item) => item.source.startsWith("stats.") || item.source === "media.progress")
+              .map((item) => (
+                <option key={item.source} value={item.source}>
+                  {item.label}
+                </option>
+              ))}
+          </select>
+        </div>
+      )}
+      {(part.kind === "shape" || part.kind === "image") && (
+        <Slider label="Corner radius" min={0} max={60} value={Math.round(part.radius)} format={(v) => `${v} px`} disabled={locked} onCommit={(radius) => onChange({ radius })} />
       )}
       {isText && (
         <>

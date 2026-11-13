@@ -225,7 +225,8 @@ impl<D: Desktop> Service<D> {
                 for kind in lumen_ipc::widgets::WidgetKind::ALL {
                     let name = serde_json::to_value(kind).ok().and_then(|value| value.as_str().map(str::to_owned)).unwrap_or_default();
                     let sources: Vec<Value> = lumen_ipc::parts::sources_for(kind).into_iter().map(|(source, label)| serde_json::json!({ "source": source, "label": label })).collect();
-                    kinds.insert(name, serde_json::json!({ "parts": lumen_ipc::parts::default_parts(kind), "sources": sources }));
+                    let (width, height) = kind.default_size();
+                    kinds.insert(name, serde_json::json!({ "parts": lumen_ipc::parts::default_parts(kind), "sources": sources, "size": [width, height] }));
                 }
                 Ok(Value::Object(kinds))
             }
@@ -1326,6 +1327,7 @@ mod tests {
         let mut service = service();
         let defaults: Value = call(&mut service, method::GET_PART_DEFAULTS, Value::Null);
         assert_eq!(defaults["clock"]["parts"][1]["id"], "time");
+        assert_eq!(defaults["clock"]["size"], json!([190.0, 92.0]));
         assert_eq!(defaults["systemStats"]["sources"][0]["source"], "stats.cpu");
         assert_eq!(defaults["nowPlaying"]["parts"].as_array().unwrap().len(), 4);
         let sent: Rc<RefCell<Vec<WidgetCommand>>> = Rc::default();

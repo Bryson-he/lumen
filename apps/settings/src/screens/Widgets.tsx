@@ -22,6 +22,8 @@ import {
   type WidgetStyle,
 } from "../types";
 import { Arrow, Button, Check, Segmented, Slider, Tip, WallpaperArt } from "../ui";
+import { lookFor, useSampleValues, WidgetView } from "../widgetView";
+import { Designer } from "./Designer";
 import { PartsTab } from "./Parts";
 
 const LIBRARY: { kind: WidgetKind | null; label: string }[] = [
@@ -39,7 +41,16 @@ const ZOOM_STEPS = [0.15, 0.2, 0.3, 0.4, 0.5, 0.65, 0.8, 1];
 type Tab = "layout" | "style" | "parts" | "data";
 
 export function WidgetsScreen() {
-  const { widgets, widgetRequest, shown, wallpapers, go } = useLumen();
+  const { widgets, widgetRequest, shown, wallpapers, styles, partDefaults, go } = useLumen();
+  // The designer: one widget large, its parts editable with the mouse.
+  const [designing, setDesigning] = useState(false);
+  const [partId, setPartId] = useState<string | null>(null);
+  const selectedNow = widgets?.selected ?? null;
+  useEffect(() => {
+    // Another widget (or none): no part of the old one stays selected.
+    setPartId(null);
+    if (!selectedNow) setDesigning(false);
+  }, [selectedNow]);
   const [monitorId, setMonitorId] = useState<string | null>(null);
   const [zoom, setZoom] = useState<number | null>(null);
   const [tab, setTab] = useState<Tab>("layout");
@@ -108,6 +119,20 @@ export function WidgetsScreen() {
 
       <div className="split widgets-split">
         <div className="widgets-main">
+          {designing && selected && shown && styles && partDefaults ? (
+            <Designer
+              key={selected.id}
+              placement={selected}
+              defaults={partDefaults[selected.kind]}
+              look={lookFor(selected, shown, styles)}
+              theme={shown}
+              locked={layout.locked}
+              pickedId={partId}
+              onPick={setPartId}
+              onUpdate={update}
+              onDone={() => setDesigning(false)}
+            />
+          ) : (
           <DesktopPreview
             monitor={monitor}
             monitors={monitors}
@@ -123,6 +148,7 @@ export function WidgetsScreen() {
             onSelect={(id) => void widgetRequest("selectWidget", { id })}
             onMove={update}
           />
+          )}
 
           <div className="stack-10">
             <span className="label">Widget library — click to add to this monitor</span>
@@ -148,8 +174,18 @@ export function WidgetsScreen() {
               currentMonitor={monitors.find((m) => isOn(selected, m)) ?? monitor}
               themeRadius={shown?.style.radius ?? 12}
               locked={layout.locked}
-              tab={tab}
-              onTab={setTab}
+              tab={designing ? "parts" : tab}
+              onTab={(next) => {
+                setTab(next);
+                if (next !== "parts") setDesigning(false);
+              }}
+              partId={partId}
+              onPart={setPartId}
+              designing={designing}
+              onDesign={() => {
+                setTab("parts");
+                setDesigning(true);
+              }}
               suspended={widgets.suspended.includes(selected.id)}
               onUpdate={update}
               onRemove={() => void widgetRequest("removeWidget", { id: selected.id })}
@@ -374,8 +410,8 @@ function DesktopPreview({
                 }
               }}
             >
-              <div className="pw-scale" style={{ width: placement.width, height: placement.height, transform: `scale(${scale})`, ...widgetVars(theme, placement.style) }}>
-                <WidgetReplica kind={placement.kind} />
+              <div className="pw-scale" style={{ width: placement.width, height: placement.height, transform: `scale(${scale})` }}>
+                <PreviewWidget placement={placement} theme={theme} />
               </div>
               {placement.id === selectedId && (
                 <>
@@ -450,79 +486,13 @@ function themeVars(theme: Theme | null): CSSProperties {
   } as CSSProperties;
 }
 
-/** One widget's own style choices, layered over the theme. */
-function widgetVars(theme: Theme | null, style: WidgetStyle): CSSProperties {
-  const vars: Record<string, string | number> = { opacity: style.opacity / 100 };
-  if (style.background === "solid") vars["--w-glass-opacity"] = 1;
-  if (style.background === "none") {
-    vars["--w-glass-opacity"] = 0;
-    vars["--w-border-width"] = "0px";
-  }
-  if (style.radius !== null) vars["--w-radius"] = `${style.radius}px`;
-  void theme;
-  return vars as CSSProperties;
-}
-
-/** A picture of a widget, laid out like the real one (sizes match the desktop renderer). */
-function WidgetReplica({ kind }: { kind: WidgetKind }) {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    if (kind !== "clock") return;
-    const timer = setInterval(() => setNow(new Date()), 20_000);
-    return () => clearInterval(timer);
-  }, [kind]);
-
-  if (kind === "clock") {
-    const date = now.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" });
-    const parts = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).formatToParts(now);
-    const time = parts
-      .filter((p) => p.type !== "dayPeriod")
-      .map((p) => p.value)
-      .join("")
-      .trim();
-    const suffix = parts.find((p) => p.type === "dayPeriod")?.value ?? "";
-    return (
-      <div className="wd wd-clock">
-        <span className="wd-muted">{date}</span>
-        <span className="wd-time">{time}</span>
-        {suffix && <span className="wd-suffix">{suffix.toUpperCase()}</span>}
-      </div>
-    );
-  }
-  if (kind === "systemStats") {
-    return (
-      <div className="wd wd-stats">
-        <span className="wd-strong">System</span>
-        {[
-          ["CPU", 18, "var(--w-primary, var(--pencil))"],
-          ["RAM", 46, "var(--w-tertiary, var(--success))"],
-          ["GPU", 9, "var(--w-accent, var(--pencil))"],
-        ].map(([label, value, colour]) => (
-          <span key={label} className="wd-row">
-            <span className="wd-row-label">
-              <span>{label}</span>
-              <span className="wd-muted">{value}%</span>
-            </span>
-            <span className="wd-bar">
-              <span style={{ width: `${value}%`, background: colour as string }} />
-            </span>
-          </span>
-        ))}
-      </div>
-    );
-  }
-  return (
-    <div className="wd wd-media">
-      <span className="wd-art" />
-      <span className="wd-media-text">
-        <span className="wd-title">Track title</span>
-        <span className="wd-muted">Artist name</span>
-        <span className="wd-bar wd-media-bar">
-          <span style={{ width: "42%", background: "var(--w-primary, var(--pencil))" }} />
-        </span>
-      </span>
-    </div>
-  );
+/** A widget in the preview, drawn from its real parts and component style. */
+function PreviewWidget({ placement, theme }: { placement: Placement; theme: Theme | null }) {
+  const { styles, partDefaults } = useLumen();
+  const values = useSampleValues();
+  const defaults = partDefaults?.[placement.kind];
+  if (!theme || !styles || !defaults) return null;
+  return <WidgetView parts={placement.parts ?? defaults.parts} look={lookFor(placement, theme, styles)} size={[placement.width, placement.height]} defaultSize={defaults.size} values={values} />;
 }
 
 // ---------- The inspector ----------
@@ -535,11 +505,19 @@ function Inspector({
   locked,
   tab,
   onTab,
+  partId,
+  onPart,
+  designing,
+  onDesign,
   suspended,
   onUpdate,
   onRemove,
   onResume,
 }: {
+  partId: string | null;
+  onPart: (id: string | null) => void;
+  designing: boolean;
+  onDesign: () => void;
   placement: Placement;
   monitors: MonitorArea[];
   currentMonitor: MonitorArea;
@@ -651,7 +629,7 @@ function Inspector({
         </>
       )}
 
-      {tab === "parts" && <PartsTab placement={placement} locked={locked} onUpdate={onUpdate} />}
+      {tab === "parts" && <PartsTab placement={placement} locked={locked} openId={partId} designing={designing} onOpen={onPart} onDesign={onDesign} onUpdate={onUpdate} />}
 
       {tab === "data" && (
         <>

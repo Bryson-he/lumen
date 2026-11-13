@@ -24,6 +24,8 @@ pub enum PartKind {
     Bar,
     /// A picture (the cover of what is playing).
     Image,
+    /// A filled box: a panel behind other parts, a dot, or (made thin) a divider.
+    Shape,
 }
 
 /// Which colour a part uses.
@@ -94,7 +96,8 @@ pub struct Part {
     /// The live value shown: "clock.time", "stats.cpu", "media.title"…
     /// Empty for fixed text, which is in `text`.
     pub source: String,
-    /// Fixed text, used when `source` is empty.
+    /// Text, used when `source` is empty. Live values can be mixed in with
+    /// braces: `CPU {stats.cpu}`.
     pub text: String,
     /// Top-left corner inside the widget, in logical pixels, at the widget's default size.
     pub x: f32,
@@ -115,6 +118,8 @@ pub struct Part {
     pub opacity: u8,
     pub align: PartAlign,
     pub hidden: bool,
+    /// Corner radius of a shape or picture, in logical pixels.
+    pub radius: f32,
 }
 
 impl Default for Part {
@@ -138,6 +143,7 @@ impl Default for Part {
             opacity: 100,
             align: PartAlign::Left,
             hidden: false,
+            radius: 0.0,
         }
     }
 }
@@ -150,6 +156,7 @@ impl Part {
         self.width = finite(self.width, 120.0).clamp(1.0, 2000.0);
         self.height = finite(self.height, 18.0).clamp(1.0, 2000.0);
         self.size = finite(self.size, 13.0).clamp(TEXT_SIZE_RANGE.0, TEXT_SIZE_RANGE.1);
+        self.radius = finite(self.radius, 0.0).clamp(0.0, 1000.0);
         self.opacity = self.opacity.clamp(10, 100);
         self.name = self.name.trim().chars().take(40).collect();
         self.text = self.text.chars().take(200).collect();
@@ -241,12 +248,19 @@ pub fn default_parts(kind: WidgetKind) -> Vec<Part> {
             parts
         }
         WidgetKind::NowPlaying => vec![
-            Part { kind: PartKind::Image, x: 12.0, stretch: false, ..text("cover", "Cover", "media.art", 12.0, 72.0, 72.0) },
+            Part { kind: PartKind::Image, x: 12.0, stretch: false, radius: 8.0, ..text("cover", "Cover", "media.art", 12.0, 72.0, 72.0) },
             Part { x: 96.0, size: 15.0, weight: PartWeight::SemiBold, ..text("title", "Title", "media.title", 15.0, 210.0, 20.0) },
             Part { x: 96.0, color: PartColor::Muted, ..text("artist", "Artist", "media.artist", 38.0, 210.0, 18.0) },
             Part { kind: PartKind::Bar, x: 96.0, color: PartColor::Highlight, from_bottom: true, ..text("progress", "Progress", "media.progress", 73.0, 210.0, 5.0) },
         ],
     }
+}
+
+/// Whether these parts show anything from a family of live values
+/// ("clock", "stats", "media"), directly or inside a text template.
+pub fn parts_use(parts: &[Part], family: &str) -> bool {
+    let (source, template) = (format!("{family}."), format!("{{{family}."));
+    parts.iter().any(|part| !part.hidden && (part.source.starts_with(&source) || (part.source.is_empty() && part.text.contains(&template))))
 }
 
 /// The live values a part can show, for the settings app's "shows" list.
@@ -306,6 +320,16 @@ mod tests {
         assert_eq!((parts[0].x, parts[0].width, parts[0].size, parts[0].opacity), (0.0, 1.0, 200.0, 10));
         assert_eq!((parts[0].font.as_deref(), parts[0].name.as_str()), (None, "a"));
         assert_eq!(sanitise_parts((0..50).map(|n| Part { id: format!("p{n}"), ..Default::default() }).collect()).len(), MAX_PARTS);
+    }
+
+    #[test]
+    fn parts_say_which_live_values_they_need() {
+        let clock = default_parts(WidgetKind::Clock);
+        assert!(parts_use(&clock, "clock") && !parts_use(&clock, "stats"));
+        let mixed = vec![Part { id: "a".into(), text: "CPU {stats.cpu} at {clock.time}".into(), ..Default::default() }];
+        assert!(parts_use(&mixed, "stats") && parts_use(&mixed, "clock") && !parts_use(&mixed, "media"));
+        let hidden = vec![Part { id: "a".into(), source: "media.title".into(), hidden: true, ..Default::default() }];
+        assert!(!parts_use(&hidden, "media"), "a hidden part needs nothing");
     }
 
     #[test]

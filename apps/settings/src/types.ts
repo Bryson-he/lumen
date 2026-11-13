@@ -330,7 +330,7 @@ export const STYLE_FONTS = ["Inter", "Space Grotesk"] as const;
 
 // ----- Widget parts (crates/lumen-ipc/src/parts.rs) -----
 
-export type PartKind = "text" | "bar" | "image";
+export type PartKind = "text" | "bar" | "image" | "shape";
 /** The widget's own text / muted / highlight colour, or one of the theme's roles. */
 export type PartColor = "text" | "muted" | "highlight" | keyof Roles;
 export type PartAlign = "left" | "centre" | "right";
@@ -342,7 +342,7 @@ export interface Part {
   kind: PartKind;
   /** The live value shown ("clock.time"); empty for fixed text. */
   source: string;
-  /** Fixed text, used when source is empty. */
+  /** Text, used when source is empty; `{clock.time}` mixes a live value in. */
   text: string;
   /** Inside the widget, in logical pixels, at the widget's default size. */
   x: number;
@@ -362,10 +362,12 @@ export interface Part {
   opacity: number;
   align: PartAlign;
   hidden: boolean;
+  /** Corner radius of a shape or picture. */
+  radius: number;
 }
 
 /** What getPartDefaults returns, per kind of widget. */
-export type PartDefaults = Record<WidgetKind, { parts: Part[]; sources: { source: string; label: string }[] }>;
+export type PartDefaults = Record<WidgetKind, { parts: Part[]; sources: { source: string; label: string }[]; size: [number, number] }>;
 
 export interface FontList {
   /** Shipped with Lumen. */

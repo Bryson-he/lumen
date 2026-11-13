@@ -664,7 +664,7 @@ impl Host {
         let mut lost = false;
         for index in 0..self.slots.len() {
             let (kind, id) = (self.slots[index].kind, self.slots[index].id.clone());
-            if only.is_some_and(|wanted| wanted != kind) || !self.slots[index].surface.is_visible() {
+            if only.is_some_and(|wanted| !self.shows(&id, kind, wanted)) || !self.slots[index].surface.is_visible() {
                 continue;
             }
             let Some(paint) = self.placement(&id).map(|placement| self.widget_paint(placement)) else {
@@ -677,8 +677,7 @@ impl Host {
             let art = &mut self.art;
             let started = Instant::now();
             let result = self.slots[index].surface.draw(|canvas| {
-                if kind == Kind::NowPlaying
-                    && art.is_none()
+                if art.is_none()
                     && let Some(cover) = media.and_then(|m| m.art.as_ref())
                 {
                     *art = canvas.bitmap_from_rgba(cover.size, cover.size, &cover.rgba).ok();
@@ -713,8 +712,24 @@ impl Host {
         }
     }
 
+    /// Whether any widget on screen shows this family of live values (the
+    /// family is named by the widget kind that mainly shows it).
     fn any_visible(&self, kind: Kind) -> bool {
-        self.slots.iter().any(|slot| slot.kind == kind && slot.surface.is_visible())
+        self.slots.iter().any(|slot| slot.surface.is_visible() && self.shows(&slot.id, slot.kind, kind))
+    }
+
+    /// Whether a widget shows a family of live values: through the parts it
+    /// came with, or through parts the user added (a clock with a CPU line).
+    fn shows(&self, id: &str, kind: Kind, family: Kind) -> bool {
+        let name = match family {
+            Kind::Clock => "clock",
+            Kind::SystemStats => "stats",
+            Kind::NowPlaying => "media",
+        };
+        match self.placement(id).and_then(|placement| placement.parts.as_deref()) {
+            Some(parts) => lumen_ipc::parts::parts_use(parts, name),
+            None => kind == family,
+        }
     }
 
     /// Runs exactly the timers that something on screen needs.

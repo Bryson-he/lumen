@@ -43,8 +43,9 @@ pub fn draw(canvas: &Canvas<'_>, paint: &Paint, parts: &[Part], data: &Data<'_>,
                     paint.bar(canvas, rect, fraction, colour);
                 }
             }
+            PartKind::Shape => canvas.fill_round_rect(rect, part.radius.min(width.min(height) / 2.0), colour),
             PartKind::Image => {
-                let radius = paint.radius.min(8.0).min(width.min(height) / 2.0);
+                let radius = part.radius.min(width.min(height) / 2.0);
                 match data.art.filter(|_| part.source == "media.art") {
                     Some(bitmap) => canvas.image(bitmap, rect, radius),
                     // No picture: a soft gradient in the theme's colours.
@@ -65,11 +66,16 @@ fn colour(paint: &Paint, part: &Part) -> Rgba {
     base.with_alpha(base.a * f32::from(part.opacity) / 100.0)
 }
 
-/// What a text part says right now.
+/// What a text part says right now: its live value, or its own text with
+/// any `{live.value}` in it filled in.
 fn text_for(part: &Part, data: &Data<'_>) -> String {
+    if part.source.is_empty() { fill(&part.text, data) } else { value_of(&part.source, data).unwrap_or_default() }
+}
+
+/// A live value as text; `None` if there is no value of that name.
+fn value_of(source: &str, data: &Data<'_>) -> Option<String> {
     let percent = |value: Option<u8>| value.map_or("n/a".to_owned(), |v| format!("{v}%"));
-    match part.source.as_str() {
-        "" => part.text.clone(),
+    Some(match source {
         "clock.time" => data.clock.time.clone(),
         "clock.suffix" => data.clock.suffix.clone(),
         "clock.date" => data.clock.date.clone(),
@@ -79,8 +85,30 @@ fn text_for(part: &Part, data: &Data<'_>) -> String {
         "media.title" => data.media.map_or("Nothing playing".to_owned(), |media| media.title.clone()),
         "media.artist" => data.media.map_or("Start some music or a video".to_owned(), |media| media.artist.clone()),
         "media.progress" => data.media.and_then(MediaInfo::progress).map_or(String::new(), |p| format!("{}%", (p * 100.0).round() as u8)),
-        _ => String::new(),
+        _ => return None,
+    })
+}
+
+/// Replaces every `{name}` that names a live value; anything else in braces is left as typed.
+fn fill(template: &str, data: &Data<'_>) -> String {
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        match after.find('}').and_then(|close| value_of(after[..close].trim(), data).map(|value| (close, value))) {
+            Some((close, value)) => {
+                out.push_str(&value);
+                rest = &after[close + 1..];
+            }
+            None => {
+                out.push('{');
+                rest = after;
+            }
+        }
     }
+    out.push_str(rest);
+    out
 }
 
 /// How full a bar is, 0.0–1.0; `None` if there is nothing to show.
@@ -118,6 +146,18 @@ mod tests {
         assert_eq!(said(WidgetKind::SystemStats, "cpu-value"), "12%");
         assert_eq!(said(WidgetKind::SystemStats, "gpu-value"), "n/a");
         assert_eq!(said(WidgetKind::NowPlaying, "title"), "Nothing playing");
+    }
+
+    #[test]
+    fn text_can_mix_fixed_words_and_live_values() {
+        let clock = ClockData { date: "Saturday 14 Nov".into(), time: "9:45".into(), suffix: "AM".into() };
+        let stats = StatsData { cpu: 12, memory: 41, gpu: None };
+        let data = data(&clock, &stats);
+        assert_eq!(fill("CPU {stats.cpu} · {clock.time} {clock.suffix}", &data), "CPU 12% · 9:45 AM");
+        assert_eq!(fill("{ stats.memory } used", &data), "41% used", "spaces inside the braces are fine");
+        assert_eq!(fill("{nope} and {unclosed", &data), "{nope} and {unclosed", "anything else is left as typed");
+        assert_eq!(fill("plain", &data), "plain");
+        assert_eq!(fill("é{clock.time}é", &data), "é9:45é");
     }
 
     #[test]
