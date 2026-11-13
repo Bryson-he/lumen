@@ -12,18 +12,31 @@ function heroColours(theme: Theme): string[] {
 }
 
 export function Home() {
-  const { shown, wallpapers, wallpaperOf, previewTheme, go, status, connected } = useLumen();
+  const { shown, wallpapers, wallpaperOf, previewTheme, presets, presetRequest, go, status, connected } = useLumen();
   const active = wallpaperOf(shown);
+  const activePreset = presets.find((p) => p.active) ?? null;
+  const otherPresets = presets.filter((p) => !p.active);
 
-  // Until presets exist (M7), Quick switch offers the newest wallpapers as one-click looks.
-  const quick = [...wallpapers]
-    .filter((w) => w.id !== active?.id)
-    .sort((a, b) => b.addedAt - a.addedAt)
-    .slice(0, 3);
+  // Quick switch is for presets (most recently used first). Before any are
+  // saved, it offers the newest wallpapers as one-click looks instead.
+  const quickPresets = otherPresets.slice(0, 3);
+  const quickWallpapers =
+    presets.length > 0
+      ? []
+      : [...wallpapers]
+          .filter((w) => w.id !== active?.id)
+          .sort((a, b) => b.addedAt - a.addedAt)
+          .slice(0, 3);
+  const otherWallpapers = wallpapers.filter((w) => w.id !== active?.id);
+  const canShuffle = otherPresets.length > 0 || otherWallpapers.length > 0;
 
   const shuffle = () => {
-    const others = wallpapers.filter((w) => w.id !== active?.id);
-    const pick = others[Math.floor(Math.random() * others.length)];
+    if (otherPresets.length > 0) {
+      const pick = otherPresets[Math.floor(Math.random() * otherPresets.length)];
+      void presetRequest("applyPreset", { id: pick.id });
+      return;
+    }
+    const pick = otherWallpapers[Math.floor(Math.random() * otherWallpapers.length)];
     if (pick) void previewTheme({ source: { type: "wallpaper", path: pick.file } });
   };
 
@@ -44,7 +57,7 @@ export function Home() {
           <div className="label">Active preset</div>
           {shown ? (
             <>
-              <h2 className="hero-title">{shown.name}</h2>
+              <h2 className="hero-title">{activePreset?.name ?? shown.name}</h2>
               <div className="hero-dots">
                 <Dots colours={heroColours(shown)} size={30} />
                 <Arrow />
@@ -56,7 +69,7 @@ export function Home() {
                 <Button kind="primary" onClick={() => go("theme")}>
                   Edit preset
                 </Button>
-                <Button onClick={shuffle} disabled={wallpapers.filter((w) => w.id !== active?.id).length === 0}>
+                <Button onClick={shuffle} disabled={!canShuffle}>
                   Shuffle
                 </Button>
               </div>
@@ -82,13 +95,24 @@ export function Home() {
           <Tip size={20}>one click, whole desktop changes</Tip>
         </div>
         <div className="quick-row">
-          {quick.map((wallpaper) => (
+          {quickPresets.map((preset) => (
+            <button key={preset.id} type="button" className="quick-card" onClick={() => void presetRequest("applyPreset", { id: preset.id })}>
+              <WallpaperArt className="quick-art" wallpaper={null} thumb={preset.thumb} colours={preset.palette} />
+              <span className="quick-name">{preset.name}</span>
+            </button>
+          ))}
+          {quickWallpapers.map((wallpaper) => (
             <button key={wallpaper.id} type="button" className="quick-card" onClick={() => void previewTheme({ source: { type: "wallpaper", path: wallpaper.file } })}>
               <WallpaperArt className="quick-art" wallpaper={wallpaper} />
               <span className="quick-name">{wallpaper.name}</span>
             </button>
           ))}
-          {quick.length === 0 && (
+          {presets.length > 0 && quickPresets.length < 3 && (
+            <button type="button" className="quick-card quick-empty" onClick={() => go("presets")}>
+              <span className="quick-name">{quickPresets.length === 0 ? "Save another look to switch between them here" : "+ Save another look"}</span>
+            </button>
+          )}
+          {presets.length === 0 && quickWallpapers.length === 0 && (
             <button type="button" className="quick-card quick-empty" onClick={() => go("wallpapers")}>
               <span className="quick-name">Add wallpapers to switch between them here</span>
             </button>

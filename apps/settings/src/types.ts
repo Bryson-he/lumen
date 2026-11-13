@@ -177,3 +177,21 @@ export const WIDGET_NAMES: Record<WidgetKind, string> = {
 
 /** The grid widgets snap to, in logical pixels (GRID in lumen-ipc). */
 export const WIDGET_GRID = 24;
+
+// ----- Presets (crates/lumen-ipc/src/presets.rs) -----
+
+export interface PresetInfo {
+  id: string;
+  name: string;
+  /** Absolute path of a small preview image, if it has a wallpaper. */
+  thumb: string | null;
+  /** Five colours that sum up its theme. */
+  palette: string[];
+  /** Seconds since 1970. */
+  createdAt: number;
+  /** 0 if never applied. */
+  lastUsedAt: number;
+  widgetCount: number;
+  /** The preset the current look came from, until the look is changed by hand. */
+  active: boolean;
+}

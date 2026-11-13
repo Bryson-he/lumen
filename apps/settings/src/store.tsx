@@ -3,11 +3,12 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { call, CoreError, onConnection, onCoreEvent } from "./core";
-import type { MonitorInfo, PreviewState, PreviewThemeParams, Status, Theme, ThemeState, WallpaperEntry, WidgetsState } from "./types";
+import type { MonitorInfo, PresetInfo, PreviewState, PreviewThemeParams, Status, Theme, ThemeState, WallpaperEntry, WidgetsState } from "./types";
 
 export type Screen = "home" | "presets" | "wallpapers" | "theme" | "widgets" | "bar" | "plugins" | "gallery" | "settings";
 
 const IMAGE_FILE = /\.(jpe?g|png|webp|bmp)$/i;
+const PRESET_FILE = /\.lumen$/i;
 
 interface Lumen {
   screen: Screen;
@@ -36,6 +37,12 @@ interface Lumen {
    * setLayoutOptions, setEditMode). The result arrives as a new `widgets` value.
    */
   widgetRequest: (method: string, params: unknown) => Promise<void>;
+  /** Saved looks, most recently used first. */
+  presets: PresetInfo[];
+  /** Sends a preset request (savePreset, applyPreset, renamePreset, ...). Null if it failed. */
+  presetRequest: <T>(method: string, params: unknown) => Promise<T | null>;
+  /** Imports .lumen files. */
+  importPresets: (paths: string[]) => Promise<void>;
 
   /** The last thing that went wrong, for the message strip. */
   error: string | null;
@@ -72,6 +79,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
   const [monitors, setMonitors] = useState<MonitorInfo[]>([]);
   const [status, setStatus] = useState<Status | null>(null);
   const [widgets, setWidgets] = useState<WidgetsState | null>(null);
+  const [presets, setPresets] = useState<PresetInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [dropping, setDropping] = useState(false);
 
@@ -120,6 +128,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       attempt(() => call<MonitorInfo[]>("listMonitors")).then((list) => list && setMonitors(list)),
       // Widgets may be unavailable (no graphics device); the Widgets screen says so.
       call<WidgetsState>("getWidgets").then(setWidgets, () => setWidgets(null)),
+      attempt(() => call<PresetInfo[]>("listPresets")).then((list) => list && setPresets(list)),
     ]);
   }, [refreshTheme, refreshWallpapers, refreshStatus, attempt]);
 
@@ -128,6 +137,8 @@ export function LumenProvider({ children }: { children: ReactNode }) {
   refreshAllRef.current = refreshAll;
   const refreshThemeRef = useRef(refreshTheme);
   refreshThemeRef.current = refreshTheme;
+  const refreshWallpapersRef = useRef(refreshWallpapers);
+  refreshWallpapersRef.current = refreshWallpapers;
   useEffect(() => {
     const stops = [
       onConnection((up, message) => {
@@ -138,6 +149,11 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       onCoreEvent((method, params) => {
         if (method === "themeChanged") void refreshThemeRef.current();
         if (method === "widgetsChanged") setWidgets(params as WidgetsState);
+        if (method === "presetsChanged") {
+          setPresets(params as PresetInfo[]);
+          // Presets can bring new wallpapers into the library (saving, importing).
+          void refreshWallpapersRef.current();
+        }
         if (method === "gameModeChanged") {
           const gameMode = params as Status["gameMode"];
           setStatus((s) => (s ? { ...s, gameMode } : s));
@@ -180,17 +196,46 @@ export function LumenProvider({ children }: { children: ReactNode }) {
     [attempt, refreshWallpapers],
   );
 
-  // Dropping image files anywhere on the window imports them.
+  /** Runs a preset request; the list itself updates through the presetsChanged event. */
+  const presetRequest = useCallback(
+    async <T,>(method: string, params: unknown): Promise<T | null> => {
+      const result = await attempt(() => call<T>(method, params));
+      // Applying a preset changes the theme and the wallpapers too.
+      if (result !== null && method === "applyPreset") await refreshTheme();
+      return result;
+    },
+    [attempt, refreshTheme],
+  );
+
+  const importPresets = useCallback(
+    async (paths: string[]) => {
+      for (const path of paths) await presetRequest<PresetInfo>("importPreset", { path });
+    },
+    [presetRequest],
+  );
+
+  // Dropping files anywhere on the window imports them.
   const importRef = useRef(importWallpapers);
   importRef.current = importWallpapers;
+  const importPresetsRef = useRef(importPresets);
+  importPresetsRef.current = importPresets;
   useEffect(() => {
     const stop = getCurrentWebview().onDragDropEvent((event) => {
       const kind = event.payload.type;
       if (kind === "enter" || kind === "over") setDropping(true);
       else setDropping(false);
       if (event.payload.type === "drop") {
-        setScreen("wallpapers");
-        void importRef.current(event.payload.paths);
+        // .lumen files are presets; anything else is tried as a wallpaper.
+        const presetFiles = event.payload.paths.filter((p) => PRESET_FILE.test(p));
+        const others = event.payload.paths.filter((p) => !PRESET_FILE.test(p));
+        if (presetFiles.length > 0) {
+          setScreen("presets");
+          void importPresetsRef.current(presetFiles);
+        }
+        if (others.length > 0) {
+          if (presetFiles.length === 0) setScreen("wallpapers");
+          void importRef.current(others);
+        }
       }
     });
     return () => void stop.then((off) => off());
@@ -271,6 +316,9 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       status,
       widgets,
       widgetRequest,
+      presets,
+      presetRequest,
+      importPresets,
       error,
       dismissError: () => setError(null),
       dropping,
@@ -282,7 +330,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       setWallpaperOnly,
       wallpaperOf,
     }),
-    [screen, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, widgets, widgetRequest, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
+    [screen, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, widgets, widgetRequest, presets, presetRequest, importPresets, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;

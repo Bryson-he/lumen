@@ -1,0 +1,126 @@
+/* Styles for the Presets screen. Colours are tokens, as everywhere else. */
+
+.preset-grid {
+  flex: none;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: var(--space-gap-sm);
+}
+
+/* A tile holds two buttons side by side in the tree (apply, and the menu),
+   so it is a plain box rather than a button itself. */
+.preset-tile {
+  position: relative;
+  overflow: visible;
+  padding: 0;
+}
+.preset-active {
+  border-color: var(--pencil);
+  outline-color: var(--pencil);
+}
+.preset-apply {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  border-radius: var(--radius-tile);
+  overflow: hidden;
+}
+.preset-caption {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px 12px;
+}
+.preset-dots {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.preset-dots .dot {
+  width: 18px;
+  height: 18px;
+}
+
+.preset-badge {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--pencil);
+  color: var(--bg);
+  pointer-events: none;
+}
+.preset-menu-button {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 34px;
+  height: 30px;
+  font-size: 18px;
+  line-height: 1;
+  border-radius: var(--radius-button-small);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+.preset-menu-button:hover,
+.preset-menu-button[aria-expanded="true"] {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+}
+.preset-menu {
+  top: 42px;
+  right: 8px;
+}
+.menu-item:disabled {
+  color: var(--text-muted);
+}
+.menu-item-danger {
+  color: var(--danger);
+}
+
+.text-input {
+  font-size: 15px;
+  padding: 9px 12px;
+  min-height: var(--size-control-min);
+  background: var(--surface-raised);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-input);
+  user-select: text;
+}
+.text-input:focus {
+  outline: none;
+  border-color: var(--pencil);
+}
+/* Sits exactly over the name on the tile. */
+.preset-rename {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  top: 124px;
+  min-height: 34px;
+  padding: 4px 8px;
+  font-weight: 500;
+}
+
+.name-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 16px 18px;
+  border-radius: var(--radius-panel);
+}
+.name-form-field {
+  flex: 1 1 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

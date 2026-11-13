@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { ComingSoon } from "./screens/ComingSoon";
 import { Home } from "./screens/Home";
+import { Presets } from "./screens/Presets";
 import { ThemeScreen } from "./screens/Theme";
 import { Wallpapers } from "./screens/Wallpapers";
 import { WidgetsScreen } from "./screens/Widgets";
@@ -29,6 +30,8 @@ function CurrentScreen() {
       return <Wallpapers />;
     case "widgets":
       return <WidgetsScreen />;
+    case "presets":
+      return <Presets />;
     default:
       return <ComingSoon screen={screen} />;
   }

@@ -151,9 +151,23 @@ export function paletteBackdrop(colours: string[]): string {
 }
 
 /** A wallpaper's preview image, falling back to its palette if the file is missing. */
-export function WallpaperArt({ wallpaper, colours, label, className = "" }: { wallpaper: WallpaperEntry | null; colours?: string[]; label?: string; className?: string }) {
+export function WallpaperArt({
+  wallpaper,
+  thumb,
+  colours,
+  label,
+  className = "",
+}: {
+  wallpaper: WallpaperEntry | null;
+  /** A preview image to show when there is no library entry (a preset's thumbnail). */
+  thumb?: string | null;
+  colours?: string[];
+  label?: string;
+  className?: string;
+}) {
   const [broken, setBroken] = useState(false);
-  const source = wallpaper ? convertFileSrc(wallpaper.thumb) : null;
+  const file = wallpaper?.thumb ?? thumb ?? null;
+  const source = file ? convertFileSrc(file) : null;
   useEffect(() => setBroken(false), [source]);
   const palette = wallpaper?.palette ?? colours ?? [];
 
