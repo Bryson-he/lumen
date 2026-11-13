@@ -9,4 +9,9 @@ publish.workspace = true
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+lumen-ipc = { version = "0.1.0", path = "../../../crates/lumen-ipc" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tokio = { version = "1.54.1", features = ["rt", "net", "io-util", "sync", "time", "macros"] }

@@ -95,14 +95,23 @@ impl Wallpapers {
             return Err(Error::WallpaperNotFound(image.display().to_string()));
         }
         // Windows needs a full path, without the \\?\ prefix canonicalize() would add.
-        let image = std::path::absolute(image).map_err(|_| Error::WallpaperNotFound(image.display().to_string()))?;
-        let image = HSTRING::from(image.as_os_str());
+        let path = std::path::absolute(image).map_err(|_| Error::WallpaperNotFound(image.display().to_string()))?;
+        let image = HSTRING::from(path.as_os_str());
 
         match monitor_id {
-            None => unsafe { self.api.SetWallpaper(PCWSTR::null(), &image) },
-            Some(id) => unsafe { self.api.SetWallpaper(&HSTRING::from(id), &image) },
+            Some(id) => unsafe { self.api.SetWallpaper(&HSTRING::from(id), &image) }.context("setting the wallpaper"),
+            None => {
+                unsafe { self.api.SetWallpaper(PCWSTR::null(), &image) }.context("setting the wallpaper")?;
+                // Seen on a two-monitor PC: the all-monitors call can leave one
+                // monitor on its old image. Check each and set any that was missed.
+                for monitor in self.monitors()? {
+                    if monitor.wallpaper.as_deref() != Some(path.as_path()) {
+                        unsafe { self.api.SetWallpaper(&HSTRING::from(&monitor.id), &image) }.context("setting the wallpaper")?;
+                    }
+                }
+                Ok(())
+            }
         }
-        .context("setting the wallpaper")
     }
 
     fn wallpaper_of(&self, monitor_id: &str) -> Option<PathBuf> {
