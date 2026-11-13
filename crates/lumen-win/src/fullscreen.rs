@@ -135,9 +135,11 @@ pub fn watch(duration: Option<Duration>, on_change: impl FnMut(Option<&Fullscree
     result
 }
 
+type Callback = Box<dyn FnMut(Option<&FullscreenApp>)>;
+
 struct Watch {
     last: Option<FullscreenApp>,
-    on_change: Box<dyn FnMut(Option<&FullscreenApp>)>,
+    on_change: Callback,
     /// Move/resize hook, scoped to the foreground window's thread so that
     /// mouse movement and background windows never wake us.
     location_hook: Option<HWINEVENTHOOK>,
