@@ -12,10 +12,12 @@
 //! creator tools; these three widgets are drawn natively.
 
 pub mod clock;
+mod edit;
 pub mod host;
 pub mod layout;
 pub mod media;
 pub mod paint;
+pub mod snap;
 pub mod stats;
 
 /// The fonts shipped with Lumen, for [`lumen_render::Gpu::new`].

@@ -38,13 +38,13 @@ fn main() -> ExitCode {
     info!("lumen-core {} starting; data in {}", env!("CARGO_PKG_VERSION"), store.root().display());
     // Before any window exists: draw crisply on every monitor, whatever its scaling.
     lumen_render::enable_per_monitor_dpi();
-    let layout = lumen_widgets::layout::Layout::load_or_create(&store.root().join("widgets").join("layout.json"));
+    let layout_path = store.root().join("widgets").join("layout.json");
 
-    // Fullscreen changes flow main -> service; the widget host's handle flows
-    // main -> service; shutdown flows main -> service; "ready or failed" flows
-    // service -> main once.
+    // Fullscreen changes flow main -> service; the widget host's handle and
+    // its state reports flow main -> service; shutdown flows main -> service;
+    // "ready or failed" flows service -> main once.
     let (game_tx, game_rx) = mpsc::unbounded_channel::<Option<String>>();
-    let (host_tx, host_rx) = mpsc::unbounded_channel::<HostHandle>();
+    let (host_tx, host_rx) = mpsc::unbounded_channel::<FromHost>();
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
     let service_thread = thread::Builder::new()
@@ -73,10 +73,14 @@ fn main() -> ExitCode {
 
     // The desktop widgets live on this thread. The service sends the real
     // theme as soon as it has the handle; until then they use the fallback look.
-    let options = host::Options { topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
-    match host::start(layout, &lumen_theme::Theme::fallback(), options) {
+    let options = host::Options { layout_path, topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
+    let state_tx = host_tx.clone();
+    let on_state = move |state| {
+        let _ = state_tx.send(FromHost::State(Box::new(state)));
+    };
+    match host::start(&lumen_theme::Theme::fallback(), options, on_state) {
         Ok(handle) => {
-            let _ = host_tx.send(handle);
+            let _ = host_tx.send(FromHost::Ready(handle));
         }
         // The rest of Lumen still works without widgets.
         Err(message) => error!("no desktop widgets: {message}"),
@@ -100,10 +104,18 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// What the widget host (main thread) sends to the service.
+enum FromHost {
+    /// The widgets are up; here is how to reach them.
+    Ready(HostHandle),
+    /// The layout, selection or edit mode changed.
+    State(Box<lumen_ipc::WidgetsState>),
+}
+
 fn run_service(
     store: Store,
     mut game_rx: mpsc::UnboundedReceiver<Option<String>>,
-    mut host_rx: mpsc::UnboundedReceiver<HostHandle>,
+    mut host_rx: mpsc::UnboundedReceiver<FromHost>,
     shutdown_rx: oneshot::Receiver<()>,
     ready_tx: std::sync::mpsc::Sender<Result<(), String>>,
 ) {
@@ -144,10 +156,13 @@ fn run_service(
             }
         });
 
-        let theme_service = service.clone();
+        let widget_service = service.clone();
         tokio::task::spawn_local(async move {
-            while let Some(widgets) = host_rx.recv().await {
-                theme_service.borrow_mut().set_theme_sink(move |theme| widgets.set_theme(theme));
+            while let Some(message) = host_rx.recv().await {
+                match message {
+                    FromHost::Ready(widgets) => widget_service.borrow_mut().set_widget_host(move |command| widgets.send(command)),
+                    FromHost::State(state) => widget_service.borrow_mut().widgets_changed(*state),
+                }
             }
         });
 

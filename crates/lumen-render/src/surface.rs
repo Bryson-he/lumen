@@ -1,7 +1,8 @@
-//! A widget window: borderless, transparent, never activated, at the bottom of
-//! the z-order, drawn with Direct2D through DirectComposition.
+//! A widget window: borderless, transparent, never activated, drawn with
+//! Direct2D through DirectComposition. Normally it sits at the bottom of the
+//! z-order and lets clicks through; edit mode raises it and makes it draggable.
 
-use std::{rc::Rc, sync::Once};
+use std::{cell::Cell, rc::Rc, sync::Once};
 
 use windows::{
     Win32::{
@@ -13,17 +14,18 @@ use windows::{
             },
             DirectComposition::{IDCompositionTarget, IDCompositionVisual},
             Dxgi::{
-                Common::{DXGI_ALPHA_MODE_PREMULTIPLIED, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC},
-                DXGI_ERROR_DEVICE_REMOVED, DXGI_ERROR_DEVICE_RESET, DXGI_PRESENT, DXGI_SCALING_STRETCH, DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL,
-                DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGISurface, IDXGISwapChain1,
+                Common::{DXGI_ALPHA_MODE_PREMULTIPLIED, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC},
+                DXGI_ERROR_DEVICE_REMOVED, DXGI_ERROR_DEVICE_RESET, DXGI_PRESENT, DXGI_SCALING_STRETCH, DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_CHAIN_FLAG,
+                DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGISurface, IDXGISwapChain1,
             },
         },
         System::LibraryLoader::GetModuleHandleW,
         UI::{
             HiDpi::GetDpiForWindow,
             WindowsAndMessaging::{
-                CreateWindowExW, DefWindowProcW, DestroyWindow, HWND_BOTTOM, HWND_TOPMOST, LWA_ALPHA, MA_NOACTIVATE, RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE,
-                SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetLayeredWindowAttributes, SetWindowPos, ShowWindow, WM_MOUSEACTIVATE, WNDCLASSW, WS_EX_LAYERED,
+                CreateWindowExW, DefWindowProcW, DestroyWindow, GWL_EXSTYLE, GetWindowLongW, HWND_BOTTOM, HWND_NOTOPMOST, HWND_TOPMOST, LWA_ALPHA, MA_NOACTIVATE,
+                RegisterClassW, SW_HIDE, SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetLayeredWindowAttributes, SetWindowLongW,
+                SetWindowPos, ShowWindow, WM_CAPTURECHANGED, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEACTIVATE, WM_MOUSEMOVE, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED,
                 WS_EX_NOACTIVATE, WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
             },
         },
@@ -36,6 +38,19 @@ use crate::{Canvas, Context, Error, Gpu, Result};
 /// The Direct2D error for "the target must be recreated".
 const D2DERR_RECREATE_TARGET: windows::core::HRESULT = windows::core::HRESULT(0x8899000C_u32 as i32);
 
+/// Receives mouse messages for surfaces that are not click-through:
+/// `(window, message, wparam, lparam)`. Return `Some(result)` to handle one.
+pub type InputHandler = fn(isize, u32, usize, isize) -> Option<isize>;
+
+thread_local! {
+    static INPUT: Cell<Option<InputHandler>> = const { Cell::new(None) };
+}
+
+/// Sets (or clears) this thread's handler for mouse input on its surfaces.
+pub fn set_input_handler(handler: Option<InputHandler>) {
+    INPUT.set(handler);
+}
+
 /// Where and how to create a surface.
 #[derive(Debug, Clone, Copy)]
 pub struct SurfaceOptions {
@@ -47,7 +62,7 @@ pub struct SurfaceOptions {
     pub height: f32,
     /// Let mouse clicks fall through to whatever is underneath.
     pub click_through: bool,
-    /// Keep above other windows instead of at the bottom (for testing and edit mode).
+    /// Keep above other windows instead of at the bottom.
     pub topmost: bool,
 }
 
@@ -58,7 +73,7 @@ pub struct Surface {
     dc: ID2D1DeviceContext,
     // Kept alive: they connect the swap chain to the window.
     _target: IDCompositionTarget,
-    _visual: IDCompositionVisual,
+    visual: IDCompositionVisual,
     options: SurfaceOptions,
     scale: f32,
     visible: bool,
@@ -76,16 +91,15 @@ impl Surface {
 
             // NOREDIRECTIONBITMAP: the window has no GDI surface, only our composition visual.
             // TOOLWINDOW keeps it out of Alt+Tab and the taskbar; NOACTIVATE means it never takes focus.
-            let mut style = WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE;
+            // LAYERED is always on so that click-through (TRANSPARENT) can be switched later.
+            let mut style = WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED;
             if options.click_through {
-                style |= WS_EX_LAYERED | WS_EX_TRANSPARENT;
+                style |= WS_EX_TRANSPARENT;
             }
             // Created at 1x1 first so its monitor's DPI can be read before sizing.
             let window = CreateWindowExW(style, class, w!("Lumen widget"), WS_POPUP, options.x, options.y, 1, 1, None, None, Some(instance.into()), None)
                 .context("creating a widget window")?;
-            if options.click_through {
-                let _ = SetLayeredWindowAttributes(window, COLORREF(0), 255, LWA_ALPHA);
-            }
+            let _ = SetLayeredWindowAttributes(window, COLORREF(0), 255, LWA_ALPHA);
             let scale = GetDpiForWindow(window).max(96) as f32 / 96.0;
             let (width, height) = (physical(options.width, scale), physical(options.height, scale));
 
@@ -101,8 +115,13 @@ impl Surface {
             let order = if options.topmost { HWND_TOPMOST } else { HWND_BOTTOM };
             let _ = SetWindowPos(window, Some(order), options.x, options.y, width as i32, height as i32, SWP_NOACTIVATE);
             let _ = ShowWindow(window, SW_SHOWNOACTIVATE);
-            Ok(Self { gpu: gpu.clone(), window, swap_chain, dc, _target: target, _visual: visual, options, scale, visible: true })
+            Ok(Self { gpu: gpu.clone(), window, swap_chain, dc, _target: target, visual, options, scale, visible: true })
         }
+    }
+
+    /// The window handle, as a number (for matching input messages).
+    pub fn window(&self) -> isize {
+        self.window.0 as isize
     }
 
     /// Size in logical pixels.
@@ -110,9 +129,18 @@ impl Surface {
         (self.options.width, self.options.height)
     }
 
+    /// Top-left corner in physical pixels.
+    pub fn position(&self) -> (i32, i32) {
+        (self.options.x, self.options.y)
+    }
+
     /// The monitor scale this surface was created for (1.0 = 100%).
     pub fn scale(&self) -> f32 {
         self.scale
+    }
+
+    pub fn is_visible(&self) -> bool {
+        self.visible
     }
 
     /// Draws one frame and shows it. The frame starts fully transparent.
@@ -124,17 +152,37 @@ impl Surface {
             let drawn = self.dc.EndDraw(None, None);
             let presented = self.swap_chain.Present(1, DXGI_PRESENT(0)).ok();
             for result in [drawn, presented] {
-                if let Err(error) = result {
-                    let code = error.code();
-                    return Err(if code == D2DERR_RECREATE_TARGET || code == DXGI_ERROR_DEVICE_REMOVED || code == DXGI_ERROR_DEVICE_RESET {
-                        Error::DeviceLost
-                    } else {
-                        Error::Windows { what: "drawing a widget", source: error }
-                    });
-                }
+                result.map_err(device_error("drawing a widget"))?;
             }
             Ok(())
         }
+    }
+
+    /// Moves the window (physical pixels).
+    pub fn set_position(&mut self, x: i32, y: i32) {
+        if (x, y) != (self.options.x, self.options.y) {
+            (self.options.x, self.options.y) = (x, y);
+            unsafe {
+                let _ = SetWindowPos(self.window, None, x, y, 0, 0, SWP_NOACTIVATE | SWP_NOSIZE | SWP_NOZORDER);
+            }
+        }
+    }
+
+    /// Changes the size (logical pixels). The caller must draw again afterwards.
+    pub fn resize(&mut self, width: f32, height: f32) -> Result<()> {
+        if (width, height) == (self.options.width, self.options.height) {
+            return Ok(());
+        }
+        let (w, h) = (physical(width, self.scale), physical(height, self.scale));
+        unsafe {
+            // The context must let go of the old back buffer before it can be resized.
+            self.dc.SetTarget(None);
+            self.swap_chain.ResizeBuffers(0, w, h, DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG(0)).map_err(device_error("resizing a widget"))?;
+            bind_back_buffer(&self.dc, &self.swap_chain, self.scale)?;
+            let _ = SetWindowPos(self.window, None, 0, 0, w as i32, h as i32, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOZORDER);
+        }
+        (self.options.width, self.options.height) = (width, height);
+        Ok(())
     }
 
     pub fn set_visible(&mut self, visible: bool) {
@@ -142,9 +190,50 @@ impl Surface {
             self.visible = visible;
             unsafe {
                 let _ = ShowWindow(self.window, if visible { SW_SHOWNOACTIVATE } else { SW_HIDE });
-                if visible && !self.options.topmost {
-                    let _ = SetWindowPos(self.window, Some(HWND_BOTTOM), 0, 0, 0, 0, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE);
-                }
+            }
+            if visible {
+                self.apply_order();
+            }
+        }
+    }
+
+    /// Whether the window takes mouse input (`true`) or lets clicks through.
+    pub fn set_interactive(&mut self, interactive: bool) {
+        self.options.click_through = !interactive;
+        unsafe {
+            let style = GetWindowLongW(self.window, GWL_EXSTYLE) as u32;
+            let wanted = if interactive { style & !WS_EX_TRANSPARENT.0 } else { style | WS_EX_TRANSPARENT.0 };
+            if wanted != style {
+                SetWindowLongW(self.window, GWL_EXSTYLE, wanted as i32);
+            }
+        }
+    }
+
+    /// Above every normal window (`true`) or at the bottom, on the desktop.
+    pub fn set_topmost(&mut self, topmost: bool) {
+        self.options.topmost = topmost;
+        self.apply_order();
+    }
+
+    /// Whole-surface opacity, 0.0–1.0.
+    pub fn set_opacity(&self, opacity: f32) {
+        unsafe {
+            if let Ok(effect) = self.gpu.composition.CreateEffectGroup() {
+                let _ = effect.SetOpacity2(opacity.clamp(0.0, 1.0));
+                let _ = self.visual.SetEffect(&effect);
+                let _ = self.gpu.composition.Commit();
+            }
+        }
+    }
+
+    fn apply_order(&self) {
+        unsafe {
+            let flags = SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE;
+            if self.options.topmost {
+                let _ = SetWindowPos(self.window, Some(HWND_TOPMOST), 0, 0, 0, 0, flags);
+            } else {
+                let _ = SetWindowPos(self.window, Some(HWND_NOTOPMOST), 0, 0, 0, 0, flags);
+                let _ = SetWindowPos(self.window, Some(HWND_BOTTOM), 0, 0, 0, 0, flags);
             }
         }
     }
@@ -160,6 +249,13 @@ impl Drop for Surface {
 
 fn physical(logical: f32, scale: f32) -> u32 {
     (logical * scale).round().max(1.0) as u32
+}
+
+fn device_error(what: &'static str) -> impl Fn(windows::core::Error) -> Error {
+    move |error| {
+        let code = error.code();
+        if code == D2DERR_RECREATE_TARGET || code == DXGI_ERROR_DEVICE_REMOVED || code == DXGI_ERROR_DEVICE_RESET { Error::DeviceLost } else { Error::Windows { what, source: error } }
+    }
 }
 
 type Parts = (IDXGISwapChain1, ID2D1DeviceContext, IDCompositionTarget, IDCompositionVisual);
@@ -181,8 +277,21 @@ unsafe fn build(gpu: &Gpu, window: HWND, width: u32, height: u32, scale: f32) ->
             ..Default::default()
         };
         let swap_chain = gpu.dxgi_factory.CreateSwapChainForComposition(&gpu.d3d, &description, None).context("creating a swap chain")?;
-
         let dc = gpu.d2d.CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE).context("creating a drawing context")?;
+        bind_back_buffer(&dc, &swap_chain, scale)?;
+
+        let target = gpu.composition.CreateTargetForHwnd(window, true).context("attaching to the window")?;
+        let visual = gpu.composition.CreateVisual().context("creating a visual")?;
+        visual.SetContent(&swap_chain).context("setting the visual's content")?;
+        target.SetRoot(&visual).context("setting the root visual")?;
+        gpu.composition.Commit().context("committing the composition")?;
+        Ok((swap_chain, dc, target, visual))
+    }
+}
+
+/// Makes the swap chain's back buffer the context's drawing target.
+unsafe fn bind_back_buffer(dc: &ID2D1DeviceContext, swap_chain: &IDXGISwapChain1, scale: f32) -> Result<()> {
+    unsafe {
         let back_buffer: IDXGISurface = swap_chain.GetBuffer(0).context("getting the back buffer")?;
         let dpi = 96.0 * scale;
         let properties = D2D1_BITMAP_PROPERTIES1 {
@@ -195,13 +304,7 @@ unsafe fn build(gpu: &Gpu, window: HWND, width: u32, height: u32, scale: f32) ->
         let target_bitmap = dc.CreateBitmapFromDxgiSurface(&back_buffer, Some(&properties)).context("wrapping the back buffer")?;
         dc.SetTarget(&target_bitmap);
         dc.SetDpi(dpi, dpi);
-
-        let target = gpu.composition.CreateTargetForHwnd(window, true).context("attaching to the window")?;
-        let visual = gpu.composition.CreateVisual().context("creating a visual")?;
-        visual.SetContent(&swap_chain).context("setting the visual's content")?;
-        target.SetRoot(&visual).context("setting the root visual")?;
-        gpu.composition.Commit().context("committing the composition")?;
-        Ok((swap_chain, dc, target, visual))
+        Ok(())
     }
 }
 
@@ -209,6 +312,12 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
     // Belt and braces with WS_EX_NOACTIVATE: a click never activates a widget.
     if message == WM_MOUSEACTIVATE {
         return LRESULT(MA_NOACTIVATE as isize);
+    }
+    if matches!(message, WM_LBUTTONDOWN | WM_LBUTTONUP | WM_MOUSEMOVE | WM_SETCURSOR | WM_CAPTURECHANGED)
+        && let Some(handler) = INPUT.get()
+        && let Some(result) = handler(window.0 as isize, message, wparam.0, lparam.0)
+    {
+        return LRESULT(result);
     }
     unsafe { DefWindowProcW(window, message, wparam, lparam) }
 }

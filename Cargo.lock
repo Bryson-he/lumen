@@ -1862,8 +1862,10 @@ name = "lumen-widgets"
 version = "0.1.0"
 dependencies = [
  "image",
+ "lumen-ipc",
  "lumen-render",
  "lumen-theme",
+ "lumen-win",
  "serde",
  "serde_json",
  "tracing",

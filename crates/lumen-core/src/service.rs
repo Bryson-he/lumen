@@ -8,8 +8,10 @@ use std::{path::Path, rc::Rc, time::Duration};
 
 use lumen_ipc::{
     ApplyPresetParams, GameModeChanged, ImportWallpaperParams, Notification, PREVIEW_SECONDS, PreviewState, PreviewThemeParams, RpcError,
-    SetWallpaperParams, Status, ThemeChangeReason, ThemeChanged, ThemeState, UpdateWallpaperParams, code, event, method,
+    EditModeParams, SelectWidgetParams, SetWallpaperParams, Status, ThemeChangeReason, ThemeChanged, ThemeState, UpdateWallpaperParams, WidgetIdParams, WidgetsState, code,
+    event, method,
 };
+use lumen_widgets::host::Command as WidgetCommand;
 use lumen_theme::{Mode, Source, SourceColors, Theme, Variant};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
@@ -39,8 +41,10 @@ pub struct Service<D: Desktop> {
     /// Wakes the auto-revert task when the preview deadline changes.
     deadline_changed: Rc<Notify>,
     stats: ProcessStats,
-    /// Called with the theme to show whenever it changes.
-    theme_sink: Option<Box<dyn Fn(Theme)>>,
+    /// Sends commands to the widget host, once it is running.
+    widget_host: Option<Box<dyn Fn(WidgetCommand)>>,
+    /// The widget host's latest report.
+    widgets: Option<WidgetsState>,
 }
 
 struct Preview<S> {
@@ -53,7 +57,7 @@ struct Preview<S> {
 impl<D: Desktop> Service<D> {
     pub fn new(store: Store, desktop: D) -> Self {
         let committed = store.active_theme();
-        Self { store, desktop, committed, preview: None, game: None, events: broadcast::channel(64).0, deadline_changed: Rc::new(Notify::new()), stats: ProcessStats::new(), theme_sink: None }
+        Self { store, desktop, committed, preview: None, game: None, events: broadcast::channel(64).0, deadline_changed: Rc::new(Notify::new()), stats: ProcessStats::new(), widget_host: None, widgets: None }
     }
 
     /// A stream of notification lines for one client.
@@ -100,6 +104,13 @@ impl<D: Desktop> Service<D> {
                 let params: UpdateWallpaperParams = parse(params)?;
                 json(self.store.update_wallpaper(&params.id, params.name, params.favourite, params.tags).map_err(store_error)?)
             }
+            method::GET_WIDGETS => self.widget_request(None),
+            method::UPDATE_WIDGET => self.widget_request(Some(WidgetCommand::Update(parse(params)?))),
+            method::ADD_WIDGET => self.widget_request(Some(WidgetCommand::Add(parse(params)?))),
+            method::REMOVE_WIDGET => self.widget_request(Some(WidgetCommand::Remove(parse::<WidgetIdParams>(params)?.id))),
+            method::SELECT_WIDGET => self.widget_request(Some(WidgetCommand::Select(parse::<SelectWidgetParams>(params)?.id))),
+            method::SET_LAYOUT_OPTIONS => self.widget_request(Some(WidgetCommand::Options(parse(params)?))),
+            method::SET_EDIT_MODE => self.widget_request(Some(WidgetCommand::EditMode(parse::<EditModeParams>(params)?.on))),
             other => Err(RpcError::new(code::METHOD_NOT_FOUND, format!("unknown method \"{other}\""))),
         }
     }
@@ -307,18 +318,37 @@ impl<D: Desktop> Service<D> {
     fn emit_theme(&self, previewed: Option<&Theme>, reason: ThemeChangeReason) {
         let theme = previewed.cloned().or_else(|| self.committed.clone());
         // Lumen's own surfaces (the desktop widgets) recolour first.
-        if let Some(sink) = &self.theme_sink {
-            sink(theme.clone().unwrap_or_else(Theme::fallback));
+        if let Some(widgets) = &self.widget_host {
+            widgets(WidgetCommand::Theme(Box::new(theme.clone().unwrap_or_else(Theme::fallback))));
         }
         self.emit(event::THEME_CHANGED, ThemeChanged { theme, preview: previewed.is_some(), reason });
     }
 
-    /// Registers the in-process listener for theme changes (the widget host)
-    /// and tells it the theme that is showing right now.
-    pub fn set_theme_sink(&mut self, sink: impl Fn(Theme) + 'static) {
+    /// Connects the widget host: `send` delivers commands to it. It is told
+    /// the theme that is showing right now.
+    pub fn set_widget_host(&mut self, send: impl Fn(WidgetCommand) + 'static) {
         let shown = self.preview.as_ref().map(|p| p.theme.clone()).or_else(|| self.committed.clone());
-        sink(shown.unwrap_or_else(Theme::fallback));
-        self.theme_sink = Some(Box::new(sink));
+        send(WidgetCommand::Theme(Box::new(shown.unwrap_or_else(Theme::fallback))));
+        self.widget_host = Some(Box::new(send));
+    }
+
+    /// The widget host reports a change to the layout, selection or edit mode.
+    pub fn widgets_changed(&mut self, state: WidgetsState) {
+        if self.widgets.as_ref() != Some(&state) {
+            self.emit(event::WIDGETS_CHANGED, &state);
+            self.widgets = Some(state);
+        }
+    }
+
+    /// Passes a widget request on to the host. The answer is the state as it
+    /// stands; the change itself comes back through [`Service::widgets_changed`].
+    fn widget_request(&mut self, command: Option<WidgetCommand>) -> Result<Value, RpcError> {
+        let unavailable = || RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets are not running");
+        let host = self.widget_host.as_ref().ok_or_else(unavailable)?;
+        if let Some(command) = command {
+            host(command);
+        }
+        json(self.widgets.as_ref().ok_or_else(unavailable)?)
     }
 
     fn emit(&self, name: &str, params: impl Serialize) {
@@ -745,7 +775,11 @@ mod tests {
         let mut service = service();
         let seen: Rc<RefCell<Vec<String>>> = Rc::default();
         let log = seen.clone();
-        service.set_theme_sink(move |theme| log.borrow_mut().push(format!("{} {}", theme.name, theme.mode)));
+        service.set_widget_host(move |command| {
+            if let WidgetCommand::Theme(theme) = command {
+                log.borrow_mut().push(format!("{} {}", theme.name, theme.mode));
+            }
+        });
         assert_eq!(*seen.borrow(), ["Lumen dark"], "no theme yet: the fallback look");
 
         preview_blue(&mut service);
@@ -753,6 +787,48 @@ mod tests {
         let _: PreviewState = call(&mut service, method::PREVIEW_THEME, json!({ "mode": "dark", "name": "Night" }));
         let _: ThemeState = call(&mut service, method::REVERT_PREVIEW, Value::Null);
         assert_eq!(*seen.borrow(), ["Lumen dark", "#2F5BEA light", "#2F5BEA light", "Night dark", "#2F5BEA light"], "preview, keep, preview, revert");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn widget_requests_go_to_the_host_and_its_reports_become_events() {
+        let mut service = service();
+        let unavailable = service.handle(method::GET_WIDGETS, Value::Null).unwrap_err();
+        assert_eq!(unavailable.code, code::WIDGETS_UNAVAILABLE, "no host yet");
+
+        let sent: Rc<RefCell<Vec<String>>> = Rc::default();
+        let log = sent.clone();
+        service.set_widget_host(move |command| log.borrow_mut().push(format!("{command:?}")));
+        let mut rx = service.subscribe();
+        let state = WidgetsState::default();
+        service.widgets_changed(state.clone());
+        service.widgets_changed(state.clone());
+        assert_eq!(events(&mut rx).len(), 1, "an unchanged report is not announced twice");
+
+        let got: WidgetsState = call(&mut service, method::GET_WIDGETS, Value::Null);
+        assert_eq!(got, state);
+        let _: WidgetsState = call(&mut service, method::UPDATE_WIDGET, json!({ "id": "clock-1", "x": 240, "y": 96, "dragging": true }));
+        let _: WidgetsState = call(&mut service, method::ADD_WIDGET, json!({ "kind": "nowPlaying" }));
+        let _: WidgetsState = call(&mut service, method::REMOVE_WIDGET, json!({ "id": "clock-1" }));
+        let _: WidgetsState = call(&mut service, method::SELECT_WIDGET, json!({ "id": null }));
+        let _: WidgetsState = call(&mut service, method::SET_LAYOUT_OPTIONS, json!({ "locked": true }));
+        let _: WidgetsState = call(&mut service, method::SET_EDIT_MODE, json!({ "on": true }));
+
+        let sent = sent.borrow();
+        let kinds: Vec<&str> = sent.iter().map(|c| c.split(['(', ' ']).next().unwrap()).collect();
+        assert_eq!(kinds, ["Theme", "Update", "Add", "Remove", "Select", "Options", "EditMode"]);
+        assert!(sent[1].contains("x: Some(240.0)") && sent[1].contains("dragging: true"), "{}", sent[1]);
+        assert!(sent[6].contains("true"));
+
+        // The host's next report reaches clients as an event.
+        let mut edited = state;
+        edited.edit_mode = true;
+        service.widgets_changed(edited);
+        let events = events(&mut rx);
+        assert_eq!(events[0]["method"], "widgetsChanged");
+        assert_eq!(events[0]["params"]["editMode"], true);
+
+        let bad = service.handle(method::UPDATE_WIDGET, json!({ "id": "clock-1", "colour": "red" })).unwrap_err();
+        assert_eq!(bad.code, code::INVALID_PARAMS);
     }
 
     #[tokio::test(start_paused = true)]

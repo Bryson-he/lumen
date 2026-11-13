@@ -14,7 +14,7 @@ mod surface;
 
 pub use canvas::{Bitmap, Canvas, Rect, Rgba, TextStyle, Weight};
 pub use gpu::Gpu;
-pub use surface::{Surface, SurfaceOptions};
+pub use surface::{InputHandler, Surface, SurfaceOptions, set_input_handler};
 
 /// Everything that can go wrong in this crate.
 #[derive(Debug, thiserror::Error)]

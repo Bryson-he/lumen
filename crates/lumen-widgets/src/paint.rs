@@ -1,6 +1,7 @@
 //! What a widget draws with. Every colour here is derived from the theme's
 //! roles; widgets never hold colours of their own.
 
+use lumen_ipc::widgets::{Background, WidgetStyle};
 use lumen_render::{Canvas, Rect, Rgba, TextStyle, Weight};
 use lumen_theme::{Blur, Color, Theme};
 
@@ -21,10 +22,29 @@ pub struct Paint {
     pub primary: Rgba,
     pub tertiary: Rgba,
     pub accent: Rgba,
+    /// The theme's surface colour, fully opaque (edit-mode chrome, solid backgrounds).
+    pub surface: Rgba,
     pub body_font: String,
 }
 
 impl Paint {
+    /// This paint with one widget's own style choices applied.
+    pub fn for_widget(&self, style: &WidgetStyle) -> Self {
+        let mut paint = self.clone();
+        match style.background {
+            Background::Glass => {}
+            Background::Solid => paint.glass = self.surface,
+            Background::None => {
+                paint.glass = Rgba::TRANSPARENT;
+                paint.border_width = 0.0;
+            }
+        }
+        if let Some(radius) = style.radius {
+            paint.radius = f32::from(radius);
+        }
+        paint
+    }
+
     pub fn from_theme(theme: &Theme) -> Self {
         let roles = &theme.roles;
         // True backdrop blur is not available yet, so the blur setting controls
@@ -46,6 +66,7 @@ impl Paint {
             primary: rgba(roles.primary),
             tertiary: rgba(roles.tertiary),
             accent: rgba(roles.accent),
+            surface: rgba(roles.surface),
             body_font: theme.style.font.clone(),
         }
     }
@@ -110,6 +131,23 @@ mod tests {
         assert_ne!(dark.primary, light.primary);
         assert_ne!(dark.glass, light.glass);
         assert_ne!(dark.text, light.text);
+    }
+
+    #[test]
+    fn a_widgets_own_style_overrides_the_theme() {
+        let base = Paint::from_theme(&theme());
+        let glass = base.for_widget(&WidgetStyle::default());
+        assert_eq!(glass, base, "the default style changes nothing");
+
+        let solid = base.for_widget(&WidgetStyle { background: Background::Solid, radius: Some(4), ..Default::default() });
+        assert_eq!(solid.glass, base.surface);
+        assert_eq!(solid.glass.a, 1.0);
+        assert_eq!(solid.radius, 4.0);
+
+        let bare = base.for_widget(&WidgetStyle { background: Background::None, ..Default::default() });
+        assert_eq!(bare.glass.a, 0.0);
+        assert_eq!(bare.border_width, 0.0);
+        assert_eq!(bare.radius, base.radius, "corners still follow the theme");
     }
 
     #[test]

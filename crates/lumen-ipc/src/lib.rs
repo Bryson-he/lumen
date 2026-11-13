@@ -8,6 +8,13 @@ use lumen_theme::{Color, Mode, Source, Style, Theme, Variant};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod widgets;
+
+pub use widgets::{
+    AddWidgetParams, Background, EditModeParams, Guides, Layout, LayoutOptionsParams, MonitorArea, Placement, SelectWidgetParams, UpdateWidgetParams, WidgetIdParams,
+    WidgetKind, WidgetStyle, WidgetsState,
+};
+
 /// The core's pipe. Override with the `LUMEN_PIPE` environment variable (tests).
 pub const PIPE_NAME: &str = r"\\.\pipe\lumen-core";
 
@@ -43,6 +50,22 @@ pub mod method {
     pub const SET_WALLPAPER: &str = "setWallpaper";
     /// Params: [`UpdateWallpaperParams`](super::UpdateWallpaperParams). Result: [`WallpaperEntry`](super::WallpaperEntry).
     pub const UPDATE_WALLPAPER: &str = "updateWallpaper";
+    /// No params. Result: [`WidgetsState`](super::WidgetsState). The widget methods below
+    /// all answer with the state as it was when asked; the change itself
+    /// arrives in a `widgetsChanged` event.
+    pub const GET_WIDGETS: &str = "getWidgets";
+    /// Params: [`UpdateWidgetParams`](super::UpdateWidgetParams).
+    pub const UPDATE_WIDGET: &str = "updateWidget";
+    /// Params: [`AddWidgetParams`](super::AddWidgetParams).
+    pub const ADD_WIDGET: &str = "addWidget";
+    /// Params: [`WidgetIdParams`](super::WidgetIdParams).
+    pub const REMOVE_WIDGET: &str = "removeWidget";
+    /// Params: [`SelectWidgetParams`](super::SelectWidgetParams).
+    pub const SELECT_WIDGET: &str = "selectWidget";
+    /// Params: [`LayoutOptionsParams`](super::LayoutOptionsParams).
+    pub const SET_LAYOUT_OPTIONS: &str = "setLayoutOptions";
+    /// Params: [`EditModeParams`](super::EditModeParams).
+    pub const SET_EDIT_MODE: &str = "setEditMode";
 }
 
 /// Notification names pushed by the core.
@@ -51,6 +74,8 @@ pub mod event {
     pub const THEME_CHANGED: &str = "themeChanged";
     /// Params: [`GameModeChanged`](super::GameModeChanged).
     pub const GAME_MODE_CHANGED: &str = "gameModeChanged";
+    /// Params: [`WidgetsState`](super::WidgetsState).
+    pub const WIDGETS_CHANGED: &str = "widgetsChanged";
 }
 
 /// JSON-RPC error codes: the standard ones plus Lumen's own (positive).
@@ -66,6 +91,8 @@ pub mod code {
     pub const NOT_FOUND: i32 = 2;
     /// Windows refused a desktop change (wallpaper, mode or accent).
     pub const DESKTOP_FAILED: i32 = 3;
+    /// The desktop widgets are not running.
+    pub const WIDGETS_UNAVAILABLE: i32 = 4;
 }
 
 // ---------- JSON-RPC envelope ----------
