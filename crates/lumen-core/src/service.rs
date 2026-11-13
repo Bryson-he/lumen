@@ -4,10 +4,17 @@
 //! desktop is snapshotted before the first preview; `commitPreview` keeps the
 //! theme, `revertPreview` (or 15 seconds passing) restores the snapshot.
 
-use std::{path::Path, rc::Rc, time::Duration};
+mod presets;
+
+use std::{
+    path::Path,
+    rc::Rc,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use lumen_ipc::{
-    ApplyPresetParams, GameModeChanged, ImportWallpaperParams, Notification, PREVIEW_SECONDS, PreviewState, PreviewThemeParams, RpcError,
+    GameModeChanged, ImportWallpaperParams, Notification, PREVIEW_SECONDS, PresetInfo, PreviewState, PreviewThemeParams, RpcError,
     EditModeParams, SelectWidgetParams, SetWallpaperParams, Status, ThemeChangeReason, ThemeChanged, ThemeState, UpdateWallpaperParams, WidgetIdParams, WidgetsState, code,
     event, method,
 };
@@ -45,6 +52,8 @@ pub struct Service<D: Desktop> {
     widget_host: Option<Box<dyn Fn(WidgetCommand)>>,
     /// The widget host's latest report.
     widgets: Option<WidgetsState>,
+    /// A copy of the preset list for the tray menu, which lives on another thread.
+    preset_mirror: Option<Arc<Mutex<Vec<PresetInfo>>>>,
 }
 
 struct Preview<S> {
@@ -57,7 +66,13 @@ struct Preview<S> {
 impl<D: Desktop> Service<D> {
     pub fn new(store: Store, desktop: D) -> Self {
         let committed = store.active_theme();
-        Self { store, desktop, committed, preview: None, game: None, events: broadcast::channel(64).0, deadline_changed: Rc::new(Notify::new()), stats: ProcessStats::new(), widget_host: None, widgets: None }
+        Self { store, desktop, committed, preview: None, game: None, events: broadcast::channel(64).0, deadline_changed: Rc::new(Notify::new()), stats: ProcessStats::new(), widget_host: None, widgets: None, preset_mirror: None }
+    }
+
+    /// Keeps `mirror` up to date with the preset list (for the tray menu).
+    pub fn set_preset_mirror(&mut self, mirror: Arc<Mutex<Vec<PresetInfo>>>) {
+        *mirror.lock().unwrap_or_else(|p| p.into_inner()) = self.preset_list();
+        self.preset_mirror = Some(mirror);
     }
 
     /// A stream of notification lines for one client.
@@ -89,7 +104,6 @@ impl<D: Desktop> Service<D> {
                 let params: ImportWallpaperParams = parse(params)?;
                 json(self.store.import_wallpaper(Path::new(&params.path)).map_err(store_error)?)
             }
-            method::APPLY_PRESET => json(self.apply_preset(parse(params)?)?),
             method::GET_STATUS => json(self.status()),
             method::LIST_MONITORS => json(self.desktop.monitors().map_err(desktop_error)?),
             method::SET_WALLPAPER => {
@@ -111,7 +125,7 @@ impl<D: Desktop> Service<D> {
             method::SELECT_WIDGET => self.widget_request(Some(WidgetCommand::Select(parse::<SelectWidgetParams>(params)?.id))),
             method::SET_LAYOUT_OPTIONS => self.widget_request(Some(WidgetCommand::Options(parse(params)?))),
             method::SET_EDIT_MODE => self.widget_request(Some(WidgetCommand::EditMode(parse::<EditModeParams>(params)?.on))),
-            other => Err(RpcError::new(code::METHOD_NOT_FOUND, format!("unknown method \"{other}\""))),
+            other => self.handle_preset(other, params).unwrap_or_else(|| Err(RpcError::new(code::METHOD_NOT_FOUND, format!("unknown method \"{other}\"")))),
         }
     }
 
@@ -184,6 +198,8 @@ impl<D: Desktop> Service<D> {
         }
         info!("kept \"{}\"", preview.theme.name);
         self.committed = Some(preview.theme.clone());
+        // A theme kept by hand is no longer "the preset as saved".
+        self.look_changed_by_hand();
         self.emit_theme(None, ThemeChangeReason::Commit);
         Ok(preview.theme)
     }
@@ -206,26 +222,6 @@ impl<D: Desktop> Service<D> {
         {
             warn!("auto-revert: {}", error.message);
         }
-    }
-
-    fn apply_preset(&mut self, params: ApplyPresetParams) -> Result<Theme, RpcError> {
-        let preset = self.store.preset(&params.id).map_err(store_error)?;
-        let theme = self.store.theme_file(&preset.theme).map_err(store_error)?;
-        let wallpapers = preset
-            .wallpapers
-            .iter()
-            .map(|(monitor, image)| ((monitor != "all").then(|| monitor.clone()), self.store.resolve(image)))
-            .collect::<Vec<_>>();
-
-        // A preset replaces whatever is being tried out.
-        self.revert_preview(ThemeChangeReason::Revert)?;
-        let plan = self.plan(&theme, Some(wallpapers).filter(|w| !w.is_empty()));
-        self.desktop.apply(&plan).map_err(desktop_error)?;
-        self.store.save_active_theme(&theme).map_err(store_error)?;
-        info!("applied preset \"{}\"", preset.name);
-        self.committed = Some(theme.clone());
-        self.emit_theme(None, ThemeChangeReason::Preset);
-        Ok(theme)
     }
 
     /// Records a fullscreen app appearing (`Some(title)`) or going away.
@@ -419,6 +415,12 @@ mod tests {
         fail_apply: bool,
         /// Calls to `set_wallpaper`.
         wallpaper_only: Vec<(Option<String>, PathBuf)>,
+        /// The monitors to report; one plain monitor if not set.
+        monitor_list: Option<Vec<MonitorInfo>>,
+    }
+
+    fn fake_monitor(number: usize, id: &str, wallpaper: Option<&Path>) -> MonitorInfo {
+        MonitorInfo { number, id: id.into(), x: 0, y: 0, width: 1920, height: 1080, primary: number == 1, wallpaper: wallpaper.map(|p| p.display().to_string()) }
     }
 
     impl Desktop for FakeDesktop {
@@ -444,7 +446,7 @@ mod tests {
         }
 
         fn monitors(&mut self) -> Result<Vec<MonitorInfo>, String> {
-            Ok(vec![MonitorInfo { number: 1, id: "MONITOR-A".into(), x: 0, y: 0, width: 1920, height: 1080, primary: true, wallpaper: None }])
+            Ok(self.monitor_list.clone().unwrap_or_else(|| vec![fake_monitor(1, "MONITOR-A", None)]))
         }
 
         fn set_wallpaper(&mut self, monitor: Option<&str>, image: &Path) -> Result<(), String> {
@@ -696,33 +698,121 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn apply_preset_sets_per_monitor_wallpapers_and_keeps_the_theme() {
+    async fn saving_a_preset_captures_the_whole_look() {
         let mut service = service();
         let root = service.store.root().to_owned();
-        let image = test_image(&root, "sky.png", [40, 80, 200]);
-        let entry: WallpaperEntry = call(&mut service, method::IMPORT_WALLPAPER, json!({ "path": image }));
-        let mut theme = Theme::from_color(Color::new(40, 80, 200), Variant::Tonal, Mode::Dark, 0).unwrap();
-        theme.name = "Sky".into();
-        fs::write(root.join("themes/sky.json"), serde_json::to_string(&theme).unwrap()).unwrap();
-        fs::write(
-            root.join("presets/sky.json"),
-            json!({ "name": "Sky", "theme": "themes/sky.json", "wallpapers": { "MONITOR-A": entry.file, "MONITOR-B": entry.file } }).to_string(),
-        )
-        .unwrap();
+        // Monitor 1 shows a library wallpaper; monitor 2 shows a picture from elsewhere on disk.
+        let sky: WallpaperEntry = call(&mut service, method::IMPORT_WALLPAPER, json!({ "path": test_image(&root, "sky.png", [40, 80, 200]) }));
+        let outside = test_image(&root, "holiday.png", [200, 160, 40]);
+        service.desktop.monitor_list = Some(vec![fake_monitor(1, "LEFT", Some(Path::new(&sky.path))), fake_monitor(2, "RIGHT", Some(&outside))]);
+        // A widget sits on the second monitor.
+        let mut state = WidgetsState::default();
+        state.layout.widgets[1].monitor = Some("RIGHT".into());
+        service.widgets_changed(state);
+
+        let nothing = service.handle(method::SAVE_PRESET, json!({ "name": "Too Early" })).unwrap_err();
+        assert_eq!(nothing.code, code::INVALID_PARAMS, "there is no theme to save yet");
+
+        // Saving during a preview keeps that theme.
+        let previewed = preview_blue(&mut service).theme;
+        let mut rx = service.subscribe();
+        let info: lumen_ipc::PresetInfo = call(&mut service, method::SAVE_PRESET, json!({ "name": "  Blue Monday " }));
+        assert_eq!((info.id.as_str(), info.name.as_str(), info.active, info.widget_count), ("blue-monday", "Blue Monday", true, 3));
+        assert!(service.preview.is_none());
+        assert_eq!(service.committed.as_ref(), Some(&previewed));
+
+        let saved = service.store.preset("blue-monday").unwrap();
+        assert_eq!(saved.theme, previewed);
+        assert_eq!(saved.wallpapers.iter().map(|w| (w.monitor, w.file.as_str())).collect::<Vec<_>>(), [(1, "wallpapers/sky.png"), (2, "wallpapers/holiday.png")]);
+        assert_eq!(service.store.wallpapers().len(), 2, "the outside picture was copied into the library");
+        let widgets = saved.widgets.unwrap();
+        assert_eq!(widgets.widgets[1].monitor.as_deref(), Some("#2"), "monitors are stored by number");
+        assert!(events(&mut rx).iter().any(|e| e["method"] == "presetsChanged" && e["params"][0]["name"] == "Blue Monday"));
+
+        let listed: Vec<lumen_ipc::PresetInfo> = call(&mut service, method::LIST_PRESETS, Value::Null);
+        assert_eq!(listed, vec![info]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn applying_a_preset_restores_wallpapers_theme_and_widgets() {
+        let mut service = service();
+        let root = service.store.root().to_owned();
+        let sky: WallpaperEntry = call(&mut service, method::IMPORT_WALLPAPER, json!({ "path": test_image(&root, "sky.png", [40, 80, 200]) }));
+        let ember: WallpaperEntry = call(&mut service, method::IMPORT_WALLPAPER, json!({ "path": test_image(&root, "ember.png", [200, 80, 40]) }));
+        service.desktop.monitor_list = Some(vec![fake_monitor(1, "LEFT", Some(Path::new(&sky.path))), fake_monitor(2, "RIGHT", Some(Path::new(&ember.path)))]);
+        let mut state = WidgetsState::default();
+        state.layout.widgets[0].x = 480.0;
+        state.layout.widgets[2].monitor = Some("RIGHT".into());
+        service.widgets_changed(state.clone());
+        let sent: Rc<RefCell<Vec<WidgetCommand>>> = Rc::default();
+        let log = sent.clone();
+        service.set_widget_host(move |command| log.borrow_mut().push(command));
+
+        preview_blue(&mut service);
+        let _: lumen_ipc::PresetInfo = call(&mut service, method::SAVE_PRESET, json!({ "name": "First Look" }));
+        let first_theme = service.committed.clone().unwrap();
+
+        // Change everything: another theme kept by hand, on a PC whose monitors now have other ids.
+        let _: PreviewState = call(&mut service, method::PREVIEW_THEME, json!({ "source": { "type": "color", "value": "#C0392B" }, "mode": "dark" }));
+        let _: Theme = call(&mut service, method::COMMIT_PREVIEW, Value::Null);
+        assert!(!call::<Vec<lumen_ipc::PresetInfo>>(&mut service, method::LIST_PRESETS, Value::Null)[0].active, "the look was changed by hand");
+        service.desktop.monitor_list = Some(vec![fake_monitor(1, "NEW-LEFT", None), fake_monitor(2, "NEW-RIGHT", None)]);
+        sent.borrow_mut().clear();
 
         // A preview in progress is replaced, not left dangling.
         preview_blue(&mut service);
         let mut rx = service.subscribe();
-        let applied: Theme = call(&mut service, method::APPLY_PRESET, json!({ "id": "sky" }));
+        let applied: Theme = call(&mut service, method::APPLY_PRESET, json!({ "id": "first-look" }));
 
-        assert_eq!(applied, theme);
+        assert_eq!(applied, first_theme);
         assert!(service.preview.is_none());
-        assert_eq!(service.store.active_theme(), Some(theme));
+        assert_eq!(service.store.active_theme(), Some(first_theme));
         let plan = service.desktop.current.clone().unwrap();
-        let image = PathBuf::from(&entry.path);
-        assert_eq!(plan.wallpapers, vec![(Some("MONITOR-A".into()), image.clone()), (Some("MONITOR-B".into()), image)]);
-        let reasons: Vec<_> = events(&mut rx).iter().map(|e| e["params"]["reason"].clone()).collect();
+        assert_eq!(plan.wallpapers, vec![(Some("NEW-LEFT".into()), PathBuf::from(&sky.path)), (Some("NEW-RIGHT".into()), PathBuf::from(&ember.path))]);
+        let layout = sent.borrow().iter().find_map(|c| if let WidgetCommand::SetLayout(layout) = c { Some(layout.clone()) } else { None }).expect("the widget layout was sent to the host");
+        assert_eq!(layout.widgets[0].x, 480.0);
+        assert_eq!(layout.widgets[2].monitor.as_deref(), Some("NEW-RIGHT"), "monitor 2 on this PC");
+        let reasons: Vec<_> = events(&mut rx).iter().filter(|e| e["method"] == "themeChanged").map(|e| e["params"]["reason"].clone()).collect();
         assert_eq!(reasons, [json!("revert"), json!("preset")]);
+        let listed: Vec<lumen_ipc::PresetInfo> = call(&mut service, method::LIST_PRESETS, Value::Null);
+        assert!(listed[0].active && listed[0].last_used_at > 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn presets_can_be_renamed_copied_exported_imported_and_deleted() {
+        let mut service = service();
+        let root = service.store.root().to_owned();
+        let sky: WallpaperEntry = call(&mut service, method::IMPORT_WALLPAPER, json!({ "path": test_image(&root, "sky.png", [40, 80, 200]) }));
+        service.desktop.monitor_list = Some(vec![fake_monitor(1, "LEFT", Some(Path::new(&sky.path)))]);
+        preview_blue(&mut service);
+        let _: lumen_ipc::PresetInfo = call(&mut service, method::SAVE_PRESET, json!({ "name": "Sky" }));
+
+        let renamed: lumen_ipc::PresetInfo = call(&mut service, method::RENAME_PRESET, json!({ "id": "sky", "name": "Big Sky" }));
+        assert_eq!((renamed.id.as_str(), renamed.name.as_str()), ("sky", "Big Sky"), "the id stays, the name changes");
+        let copy: lumen_ipc::PresetInfo = call(&mut service, method::DUPLICATE_PRESET, json!({ "id": "sky" }));
+        assert_eq!((copy.id.as_str(), copy.name.as_str(), copy.active), ("big-sky-copy", "Big Sky copy", false));
+
+        let file = root.join("exported");
+        let _: Value = call(&mut service, method::EXPORT_PRESET, json!({ "id": "sky", "path": file }));
+        assert!(root.join("exported.lumen").is_file(), "the extension is added");
+        let imported: lumen_ipc::PresetInfo = call(&mut service, method::IMPORT_PRESET, json!({ "path": root.join("exported.lumen") }));
+        assert_eq!(imported.name, "Big Sky");
+        assert_ne!(imported.id, "sky");
+
+        let _: Value = call(&mut service, method::DELETE_PRESET, json!({ "id": "sky" }));
+        let names: Vec<String> = call::<Vec<lumen_ipc::PresetInfo>>(&mut service, method::LIST_PRESETS, Value::Null).into_iter().map(|p| p.name).collect();
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"Big Sky copy".to_owned()) && names.contains(&"Big Sky".to_owned()));
+
+        for (method, params, expected) in [
+            (method::RENAME_PRESET, json!({ "id": "big-sky-copy", "name": "  " }), code::INVALID_PARAMS),
+            (method::EXPORT_PRESET, json!({ "id": "big-sky-copy", "path": "relative.lumen" }), code::INVALID_PARAMS),
+            (method::EXPORT_PRESET, json!({ "id": "gone", "path": root.join("x.lumen") }), code::NOT_FOUND),
+            (method::IMPORT_PRESET, json!({ "path": root.join("nope.lumen") }), code::NOT_FOUND),
+            (method::DELETE_PRESET, json!({ "id": "gone" }), code::NOT_FOUND),
+        ] {
+            assert_eq!(service.handle(method, params.clone()).unwrap_err().code, expected, "{method} {params}");
+        }
     }
 
     #[tokio::test(start_paused = true)]

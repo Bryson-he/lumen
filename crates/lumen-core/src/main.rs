@@ -10,12 +10,20 @@
 
 mod desktop;
 mod ipc;
+mod preset_store;
 mod service;
 mod stats;
 mod store;
 mod tray;
 
-use std::{cell::RefCell, fs, process::ExitCode, rc::Rc, sync::Mutex, thread};
+use std::{
+    cell::RefCell,
+    fs,
+    process::ExitCode,
+    rc::Rc,
+    sync::{Arc, Mutex},
+    thread,
+};
 
 use tokio::{
     sync::{mpsc, oneshot},
@@ -47,9 +55,12 @@ fn main() -> ExitCode {
     let (host_tx, host_rx) = mpsc::unbounded_channel::<FromHost>();
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    // The tray menu reads the preset list from here; the service keeps it current.
+    let presets = Arc::new(Mutex::new(Vec::new()));
+    let preset_mirror = presets.clone();
     let service_thread = thread::Builder::new()
         .name("service".into())
-        .spawn(move || run_service(store, game_rx, host_rx, shutdown_rx, ready_tx))
+        .spawn(move || run_service(store, game_rx, host_rx, shutdown_rx, ready_tx, preset_mirror))
         .expect("the service thread starts");
 
     match ready_rx.recv() {
@@ -62,7 +73,14 @@ fn main() -> ExitCode {
         Err(_) => return ExitCode::FAILURE,
     }
 
-    let tray = match tray::Tray::new() {
+    let tray_tx = host_tx.clone();
+    let controls = tray::Controls {
+        presets,
+        apply_preset: Box::new(move |id| {
+            let _ = tray_tx.send(FromHost::ApplyPreset(id));
+        }),
+    };
+    let tray = match tray::Tray::new(controls) {
         Ok(tray) => Some(tray),
         Err(message) => {
             // Still useful without an icon; the settings app can drive it.
@@ -110,6 +128,8 @@ enum FromHost {
     Ready(HostHandle),
     /// The layout, selection or edit mode changed.
     State(Box<lumen_ipc::WidgetsState>),
+    /// A preset was picked from the tray menu.
+    ApplyPreset(String),
 }
 
 fn run_service(
@@ -118,6 +138,7 @@ fn run_service(
     mut host_rx: mpsc::UnboundedReceiver<FromHost>,
     shutdown_rx: oneshot::Receiver<()>,
     ready_tx: std::sync::mpsc::Sender<Result<(), String>>,
+    preset_mirror: Arc<Mutex<Vec<lumen_ipc::PresetInfo>>>,
 ) {
     let runtime = match tokio::runtime::Builder::new_current_thread().enable_io().enable_time().build() {
         Ok(runtime) => runtime,
@@ -144,6 +165,7 @@ fn run_service(
             }
         };
         let service = Rc::new(RefCell::new(Service::new(store, desktop)));
+        service.borrow_mut().set_preset_mirror(preset_mirror);
         info!("listening on {pipe_name}");
         let _ = ready_tx.send(Ok(()));
 
@@ -162,6 +184,12 @@ fn run_service(
                 match message {
                     FromHost::Ready(widgets) => widget_service.borrow_mut().set_widget_host(move |command| widgets.send(command)),
                     FromHost::State(state) => widget_service.borrow_mut().widgets_changed(*state),
+                    FromHost::ApplyPreset(id) => {
+                        let params = serde_json::json!({ "id": id });
+                        if let Err(error) = widget_service.borrow_mut().handle(lumen_ipc::method::APPLY_PRESET, params) {
+                            error!("could not apply the preset from the tray: {}", error.message);
+                        }
+                    }
                 }
             }
         });

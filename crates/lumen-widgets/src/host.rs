@@ -85,6 +85,8 @@ pub enum Command {
     Select(Option<String>),
     Options(LayoutOptionsParams),
     EditMode(bool),
+    /// Replace the whole layout (applying a preset).
+    SetLayout(Box<Layout>),
 }
 
 /// Lets other threads talk to the host.
@@ -172,6 +174,8 @@ struct Host {
     paint: Paint,
     /// A fullscreen app or game is in front.
     paused: bool,
+    /// The user chose "Pause widgets" in the tray menu: everything is hidden.
+    user_paused: bool,
     inbox: Arc<Mutex<Inbox>>,
     on_state: Box<dyn Fn(WidgetsState)>,
 
@@ -214,6 +218,7 @@ pub fn start(theme: &Theme, options: Options, on_state: impl Fn(WidgetsState) + 
         options,
         paint: Paint::from_theme(theme),
         paused: false,
+        user_paused: false,
         inbox: inbox.clone(),
         on_state: Box::new(on_state),
         gpu: None,
@@ -265,6 +270,42 @@ pub fn set_paused(paused: bool) {
         host.draw(None);
         host.sync_timers();
     });
+}
+
+/// Hides every widget and stops all their work until switched back
+/// ("Pause widgets" in the tray menu). Call on the host's thread.
+pub fn set_user_paused(paused: bool) {
+    with_host(|host| {
+        if host.user_paused == paused {
+            return;
+        }
+        host.user_paused = paused;
+        if paused {
+            host.set_edit_mode(false);
+        } else {
+            host.clock = ClockData::now();
+            host.stats = host.sampler.sample();
+        }
+        host.sync_visibility();
+        host.draw(None);
+        host.sync_timers();
+        host.report();
+    });
+}
+
+/// Whether the user has paused the widgets. Call on the host's thread.
+pub fn is_user_paused() -> bool {
+    with_host(|host| host.user_paused).unwrap_or(false)
+}
+
+/// Whether desktop edit mode is on. Call on the host's thread.
+pub fn is_editing() -> bool {
+    with_host(|host| host.edit.is_some()).unwrap_or(false)
+}
+
+/// Turns desktop edit mode on or off, as Win+Alt+E does. Call on the host's thread.
+pub fn set_edit_mode(on: bool) {
+    with_host(|host| host.run(Command::EditMode(on)));
 }
 
 /// Removes the widgets. Call on the host's thread before it exits.
@@ -397,7 +438,7 @@ impl Host {
     /// Whether a widget should be on screen right now.
     fn wants_visible(&self, slot: &Slot) -> bool {
         let Some(placement) = self.placement(&slot.id) else { return false };
-        if self.paused && placement.style.hide_in_games {
+        if self.user_paused || (self.paused && placement.style.hide_in_games) {
             return false;
         }
         // In edit mode everything shows, so it can be grabbed.
@@ -592,6 +633,20 @@ impl Host {
                     self.report();
                 }
             }
+            Command::SetLayout(layout) => {
+                self.layout = layout.sanitised();
+                self.selected = None;
+                self.slots.clear();
+                for index in 0..self.layout.widgets.len() {
+                    let placement = self.layout.widgets[index].clone();
+                    if let Some(slot) = self.create_slot(&placement) {
+                        self.slots.push(slot);
+                    }
+                }
+                self.sync_visibility();
+                self.draw(None);
+                self.after_layout_change(true);
+            }
         }
     }
 
@@ -709,7 +764,7 @@ impl Host {
     // ----- edit mode -----
 
     fn set_edit_mode(&mut self, on: bool) {
-        if on == self.edit.is_some() || (on && self.paused) {
+        if on == self.edit.is_some() || (on && (self.paused || self.user_paused)) {
             return;
         }
         if on {

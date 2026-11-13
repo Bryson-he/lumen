@@ -10,7 +10,6 @@
 //! ```
 
 use std::{
-    collections::BTreeMap,
     fs, io,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
@@ -19,7 +18,6 @@ use std::{
 use lumen_ipc::{WallpaperEntry, WallpaperKind};
 use lumen_theme::{Color, Theme};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use serde_json::Value;
 
 const FOLDERS: [&str; 5] = ["themes", "presets", "wallpapers", "wallpapers/thumbs", "widgets"];
 /// Longest side of a wallpaper preview image, in pixels.
@@ -52,6 +50,9 @@ struct Config {
     /// Id of the kept theme (`themes/<id>.json`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     active_theme: Option<String>,
+    /// Id of the preset the current look came from, until the look is changed by hand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    active_preset: Option<String>,
 }
 
 /// A library entry as stored in `wallpapers/index.json`.
@@ -70,24 +71,6 @@ struct StoredWallpaper {
     favourite: bool,
     #[serde(default)]
     tags: Vec<String>,
-}
-
-/// A saved look (`presets/<id>.json`). The widget and bar layouts are carried
-/// as-is until the milestones that define them.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Preset {
-    pub name: String,
-    /// Theme file, relative to the data folder (`themes/x.json`).
-    pub theme: String,
-    /// Wallpaper per monitor: key is a monitor id, or `"all"`; value is a path
-    /// relative to the data folder or absolute.
-    #[serde(default)]
-    pub wallpapers: BTreeMap<String, String>,
-    #[serde(default)]
-    pub widgets: Value,
-    #[serde(default)]
-    pub bar: Value,
 }
 
 pub struct Store {
@@ -140,8 +123,18 @@ impl Store {
         self.write_json("config.json", &config)
     }
 
-    pub fn theme_file(&self, relative: &str) -> Result<Theme> {
-        self.read_json(relative)
+    /// The preset the current look came from, if it has not been changed since.
+    pub fn active_preset(&self) -> Option<String> {
+        self.read_json::<Config>("config.json").ok()?.active_preset
+    }
+
+    pub fn set_active_preset(&self, id: Option<&str>) -> Result<()> {
+        let mut config: Config = self.read_json("config.json").unwrap_or_default();
+        if config.active_preset.as_deref() == id {
+            return Ok(());
+        }
+        config.active_preset = id.map(str::to_owned);
+        self.write_json("config.json", &config)
     }
 
     // ----- wallpapers -----
@@ -168,7 +161,18 @@ impl Store {
             return Err(StoreError::Invalid(format!("{shown} is not a supported image (jpg, png, webp, bmp)")));
         }
         let bytes = fs::read(source).map_err(|e| StoreError::Io(format!("could not read {shown}: {e}")))?;
-        let hash = format!("{:016x}", fnv1a(&bytes));
+        let stem = source.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        self.import_wallpaper_bytes(&stem, &extension, &bytes)
+    }
+
+    /// Adds image data to the library under a name. Used for files on disk and
+    /// for wallpapers that arrive inside a `.lumen` preset.
+    pub(crate) fn import_wallpaper_bytes(&self, name: &str, extension: &str, bytes: &[u8]) -> Result<WallpaperEntry> {
+        let shown = format!("{name}.{extension}");
+        if !IMAGE_EXTENSIONS.contains(&extension) {
+            return Err(StoreError::Invalid(format!("{shown} is not a supported image (jpg, png, webp, bmp)")));
+        }
+        let hash = format!("{:016x}", fnv1a(bytes));
 
         let mut index = self.index();
         if let Some(existing) = index.iter().find(|w| w.hash == hash && self.resolve(&w.file).is_file()) {
@@ -177,13 +181,13 @@ impl Store {
 
         // Decode once: it proves the file really is an image, and feeds both
         // the colour extraction and the preview thumbnail.
-        let image = image::load_from_memory(&bytes).map_err(|e| StoreError::Invalid(format!("{shown} could not be read as an image: {e}")))?;
+        let image = image::load_from_memory(bytes).map_err(|e| StoreError::Invalid(format!("{shown} could not be read as an image: {e}")))?;
         let colors = lumen_theme::extract_from_image(&image).map_err(|e| StoreError::Invalid(e.to_string()))?;
 
-        let base = slug(&source.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default());
+        let base = slug(name);
         let id = unique(&base, |candidate| index.iter().any(|w| w.id == candidate));
         let file = format!("wallpapers/{id}.{extension}");
-        fs::write(self.root.join(&file), &bytes).map_err(|e| StoreError::Io(format!("could not copy {shown} into the library: {e}")))?;
+        fs::write(self.root.join(&file), bytes).map_err(|e| StoreError::Io(format!("could not copy {shown} into the library: {e}")))?;
         // A missing thumbnail is not fatal: the app falls back to the palette.
         let _ = image.thumbnail(THUMB_SIZE, THUMB_SIZE).into_rgb8().save(self.root.join(thumb_file(&id)));
 
@@ -193,7 +197,7 @@ impl Store {
             file,
             kind: WallpaperKind::Static,
             palette: colors.candidates,
-            added_at: SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+            added_at: now_secs(),
             hash,
             favourite: false,
             tags: Vec::new(),
@@ -247,19 +251,9 @@ impl Store {
         }
     }
 
-    // ----- presets -----
+    // ----- files (presets are in preset_store.rs) -----
 
-    pub fn preset(&self, id: &str) -> Result<Preset> {
-        // Ids are file names; never let one walk out of the presets folder.
-        if id.is_empty() || id.contains(['/', '\\', ':']) || id.contains("..") {
-            return Err(StoreError::Invalid(format!("\"{id}\" is not a preset id")));
-        }
-        self.read_json(&format!("presets/{id}.json"))
-    }
-
-    // ----- files -----
-
-    fn read_json<T: DeserializeOwned>(&self, relative: &str) -> Result<T> {
+    pub(crate) fn read_json<T: DeserializeOwned>(&self, relative: &str) -> Result<T> {
         let path = self.root.join(relative);
         let text = fs::read_to_string(&path).map_err(|e| match e.kind() {
             io::ErrorKind::NotFound => StoreError::NotFound(format!("{relative} does not exist")),
@@ -269,12 +263,17 @@ impl Store {
     }
 
     /// Writes via a temporary file so a crash never leaves a half-written file.
-    fn write_json<T: Serialize>(&self, relative: &str, value: &T) -> Result<()> {
+    pub(crate) fn write_json<T: Serialize>(&self, relative: &str, value: &T) -> Result<()> {
         let path = self.root.join(relative);
         let temp = path.with_extension("json.tmp");
         let text = serde_json::to_string_pretty(value).map_err(|e| StoreError::Io(e.to_string()))?;
         fs::write(&temp, text).and_then(|()| fs::rename(&temp, &path)).map_err(|e| StoreError::Io(format!("could not write {relative}: {e}")))
     }
+}
+
+/// Seconds since 1970 (UTC).
+pub(crate) fn now_secs() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
 fn thumb_file(id: &str) -> String {
@@ -307,7 +306,7 @@ fn display_name(id: &str) -> String {
 }
 
 /// `base`, or `base-2`, `base-3`, ... whichever is not taken yet.
-fn unique(base: &str, taken: impl Fn(&str) -> bool) -> String {
+pub(crate) fn unique(base: &str, taken: impl Fn(&str) -> bool) -> String {
     if !taken(base) {
         return base.to_owned();
     }
@@ -430,15 +429,6 @@ pub(crate) mod tests {
         let again = store.update_wallpaper(&entry.id, None, Some(false), None).unwrap();
         assert_eq!((again.name.as_str(), again.favourite, again.tags.len()), ("Big Sky", false, 2));
         assert!(matches!(store.update_wallpaper("nope", None, None, None), Err(StoreError::NotFound(_))));
-    }
-
-    #[test]
-    fn preset_ids_cannot_leave_the_presets_folder() {
-        let store = temp_store();
-        for bad in ["", "../config", r"..\config", "a/b", "C:evil"] {
-            assert!(matches!(store.preset(bad), Err(StoreError::Invalid(_))), "{bad:?}");
-        }
-        assert!(matches!(store.preset("missing"), Err(StoreError::NotFound(_))));
     }
 
     #[test]

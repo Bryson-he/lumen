@@ -8,8 +8,10 @@ use lumen_theme::{Color, Mode, Source, Style, Theme, Variant};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod presets;
 pub mod widgets;
 
+pub use presets::{ExportPresetParams, ImportPresetParams, Preset, PresetIdParams, PresetInfo, PresetManifest, PresetWallpaper, RenamePresetParams, SavePresetParams};
 pub use widgets::{
     AddWidgetParams, Background, EditModeParams, Guides, Layout, LayoutOptionsParams, MonitorArea, Placement, SelectWidgetParams, UpdateWidgetParams, WidgetIdParams,
     WidgetKind, WidgetStyle, WidgetsState,
@@ -40,8 +42,25 @@ pub mod method {
     pub const LIST_WALLPAPERS: &str = "listWallpapers";
     /// Params: [`ImportWallpaperParams`](super::ImportWallpaperParams). Result: [`WallpaperEntry`](super::WallpaperEntry).
     pub const IMPORT_WALLPAPER: &str = "importWallpaper";
-    /// Params: [`ApplyPresetParams`](super::ApplyPresetParams). Result: the applied `Theme`.
+    /// Params: [`PresetIdParams`](super::PresetIdParams). Applies at once: wallpapers,
+    /// theme and widget layout. Result: the applied `Theme`.
     pub const APPLY_PRESET: &str = "applyPreset";
+    /// No params. Result: array of [`PresetInfo`](super::PresetInfo), most recently used first.
+    pub const LIST_PRESETS: &str = "listPresets";
+    /// Params: [`SavePresetParams`](super::SavePresetParams). Saves the look on the desktop now.
+    /// Result: [`PresetInfo`](super::PresetInfo).
+    pub const SAVE_PRESET: &str = "savePreset";
+    /// Params: [`RenamePresetParams`](super::RenamePresetParams). Result: [`PresetInfo`](super::PresetInfo).
+    pub const RENAME_PRESET: &str = "renamePreset";
+    /// Params: [`PresetIdParams`](super::PresetIdParams). Result: the copy's [`PresetInfo`](super::PresetInfo).
+    pub const DUPLICATE_PRESET: &str = "duplicatePreset";
+    /// Params: [`PresetIdParams`](super::PresetIdParams). Result: `null`.
+    pub const DELETE_PRESET: &str = "deletePreset";
+    /// Params: [`ExportPresetParams`](super::ExportPresetParams). Writes a `.lumen` file. Result: `null`.
+    pub const EXPORT_PRESET: &str = "exportPreset";
+    /// Params: [`ImportPresetParams`](super::ImportPresetParams). Reads a `.lumen` file.
+    /// Result: [`PresetInfo`](super::PresetInfo).
+    pub const IMPORT_PRESET: &str = "importPreset";
     /// No params. Result: [`Status`](super::Status).
     pub const GET_STATUS: &str = "getStatus";
     /// No params. Result: array of [`MonitorInfo`](super::MonitorInfo).
@@ -76,6 +95,8 @@ pub mod event {
     pub const GAME_MODE_CHANGED: &str = "gameModeChanged";
     /// Params: [`WidgetsState`](super::WidgetsState).
     pub const WIDGETS_CHANGED: &str = "widgetsChanged";
+    /// Params: array of [`PresetInfo`](super::PresetInfo) (the whole list).
+    pub const PRESETS_CHANGED: &str = "presetsChanged";
 }
 
 /// JSON-RPC error codes: the standard ones plus Lumen's own (positive).
@@ -281,13 +302,6 @@ pub struct ImportWallpaperParams {
     pub path: String,
 }
 
-/// Params of `applyPreset`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ApplyPresetParams {
-    /// The preset's file name in `presets/`, without `.json`.
-    pub id: String,
-}
 
 /// Result of `getStatus`: what the Home status strip shows.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
