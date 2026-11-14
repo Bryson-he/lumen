@@ -335,7 +335,7 @@ export const STYLE_FONTS = ["Inter", "Space Grotesk"] as const;
 
 // ----- Widget parts (crates/lumen-ipc/src/parts.rs) -----
 
-export type PartKind = "text" | "bar" | "image" | "shape";
+export type PartKind = "text" | "bar" | "image" | "shape" | "ring" | "graph" | "icon";
 /** The widget's own text / muted / highlight colour, or one of the theme's roles. */
 export type PartColor = "text" | "muted" | "highlight" | keyof Roles;
 export type PartAlign = "left" | "centre" | "right";
@@ -369,6 +369,15 @@ export interface Part {
   hidden: boolean;
   /** Corner radius of a shape or picture. */
   radius: number;
+  /** What a click does: "open <target>", "media.toggle", "lumen.open", or "" for nothing. */
+  click: string;
+  /** Only shown while this holds ("stats.cpu > 90", "media.playing"); "" for always. */
+  when: string;
+  /** While this holds, the part is drawn in alertColor. */
+  alertWhen: string;
+  alertColor: PartColor;
+  /** Only shown while the mouse is over the widget. */
+  hoverOnly: boolean;
 }
 
 /** What getPartDefaults returns, per kind of widget. */
@@ -443,3 +452,45 @@ export interface WeatherState {
   /** Why the latest fetch failed, if it did. */
   error: string | null;
 }
+
+// ----- What parts do and react to (crates/lumen-ipc/src/behaviour.rs) -----
+
+/** The icons an icon part can show by name (ICONS in lumen-ipc), from Windows' Segoe Fluent Icons font. */
+export const PART_ICONS: Record<string, string> = {
+  home: "\uE80F",
+  settings: "\uE713",
+  search: "\uE721",
+  mail: "\uE715",
+  calendar: "\uE787",
+  clock: "\uE823",
+  music: "\uE8D6",
+  play: "\uE768",
+  pause: "\uE769",
+  next: "\uE893",
+  previous: "\uE892",
+  volume: "\uE767",
+  mute: "\uE74F",
+  wifi: "\uE701",
+  bluetooth: "\uE702",
+  folder: "\uE8B7",
+  document: "\uE8A5",
+  globe: "\uE774",
+  heart: "\uEB51",
+  star: "\uE734",
+  pin: "\uE718",
+  camera: "\uE722",
+  picture: "\uE8B9",
+  video: "\uE714",
+  download: "\uE896",
+  upload: "\uE898",
+  power: "\uE7E8",
+  lock: "\uE72E",
+  person: "\uE77B",
+  phone: "\uE717",
+  message: "\uE8BD",
+  cloud: "\uE753",
+  sun: "\uE706",
+  game: "\uE7FC",
+  link: "\uE71B",
+  info: "\uE946",
+};

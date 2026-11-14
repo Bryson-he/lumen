@@ -300,6 +300,9 @@ struct Host {
     files: files::Files,
 
     weather: weathers::Weather,
+
+    /// How the system readings have moved lately, for graph parts.
+    history: parts::History,
 }
 
 thread_local! {
@@ -355,6 +358,7 @@ pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'stat
         paints: styles::Paints::plain(&Paint::from_theme(theme)),
         files: files::Files::default(),
         weather: weathers::Weather::default(),
+        history: parts::History::default(),
     };
     host.start_files();
     host.load_weather();
@@ -692,6 +696,9 @@ impl Host {
 
     /// Redraws the visible widgets of one kind, or all of them.
     fn draw(&mut self, only: Option<Kind>) {
+        if only.is_none() {
+            self.sync_interactive();
+        }
         let mut lost = false;
         for index in 0..self.slots.len() {
             let (kind, id) = (self.slots[index].kind, self.slots[index].id.clone());
@@ -704,7 +711,8 @@ impl Host {
             let (width, height) = self.slots[index].surface.size();
             // Its file's parts, its own, or the arrangement its kind comes with.
             let Some((parts, default_size)) = self.placement(&id).map(|placement| self.parts_of(placement)) else { continue };
-            let (clock, stats, media, weather) = (&self.clock, &self.stats, self.media.as_ref(), &self.weather.state);
+            let (clock, stats, media, weather, history) = (&self.clock, &self.stats, self.media.as_ref(), &self.weather.state, &self.history);
+            let hovered = self.slots[index].hovered;
             let art = &mut self.art;
             let started = Instant::now();
             let result = self.slots[index].surface.draw(|canvas| {
@@ -713,7 +721,7 @@ impl Host {
                 {
                     *art = canvas.bitmap_from_rgba(cover.size, cover.size, &cover.rgba).ok();
                 }
-                let data = parts::Data { clock, stats, media, art: art.as_ref(), weather };
+                let data = parts::Data { clock, stats, media, art: art.as_ref(), weather, history, hovered };
                 parts::draw(canvas, &paint, &parts, &data, (width, height), default_size);
             });
             self.governor.record_draw(&id, started.elapsed());
@@ -741,6 +749,55 @@ impl Host {
         };
         if affected {
             self.draw_bars();
+        }
+    }
+
+    /// Lets a widget take the mouse while the desktop is being edited, or if
+    /// one of its parts does something when clicked; otherwise clicks fall
+    /// through it to whatever is underneath.
+    fn sync_interactive(&mut self) {
+        let editing = self.edit.is_some();
+        for index in 0..self.slots.len() {
+            let clickable = self.placement(&self.slots[index].id).is_some_and(|placement| parts::any_clickable(&self.parts_of(placement).0));
+            self.slots[index].surface.set_interactive(editing || clickable);
+        }
+    }
+
+    fn any_graph_visible(&self) -> bool {
+        self.slots.iter().filter(|slot| slot.surface.is_visible()).filter_map(|slot| self.placement(&slot.id)).any(|placement| self.parts_of(placement).0.iter().any(|part| part.kind == lumen_ipc::parts::PartKind::Graph && !part.hidden))
+    }
+
+    /// The live values, for working out what a part shows or does outside drawing.
+    fn part_data(&self, hovered: bool) -> parts::Data<'_> {
+        parts::Data { clock: &self.clock, stats: &self.stats, media: self.media.as_ref(), art: None, weather: &self.weather.state, history: &self.history, hovered }
+    }
+
+    /// What a click at a point on a widget's window does, if anything (not while editing).
+    fn widget_action(&self, window: isize, x: i32, y: i32) -> Option<lumen_ipc::behaviour::Action> {
+        if self.edit.is_some() {
+            return None;
+        }
+        let slot = self.slots.iter().find(|slot| slot.surface.window() == window)?;
+        let placement = self.placement(&slot.id)?;
+        let (parts, default_size) = self.parts_of(placement);
+        let scale = slot.surface.scale();
+        parts::action_at(&parts, &self.part_data(true), slot.surface.size(), default_size, (x as f32 / scale, y as f32 / scale))
+    }
+
+    /// A widget was clicked (outside edit mode): do what the part under the mouse says.
+    fn on_widget_click(&mut self, window: isize, x: i32, y: i32) {
+        use lumen_ipc::behaviour::{Action, is_web_address};
+        match self.widget_action(window, x, y) {
+            Some(Action::ToggleMedia) => media::toggle_play_pause(),
+            Some(Action::OpenLumen) => open_settings_app(),
+            Some(Action::Open(target)) => {
+                // A web page, or something that exists on this PC. Never a command line.
+                let exists = std::path::Path::new(&target).exists();
+                if !(is_web_address(&target) || exists) || !lumen_win::shell::open(&target) {
+                    warn!("a widget tried to open {target}, which is not a web page or a file on this PC");
+                }
+            }
+            None => {}
         }
     }
 
@@ -779,7 +836,8 @@ impl Host {
         timer(TIMER_CLOCK, self.any_visible(Kind::Clock) || bar_clock, clock::millis_until_next_minute());
         timer(TIMER_STATS, self.any_visible(Kind::SystemStats) || bar_stats, stats::SAMPLE_INTERVAL_MS);
         timer(TIMER_MEDIA, self.any_visible(Kind::NowPlaying) && self.media.as_ref().is_some_and(MediaInfo::is_advancing), MEDIA_TICK_MS);
-        let hovering = self.edit.is_none() && self.gpu.is_some() && self.layout.widgets.iter().any(|w| w.style.show_on_hover && !(self.paused && w.style.hide_in_games));
+        // Watching the mouse is only needed for widgets (or parts) that show on hover.
+        let hovering = self.edit.is_none() && self.gpu.is_some() && self.layout.widgets.iter().any(|w| (w.style.show_on_hover || parts::any_hover_only(&self.parts_of(w).0)) && !(self.paused && w.style.hide_in_games));
         timer(TIMER_HOVER, hovering, HOVER_TICK_MS);
         // Weather is fetched only while something shows it; the timer is aimed at when the forecast goes stale.
         let weather_due = self.weather_due_in();
@@ -809,7 +867,9 @@ impl Host {
                 for id in &stats_widgets {
                     self.governor.record_work(id, share);
                 }
-                if now != self.stats {
+                self.history.push(&now);
+                // A graph moves along at every reading, even when the value has not changed.
+                if now != self.stats || self.any_graph_visible() {
                     self.stats = now;
                     self.draw(Some(Kind::SystemStats));
                 }
@@ -1132,9 +1192,9 @@ impl Host {
         // Raise the widgets above the dim layer and let them take the mouse, or put them back.
         let topmost = on || self.options.topmost;
         for slot in &mut self.slots {
-            slot.surface.set_interactive(on);
             slot.surface.set_topmost(topmost);
         }
+        self.sync_interactive();
         self.sync_visibility();
         self.draw(None);
         self.sync_timers();
@@ -1483,6 +1543,8 @@ fn on_input(window: isize, message: u32, wparam: usize, lparam: isize) -> Option
         WM_LBUTTONUP => with_host(|host| {
             if host.is_bar_window(window) {
                 host.on_bar_click(window, x);
+            } else if host.edit.is_none() {
+                host.on_widget_click(window, x, y);
             } else {
                 host.on_mouse_up();
             }
@@ -1497,6 +1559,12 @@ fn on_input(window: isize, message: u32, wparam: usize, lparam: isize) -> Option
                     let _ = unsafe { GetCursorPos(&mut cursor) };
                     let left = host.bars_left_edge(window).unwrap_or(0);
                     Some(if host.bar_hot(window, cursor.x - left) { IDC_HAND } else { IDC_ARROW })
+                } else if host.edit.is_none() {
+                    // A pointing hand over a part that does something; a plain arrow elsewhere on the widget.
+                    let mut cursor = POINT::default();
+                    let _ = unsafe { GetCursorPos(&mut cursor) };
+                    let origin = host.slots.iter().find(|slot| slot.surface.window() == window).map(|slot| slot.surface.position())?;
+                    Some(if host.widget_action(window, cursor.x - origin.0, cursor.y - origin.1).is_some() { IDC_HAND } else { IDC_ARROW })
                 } else {
                     host.cursor_for(window)
                 }
@@ -1561,6 +1629,14 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wparam: WPARAM
         _ => return unsafe { DefWindowProcW(window, message, wparam, lparam) },
     }
     LRESULT(0)
+}
+
+/// Opens the Lumen app, which sits next to the core.
+pub(super) fn open_settings_app() {
+    let opened = std::env::current_exe().ok().map(|exe| exe.with_file_name("lumen-settings.exe")).filter(|app| app.is_file()).is_some_and(|app| lumen_win::shell::open(&app.to_string_lossy()));
+    if !opened {
+        info!("the settings app is not installed next to lumen-core");
+    }
 }
 
 /// Reads the font files the user added to Lumen. A file that cannot be read

@@ -26,6 +26,12 @@ pub enum PartKind {
     Image,
     /// A filled box: a panel behind other parts, a dot, or (made thin) a divider.
     Shape,
+    /// A circular gauge, filled round as far as its value says.
+    Ring,
+    /// A line showing how a value has moved over the last couple of minutes.
+    Graph,
+    /// A small symbol: one of Lumen's named icons, or any character or emoji.
+    Icon,
 }
 
 /// Which colour a part uses.
@@ -120,6 +126,15 @@ pub struct Part {
     pub hidden: bool,
     /// Corner radius of a shape or picture, in logical pixels.
     pub radius: f32,
+    /// What a click does: `open <program, file or web page>`, `media.toggle` or `lumen.open`. Empty: nothing.
+    pub click: String,
+    /// Only shown while this holds: `stats.cpu > 90`, `media.playing`, `!media.playing`. Empty: always.
+    pub when: String,
+    /// While this holds, the part is drawn in `alert_color` instead of its own.
+    pub alert_when: String,
+    pub alert_color: PartColor,
+    /// Only shown while the mouse is over the widget.
+    pub hover_only: bool,
 }
 
 impl Default for Part {
@@ -144,6 +159,11 @@ impl Default for Part {
             align: PartAlign::Left,
             hidden: false,
             radius: 0.0,
+            click: String::new(),
+            when: String::new(),
+            alert_when: String::new(),
+            alert_color: PartColor::Accent,
+            hover_only: false,
         }
     }
 }
@@ -161,6 +181,9 @@ impl Part {
         self.name = self.name.trim().chars().take(40).collect();
         self.text = self.text.chars().take(200).collect();
         self.source = self.source.trim().chars().take(64).collect();
+        self.click = self.click.trim().chars().take(400).collect();
+        self.when = self.when.trim().chars().take(120).collect();
+        self.alert_when = self.alert_when.trim().chars().take(120).collect();
         self.font = self.font.map(|font| font.trim().chars().take(64).collect::<String>()).filter(|font| !font.is_empty());
         if self.name.is_empty() {
             self.name = self.id.clone();
@@ -283,7 +306,8 @@ pub fn default_parts(kind: WidgetKind) -> Vec<Part> {
 /// ("clock", "stats", "media"), directly or inside a text template.
 pub fn parts_use(parts: &[Part], family: &str) -> bool {
     let (source, template) = (format!("{family}."), format!("{{{family}."));
-    parts.iter().any(|part| !part.hidden && (part.source.starts_with(&source) || (part.source.is_empty() && part.text.contains(&template))))
+    // A value a part only tests (in a condition) is needed as much as one it shows.
+    parts.iter().any(|part| !part.hidden && (part.source.starts_with(&source) || (part.source.is_empty() && part.text.contains(&template)) || part.when.contains(&source) || part.alert_when.contains(&source)))
 }
 
 /// The live values a part can show, for the settings app's "shows" list.
@@ -365,6 +389,8 @@ mod tests {
         assert!(parts_use(&mixed, "stats") && parts_use(&mixed, "clock") && !parts_use(&mixed, "media"));
         let hidden = vec![Part { id: "a".into(), source: "media.title".into(), hidden: true, ..Default::default() }];
         assert!(!parts_use(&hidden, "media"), "a hidden part needs nothing");
+        let tested = vec![Part { id: "a".into(), text: "hot".into(), when: "stats.cpu > 90".into(), ..Default::default() }];
+        assert!(parts_use(&tested, "stats"), "a value in a condition is needed too");
     }
 
     #[test]

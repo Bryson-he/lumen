@@ -257,15 +257,7 @@ impl Host {
 
     pub(super) fn on_bar_click(&mut self, window: isize, x: i32) {
         match self.bar_action(window, x) {
-            Some(Action::OpenSettings) => {
-                // The settings app sits next to the core.
-                if let Ok(exe) = std::env::current_exe() {
-                    let app = exe.with_file_name("lumen-settings.exe");
-                    if !app.is_file() || !shell::open(&app.to_string_lossy()) {
-                        info!("the settings app is not installed next to lumen-core");
-                    }
-                }
-            }
+            Some(Action::OpenSettings) => open_settings_app(),
             Some(Action::ToggleMedia) => media::toggle_play_pause(),
             Some(Action::Launch(path)) if !shell::open(&path) => warn!("could not open {path}"),
             _ => {}

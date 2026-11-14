@@ -5,7 +5,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useId, useState } from "react";
 import { useLumen } from "../store";
-import { PART_COLORS, PART_LIMITS, ROLE_NAMES, WIDGET_NAMES, type Part, type PartAlign, type PartColor, type PartWeight, type Placement, type Roles, type UpdateWidgetParams } from "../types";
+import { PART_COLORS, PART_ICONS, PART_LIMITS, ROLE_NAMES, WIDGET_NAMES, type Part, type PartAlign, type PartColor, type PartWeight, type Placement, type Roles, type UpdateWidgetParams } from "../types";
 import { Button, Check, Segmented, Slider } from "../ui";
 import { allSources, PART_KIND_NAMES, partsOf } from "../widgetView";
 
@@ -151,6 +151,10 @@ function PartFields({
   onChange: (patch: Partial<Part>) => void;
 }) {
   const showsId = useId();
+  const iconId = useId();
+  const clickId = useId();
+  const alertId = useId();
+  const clickKind = part.click.startsWith("open ") ? "open" : part.click === "media.toggle" || part.click === "lumen.open" ? part.click : part.click ? "open" : "";
   const fontId = useId();
   const colourId = useId();
   const textId = useId();
@@ -189,7 +193,32 @@ function PartFields({
           />
         </div>
       )}
-      {part.kind === "bar" && (
+      {part.kind === "icon" && (
+        <div className="field">
+          <label htmlFor={iconId} className="small-14">
+            Icon
+          </label>
+          <input
+            id={iconId}
+            className="parts-text"
+            type="text"
+            list={`${iconId}-names`}
+            maxLength={40}
+            defaultValue={part.text}
+            key={part.text}
+            disabled={locked}
+            onBlur={(event) => event.target.value.trim() && event.target.value !== part.text && onChange({ text: event.target.value.trim() })}
+            onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
+          />
+          <datalist id={`${iconId}-names`}>
+            {Object.keys(PART_ICONS).map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+          <span className="muted small">A name from the list (home, music, star, cloud…), or any emoji or letter.</span>
+        </div>
+      )}
+      {(part.kind === "bar" || part.kind === "ring" || part.kind === "graph") && (
         <div className="field">
           <label htmlFor={showsId} className="small-14">
             Shows
@@ -197,13 +226,14 @@ function PartFields({
           <select id={showsId} value={part.source} disabled={locked} onChange={(event) => onChange({ source: event.target.value })}>
             {!sources.some((item) => item.source === part.source) && <option value={part.source}>{part.source || "Nothing"}</option>}
             {sources
-              .filter((item) => item.source.startsWith("stats.") || item.source === "media.progress")
+              .filter((item) => item.source.startsWith("stats.") || (part.kind !== "graph" && (item.source === "media.progress" || item.source === "weather.humidity")))
               .map((item) => (
                 <option key={item.source} value={item.source}>
                   {item.label}
                 </option>
               ))}
           </select>
+          {part.kind === "graph" && <span className="muted small">How the value has moved over the last two minutes.</span>}
         </div>
       )}
       {(part.kind === "shape" || part.kind === "image") && (
@@ -311,6 +341,95 @@ function PartFields({
       <Check checked={part.fromBottom} disabled={locked} onChange={(fromBottom) => onChange({ fromBottom })}>
         Stays near the bottom edge
       </Check>
+
+      <h3 className="label parts-heading">What it does</h3>
+      <div className="field">
+        <label htmlFor={clickId} className="small-14">
+          When clicked
+        </label>
+        <select id={clickId} value={clickKind} disabled={locked} onChange={(event) => onChange({ click: event.target.value === "open" ? "open " : event.target.value })}>
+          <option value="">Nothing</option>
+          <option value="open">Open a program, file or web page</option>
+          <option value="media.toggle">Play or pause</option>
+          <option value="lumen.open">Open Lumen</option>
+        </select>
+        {clickKind === "open" && (
+          <span className="parts-naming">
+            <LineField label="What to open" placeholder="https://… or C:\…\app.exe" value={part.click.replace(/^open\s*/, "")} disabled={locked} onCommit={(target) => onChange({ click: target ? `open ${target}` : "" })} />
+            <Button
+              size="bar"
+              disabled={locked}
+              onClick={() =>
+                void open({ title: "Choose what to open" }).then((chosen) => {
+                  if (typeof chosen === "string") onChange({ click: `open ${chosen}` });
+                })
+              }
+            >
+              Choose…
+            </Button>
+          </span>
+        )}
+        {part.click && <span className="muted small">A widget with a clickable part takes mouse clicks anywhere on it, so what is underneath cannot be clicked through it.</span>}
+      </div>
+
+      <h3 className="label parts-heading">When it shows</h3>
+      <LineField label="Only show when" placeholder="always (for example: stats.cpu > 90)" value={part.when} disabled={locked} onCommit={(when) => onChange({ when })} />
+      <span className="muted small">
+        Compare a live value with a number (<code>stats.cpu &gt; 90</code>, <code>weather.temp &lt; 0</code>), or just name one (<code>media.playing</code>, or <code>!media.playing</code> for the opposite).
+      </span>
+      <Check checked={part.hoverOnly} disabled={locked} onChange={(hoverOnly) => onChange({ hoverOnly })}>
+        Only while the mouse is over the widget
+      </Check>
+
+      {part.kind !== "image" && (
+        <>
+          <h3 className="label parts-heading">Change colour</h3>
+          <LineField label="Change colour when" placeholder="never (for example: stats.cpu > 90)" value={part.alertWhen} disabled={locked} onCommit={(alertWhen) => onChange({ alertWhen })} />
+          {part.alertWhen && (
+            <div className="field">
+              <label htmlFor={alertId} className="small-14">
+                To this colour
+              </label>
+              <select id={alertId} value={part.alertColor} disabled={locked} onChange={(event) => onChange({ alertColor: event.target.value as PartColor })}>
+                {[...PART_COLORS, ...ROLE_NAMES].map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/** One line of text that is saved when the box is left or Enter is pressed. */
+function LineField({ label, value, placeholder, disabled, onCommit }: { label: string; value: string; placeholder?: string; disabled?: boolean; onCommit: (value: string) => void }) {
+  const id = useId();
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  return (
+    <div className="field parts-line">
+      <label htmlFor={id} className="small-14">
+        {label}
+      </label>
+      <input
+        id={id}
+        className="parts-text"
+        type="text"
+        maxLength={300}
+        placeholder={placeholder}
+        value={text}
+        disabled={disabled}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={() => text.trim() !== value && onCommit(text.trim())}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") event.currentTarget.blur();
+          if (event.key === "Escape") setText(value);
+        }}
+      />
     </div>
   );
 }

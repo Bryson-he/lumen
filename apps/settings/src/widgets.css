@@ -663,3 +663,24 @@ button.preview-chip:hover:not(:disabled) {
 .field[hidden] {
   display: none;
 }
+
+/* ---------- Parts that do things ---------- */
+
+.wv-icon {
+  display: block;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.parts-heading {
+  margin: 4px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.parts-naming .parts-line {
+  flex: 1 1 150px;
+}
+.parts-fields code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}

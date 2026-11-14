@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub mod bar;
+pub mod behaviour;
 pub mod flyout;
 pub mod launcher;
 pub mod parts;

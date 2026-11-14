@@ -5,6 +5,7 @@
 
 import { useEffect, useState, type CSSProperties } from "react";
 import { hexToRgb } from "./color";
+import { PART_ICONS } from "./types";
 import type { ComponentStyle, Part, PartDefaults, PartKind, Placement, Roles, StylesState, Theme, WidgetFileInfo, WidgetStyle } from "./types";
 
 const GLASS_OPACITY = { none: 1, low: 0.9, medium: 0.78, high: 0.64 } as const;
@@ -142,6 +143,8 @@ export function sampleValues(now: Date): Record<string, string> {
     "media.title": "Track title",
     "media.artist": "Artist",
     "media.progress": "64%",
+    "media.playing": "yes",
+    "media.active": "yes",
     "weather.temp": "18°",
     "weather.condition": "Partly cloudy",
     "weather.icon": "⛅",
@@ -163,13 +166,87 @@ export function partText(part: Part, values: Record<string, string>): string {
   return part.text.replace(/\{([^{}]*)\}/g, (whole, name: string) => values[name.trim()] ?? whole);
 }
 
-export const PART_KIND_NAMES: Record<PartKind, string> = { text: "Text", bar: "Bar", image: "Picture", shape: "Shape" };
+export const PART_KIND_NAMES: Record<PartKind, string> = { text: "Text", bar: "Bar", image: "Picture", shape: "Shape", ring: "Ring", graph: "Graph", icon: "Icon" };
+
+/** The number a live value starts with: "12%" → 12 (as number_in in the core). */
+function numberIn(value: string): number | null {
+  const match = /^[+-]?[0-9.]+/.exec(value.trim());
+  const parsed = match ? Number(match[0]) : NaN;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Whether a condition holds for these values: the same rules as `holds` in the core. */
+export function holds(condition: string, values: Record<string, string>): boolean {
+  const text = condition.trim();
+  if (!text) return true;
+  for (const operator of [">=", "<=", "==", "!=", ">", "<"]) {
+    const at = text.indexOf(operator);
+    if (at < 0) continue;
+    const value = numberIn(values[text.slice(0, at).trim()] ?? "");
+    const wanted = Number(text.slice(at + operator.length).trim());
+    if (value === null || !Number.isFinite(wanted)) return false;
+    return operator === ">=" ? value >= wanted : operator === "<=" ? value <= wanted : operator === "==" ? value === wanted : operator === "!=" ? value !== wanted : operator === ">" ? value > wanted : value < wanted;
+  }
+  const says = (name: string) => !["", "–", "-", "n/a", "no", "false", "0", "0%"].includes((values[name.trim()] ?? "").trim().toLowerCase());
+  return text.startsWith("!") ? !says(text.slice(1)) : says(text);
+}
+
+/** A stand-in history for graphs: a gentle wave ending at the value's current reading. */
+function sampleHistory(end: number): number[] {
+  return Array.from({ length: 30 }, (_, index) => Math.min(1, Math.max(0, end + 0.18 * Math.sin(index / 2.6) * (1 - index / 60) + 0.1 * Math.sin(index / 1.1) - (index === 29 ? 0 : 0.02))));
+}
 
 /** One part, at 1:1 in logical pixels. */
 function PartView({ part, look, values, size, defaultSize }: { part: Part; look: Look; values: Record<string, string>; size: readonly [number, number]; defaultSize: readonly [number, number] }) {
   const rect = rectIn(part, size, defaultSize);
   const box: CSSProperties = { position: "absolute", left: rect.x, top: rect.y, width: rect.width, height: rect.height, opacity: part.opacity / 100 };
-  const colour = partColor(part, look);
+  // While its alert holds, a part takes the alert colour.
+  const colour = partColor(part.alertWhen.trim() && holds(part.alertWhen, values) ? { ...part, color: part.alertColor } : part, look);
+  if (!holds(part.when, values)) return null;
+  if (part.kind === "icon") {
+    const glyph = PART_ICONS[part.text.trim().toLowerCase()];
+    const side = Math.min(rect.width, rect.height);
+    return (
+      <span className="wv-icon" style={{ ...box, color: colour, fontFamily: glyph ? "'Segoe Fluent Icons', 'Segoe MDL2 Assets'" : "'Segoe UI Emoji', var(--font-body)", fontSize: side * 0.8, lineHeight: `${rect.height}px` }}>
+        {glyph ?? partText(part, values)}
+      </span>
+    );
+  }
+  if (part.kind === "ring") {
+    const fraction = SAMPLE_FRACTIONS[part.source] ?? (numberIn(values[part.source] ?? "") ?? 0) / 100;
+    const side = Math.min(rect.width, rect.height);
+    const stroke = Math.min(14, Math.max(2, side / 7));
+    const radius = (side - stroke) / 2;
+    const round = 2 * Math.PI * radius;
+    return (
+      <svg style={box} viewBox={`0 0 ${rect.width} ${rect.height}`} aria-hidden="true">
+        <circle cx={rect.width / 2} cy={rect.height / 2} r={radius} fill="none" stroke={look.track} strokeWidth={stroke} />
+        <circle
+          cx={rect.width / 2}
+          cy={rect.height / 2}
+          r={radius}
+          fill="none"
+          stroke={colour}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={`${round * Math.min(1, Math.max(0, fraction))} ${round}`}
+          transform={`rotate(-90 ${rect.width / 2} ${rect.height / 2})`}
+        />
+      </svg>
+    );
+  }
+  if (part.kind === "graph") {
+    const readings = sampleHistory(SAMPLE_FRACTIONS[part.source] ?? 0.3);
+    const step = rect.width / 59;
+    const first = rect.width - step * (readings.length - 1);
+    const points = readings.map((value, index) => `${first + step * index},${1 + (rect.height - 2) * (1 - value)}`).join(" ");
+    return (
+      <svg style={box} viewBox={`0 0 ${rect.width} ${rect.height}`} aria-hidden="true">
+        <line x1="0" y1={rect.height - 0.5} x2={rect.width} y2={rect.height - 0.5} stroke={look.track} strokeWidth="1" />
+        <polyline points={points} fill="none" stroke={colour} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
   if (part.kind === "text") {
     return (
       <span

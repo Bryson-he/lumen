@@ -37,7 +37,9 @@ use crate::{
 
 /// The size a widget file gets if it does not say.
 pub const DEFAULT_SIZE: (f32, f32) = (220.0, 110.0);
-const PART_KEYS: [&str; 18] = ["id", "name", "kind", "text", "source", "style", "font", "size", "weight", "color", "opacity", "align", "at", "box", "stretch", "from-bottom", "radius", "hidden"];
+const PART_KEYS: [&str; 23] = [
+    "id", "name", "kind", "text", "source", "style", "font", "size", "weight", "color", "opacity", "align", "at", "box", "stretch", "from-bottom", "radius", "hidden", "click", "when", "alert-when", "alert-color", "hover-only",
+];
 
 /// What is wrong with a file, in words for the person who wrote it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -285,6 +287,9 @@ fn raw_setting<'a>(raw: &'a Mapping, key: &str) -> Option<&'a Value> {
     let other = match key {
         "color" => "colour",
         "from-bottom" => "fromBottom",
+        "alert-when" => "alertWhen",
+        "alert-color" => "alert-colour",
+        "hover-only" => "hoverOnly",
         _ => "",
     };
     raw.get(key).or_else(|| raw.get(other))
@@ -323,7 +328,10 @@ fn part_from(raw: &Value, variables: &Mapping, styles: &Mapping) -> Result<Part,
                     "bar" => PartKind::Bar,
                     "image" | "picture" => PartKind::Image,
                     "shape" => PartKind::Shape,
-                    other => return Err(FileError::new(format!("`kind: {other}` is not a kind of part; use text, bar, image or shape"))),
+                    "ring" => PartKind::Ring,
+                    "graph" => PartKind::Graph,
+                    "icon" => PartKind::Icon,
+                    other => return Err(FileError::new(format!("`kind: {other}` is not a kind of part; use text, bar, image, shape, ring, graph or icon"))),
                 }
             }
             "text" => part.text = text()?,
@@ -354,6 +362,19 @@ fn part_from(raw: &Value, variables: &Mapping, styles: &Mapping) -> Result<Part,
             "from-bottom" | "fromBottom" => part.from_bottom = flag()?,
             "radius" => part.radius = num()?,
             "hidden" => part.hidden = flag()?,
+            "click" => {
+                part.click = text()?;
+                if crate::behaviour::parse_action(&part.click).is_none() && !part.click.trim().is_empty() {
+                    return Err(FileError::new(format!("`click: {}` is not something a click can do; use `open <program, file or web page>`, `media.toggle` or `lumen.open`", part.click)));
+                }
+            }
+            "when" | "alert-when" | "alertWhen" => {
+                let condition = text()?;
+                crate::behaviour::check_condition(&condition).map_err(|why| FileError::new(format!("`{key}`: {why}")))?;
+                if key == "when" { part.when = condition } else { part.alert_when = condition }
+            }
+            "alert-color" | "alert-colour" | "alertColor" => part.alert_color = colour(&text()?)?,
+            "hover-only" | "hoverOnly" => part.hover_only = flag()?,
             other => return Err(FileError::new(format!("`{other}` is not a setting a part has. The settings are: {}", PART_KEYS.join(", ")))),
         }
     }
@@ -428,14 +449,13 @@ fn literal(part: &Part) -> Mapping {
     let pair = |a: f32, b: f32| Value::Sequence(vec![num(a), num(b)]);
     set("id", Value::String(part.id.clone()));
     set("name", Value::String(part.name.clone()));
-    set("kind", Value::String(match part.kind { PartKind::Text => "text", PartKind::Bar => "bar", PartKind::Image => "image", PartKind::Shape => "shape" }.to_owned()));
+    set("kind", Value::String(match part.kind { PartKind::Text => "text", PartKind::Bar => "bar", PartKind::Image => "image", PartKind::Shape => "shape", PartKind::Ring => "ring", PartKind::Graph => "graph", PartKind::Icon => "icon" }.to_owned()));
     set("text", Value::String(part.text.clone()));
     set("source", Value::String(part.source.clone()));
     set("font", part.font.clone().map_or(Value::Null, Value::String));
     set("size", num(part.size));
     set("weight", Value::String(match part.weight { PartWeight::Regular => "regular", PartWeight::Medium => "medium", PartWeight::SemiBold => "bold" }.to_owned()));
-    let colour = serde_json::to_value(part.color).ok().and_then(|value| value.as_str().map(str::to_owned)).unwrap_or_default();
-    set("color", Value::String(if colour == "onSurface" { "on-surface".to_owned() } else { colour }));
+    set("color", Value::String(colour_name(part.color)));
     set("opacity", serde_yaml_ng::to_value(part.opacity).unwrap_or(Value::Null));
     set("align", Value::String(match part.align { PartAlign::Left => "left", PartAlign::Centre => "centre", PartAlign::Right => "right" }.to_owned()));
     set("at", pair(part.x, part.y));
@@ -444,7 +464,18 @@ fn literal(part: &Part) -> Mapping {
     set("from-bottom", Value::Bool(part.from_bottom));
     set("radius", num(part.radius));
     set("hidden", Value::Bool(part.hidden));
+    set("click", Value::String(part.click.clone()));
+    set("when", Value::String(part.when.clone()));
+    set("alert-when", Value::String(part.alert_when.clone()));
+    set("alert-color", Value::String(colour_name(part.alert_color)));
+    set("hover-only", Value::Bool(part.hover_only));
     map
+}
+
+/// A colour choice as a file spells it.
+fn colour_name(colour: PartColor) -> String {
+    let name = serde_json::to_value(colour).ok().and_then(|value| value.as_str().map(str::to_owned)).unwrap_or_default();
+    if name == "onSurface" { "on-surface".to_owned() } else { name }
 }
 
 fn number(value: f64) -> String {
@@ -590,6 +621,46 @@ parts:
         assert_eq!((file.name.as_str(), file.parts.len()), ("My: widget", 3));
         assert_eq!(file.parts[1].text, "{clock.time} {clock.suffix}");
         assert!(!text.contains('#') || text.lines().filter(|line| line.contains('#')).all(|line| line.starts_with('#')), "no hex colours: only the comment line has a #");
+    }
+
+    #[test]
+    fn behaviour_and_the_new_kinds_are_read_checked_and_written_back() {
+        let text = r#"lumen-widget: 1
+name: Busy
+parts:
+  - id: gauge
+    kind: ring
+    source: stats.cpu
+    alert-when: stats.cpu > 90
+    alert-color: accent
+    at: [10, 10]
+    box: [40, 40]
+  - id: history
+    kind: graph
+    source: stats.memory
+  - id: music
+    kind: icon
+    text: music
+    click: media.toggle
+    when: media.playing
+    hover-only: true
+  - id: web
+    text: Open the forecast
+    click: open https://open-meteo.com
+"#;
+        let file = parse(text, &|_| None).unwrap();
+        let [gauge, history, music, web] = file.parts.as_slice() else { panic!("four parts") };
+        assert_eq!((gauge.kind, gauge.alert_when.as_str(), gauge.alert_color), (PartKind::Ring, "stats.cpu > 90", PartColor::Accent));
+        assert_eq!(history.kind, PartKind::Graph);
+        assert_eq!((music.kind, music.text.as_str(), music.click.as_str(), music.when.as_str(), music.hover_only), (PartKind::Icon, "music", "media.toggle", "media.playing", true));
+        assert_eq!(web.click, "open https://open-meteo.com");
+        assert_eq!(parse(&render("Busy", file.size, &file.parts, Some(text), &|_| None), &|_| None).unwrap().parts, file.parts, "and it reads back the same");
+
+        let wrong = |from: &str, to: &str| parse(&text.replace(from, to), &|_| None).unwrap_err().message;
+        assert!(wrong("click: media.toggle", "click: format the disk").contains("not something a click can do"));
+        assert!(wrong("when: media.playing", "when: is music on?").contains("not a condition"));
+        assert!(wrong("alert-when: stats.cpu > 90", "alert-when: stats.cpu > hot").contains("not a number"));
+        assert!(wrong("kind: ring", "kind: dial").contains("ring, graph or icon"));
     }
 
     #[test]

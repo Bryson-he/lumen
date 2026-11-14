@@ -193,7 +193,7 @@ export function Designer({
     for (let n = 2; parts.some((part) => part.id === id); n++) id = `${base}-${n}`;
     return id;
   };
-  const blank: Part = { id: "", name: "", kind: "text", source: "", text: "", x: 16, y: 16, width: 120, height: 18, stretch: false, fromBottom: false, font: null, size: 13, weight: "regular", color: "text", opacity: 100, align: "left", hidden: false, radius: 0 };
+  const blank: Part = { id: "", name: "", kind: "text", source: "", text: "", x: 16, y: 16, width: 120, height: 18, stretch: false, fromBottom: false, font: null, size: 13, weight: "regular", color: "text", opacity: 100, align: "left", hidden: false, radius: 0, click: "", when: "", alertWhen: "", alertColor: "accent", hoverOnly: false };
   const add = (part: Partial<Part> & { id: string; name: string }) => {
     setAdding(false);
     const made = { ...blank, ...part, id: freshId(part.id) };
@@ -282,6 +282,21 @@ export function Designer({
                   Level bar: {item.label}
                 </button>
               ))}
+              {numbers.map((item) => (
+                <button key={`ring-${item.source}`} type="button" role="menuitem" className="menu-item" onClick={() => add({ id: "ring", name: `${item.label} ring`, kind: "ring", source: item.source, width: 44, height: 44, color: "highlight" })}>
+                  Ring: {item.label}
+                </button>
+              ))}
+              {numbers
+                .filter((item) => item.source.startsWith("stats."))
+                .map((item) => (
+                  <button key={`graph-${item.source}`} type="button" role="menuitem" className="menu-item" onClick={() => add({ id: "graph", name: `${item.label} graph`, kind: "graph", source: item.source, width: 120, height: 36, color: "highlight" })}>
+                    Graph: {item.label}
+                  </button>
+                ))}
+              <button type="button" role="menuitem" className="menu-item" onClick={() => add({ id: "icon", name: "Icon", kind: "icon", text: "star", width: 24, height: 24 })}>
+                Icon
+              </button>
               <button type="button" role="menuitem" className="menu-item" onClick={() => add({ id: "shape", name: "Shape", kind: "shape", width: 48, height: 48, radius: 10, color: "neutral" })}>
                 Shape
               </button>

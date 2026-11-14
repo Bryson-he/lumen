@@ -4,7 +4,8 @@
 use windows::{
     Win32::Graphics::{
         Direct2D::{
-            Common::{D2D_RECT_F, D2D_SIZE_U, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT},
+            Common::{D2D_RECT_F, D2D_SIZE_F, D2D_SIZE_U, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_HOLLOW, D2D1_FIGURE_END_OPEN, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT},
+            D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_LARGE, D2D1_ARC_SIZE_SMALL, D2D1_CAP_STYLE_ROUND, D2D1_ELLIPSE, D2D1_LINE_JOIN_ROUND, D2D1_STROKE_STYLE_PROPERTIES, D2D1_SWEEP_DIRECTION_CLOCKWISE, ID2D1Factory, ID2D1PathGeometry, ID2D1StrokeStyle,
             D2D1_BITMAP_OPTIONS_NONE, D2D1_BITMAP_PROPERTIES1, D2D1_BRUSH_PROPERTIES, D2D1_BUFFER_PRECISION_8BPC_UNORM, D2D1_COLOR_INTERPOLATION_MODE_PREMULTIPLIED,
             D2D1_COLOR_SPACE_SRGB, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT, D2D1_EXTEND_MODE_CLAMP, D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_ROUNDED_RECT, ID2D1Bitmap1,
             ID2D1Brush, ID2D1DeviceContext,
@@ -154,6 +155,65 @@ impl Canvas<'_> {
                 return;
             };
             self.dc.FillRoundedRectangle(&rect.rounded(radius), &brush);
+        }
+    }
+
+    /// A new, empty path, and a stroke with rounded ends and corners to draw it with.
+    fn path(&self) -> Option<(ID2D1PathGeometry, Option<ID2D1StrokeStyle>)> {
+        unsafe {
+            let factory: ID2D1Factory = self.dc.GetFactory().ok()?;
+            let round = D2D1_STROKE_STYLE_PROPERTIES { startCap: D2D1_CAP_STYLE_ROUND, endCap: D2D1_CAP_STYLE_ROUND, dashCap: D2D1_CAP_STYLE_ROUND, lineJoin: D2D1_LINE_JOIN_ROUND, miterLimit: 1.0, ..Default::default() };
+            Some((factory.CreatePathGeometry().ok()?, factory.CreateStrokeStyle(&round, None).ok()))
+        }
+    }
+
+    /// Draws a line through `points`, `width` pixels thick, with rounded ends and corners.
+    pub fn polyline(&self, points: &[(f32, f32)], width: f32, color: Rgba) {
+        let (Some(first), true) = (points.first(), points.len() >= 2 && width > 0.0) else { return };
+        let (Some(brush), Some((geometry, stroke))) = (self.brush(color), self.path()) else { return };
+        unsafe {
+            let Ok(sink) = geometry.Open() else { return };
+            sink.BeginFigure(Vector2 { X: first.0, Y: first.1 }, D2D1_FIGURE_BEGIN_HOLLOW);
+            let rest: Vec<Vector2> = points[1..].iter().map(|point| Vector2 { X: point.0, Y: point.1 }).collect();
+            sink.AddLines(&rest);
+            sink.EndFigure(D2D1_FIGURE_END_OPEN);
+            if sink.Close().is_ok() {
+                self.dc.DrawGeometry(&geometry, &brush, width, stroke.as_ref());
+            }
+        }
+    }
+
+    /// Draws part of a circle's outline: from `start` degrees (0 is the top,
+    /// going clockwise) round by `sweep` degrees, `width` pixels thick with
+    /// rounded ends. A sweep of 360 or more is the whole circle.
+    pub fn arc(&self, centre: (f32, f32), radius: f32, start: f32, sweep: f32, width: f32, color: Rgba) {
+        if radius <= 0.0 || width <= 0.0 || sweep <= 0.0 {
+            return;
+        }
+        let Some(brush) = self.brush(color) else { return };
+        unsafe {
+            if sweep >= 359.9 {
+                self.dc.DrawEllipse(&D2D1_ELLIPSE { point: Vector2 { X: centre.0, Y: centre.1 }, radiusX: radius, radiusY: radius }, &brush, width, None);
+                return;
+            }
+            let at = |degrees: f32| {
+                let angle = degrees.to_radians();
+                Vector2 { X: centre.0 + radius * angle.sin(), Y: centre.1 - radius * angle.cos() }
+            };
+            let Some((geometry, stroke)) = self.path() else { return };
+            let Ok(sink) = geometry.Open() else { return };
+            sink.BeginFigure(at(start), D2D1_FIGURE_BEGIN_HOLLOW);
+            sink.AddArc(&D2D1_ARC_SEGMENT {
+                point: at(start + sweep),
+                size: D2D_SIZE_F { width: radius, height: radius },
+                rotationAngle: 0.0,
+                sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+                arcSize: if sweep > 180.0 { D2D1_ARC_SIZE_LARGE } else { D2D1_ARC_SIZE_SMALL },
+            });
+            sink.EndFigure(D2D1_FIGURE_END_OPEN);
+            if sink.Close().is_ok() {
+                self.dc.DrawGeometry(&geometry, &brush, width, stroke.as_ref());
+            }
         }
     }
 
