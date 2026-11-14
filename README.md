@@ -1,6 +1,37 @@
-# Lumen
+<p align="center">
+  <img src="docs/media/hero.svg" alt="A desktop whose clock, system monitor and now-playing widgets recolour together as the wallpaper changes" width="100%">
+</p>
 
-One theme for your whole Windows 11 desktop. Pick a wallpaper and Lumen makes a colour palette from it, then uses that palette everywhere: desktop widgets, a status bar, the volume flyout, a launcher, the Windows accent colour, and the Lumen app itself. A whole look saves as a preset you can switch to in one click.
+<h1 align="center">Lumen</h1>
+
+<p align="center"><b>One theme for your whole Windows 11 desktop.</b><br>Change the wallpaper. Everything follows.</p>
+
+<p align="center">
+  <a href="https://github.com/Bryson-he/lumen/releases/latest"><img alt="Download the latest version" src="https://img.shields.io/github/v/release/Bryson-he/lumen?label=Download%20for%20Windows%2011&style=for-the-badge&color=56D5FF&labelColor=0A1519"></a>
+  &nbsp;
+  <a href="https://bryson-he.github.io/lumen/"><img alt="Website" src="https://img.shields.io/badge/Website-bryson--he.github.io%2Flumen-FFB692?style=for-the-badge&labelColor=0A1519"></a>
+  &nbsp;
+  <a href="LICENSE"><img alt="MIT licence" src="https://img.shields.io/badge/Licence-MIT-ABC8F7?style=for-the-badge&labelColor=0A1519"></a>
+</p>
+
+Pick a wallpaper and Lumen makes a colour palette from it, then uses that palette everywhere: desktop widgets, a status bar, the volume flyout, a launcher, the Windows accent colour, and the Lumen app itself. A whole look saves as a preset you can switch to in one click.
+
+<table>
+  <tr>
+    <td><img src="docs/media/art-lagoon.jpg" alt="Lagoon wallpaper"></td>
+    <td><img src="docs/media/art-ember.jpg" alt="Ember wallpaper"></td>
+    <td><img src="docs/media/art-orchid.jpg" alt="Orchid wallpaper"></td>
+    <td><img src="docs/media/art-meadow.jpg" alt="Meadow wallpaper"></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="https://img.shields.io/badge/-%20-56D5FF" alt=""> <img src="https://img.shields.io/badge/-%20-ABC8F7" alt=""> <img src="https://img.shields.io/badge/-%20-FFB692" alt=""><br><sub>Lagoon</sub></td>
+    <td align="center"><img src="https://img.shields.io/badge/-%20-FFACE9" alt=""> <img src="https://img.shields.io/badge/-%20-FEB2C3" alt=""> <img src="https://img.shields.io/badge/-%20-FFB596" alt=""><br><sub>Ember</sub></td>
+    <td align="center"><img src="https://img.shields.io/badge/-%20-DFB7FF" alt=""> <img src="https://img.shields.io/badge/-%20-EEB5E0" alt=""> <img src="https://img.shields.io/badge/-%20-A8D474" alt=""><br><sub>Orchid</sub></td>
+    <td align="center"><img src="https://img.shields.io/badge/-%20-00E63B" alt=""> <img src="https://img.shields.io/badge/-%20-91D4BD" alt=""> <img src="https://img.shields.io/badge/-%20-F4AEFF" alt=""><br><sub>Meadow</sub></td>
+  </tr>
+</table>
+
+<sub>Four wallpapers and the palettes Lumen made from them. The artwork was drawn for these pages.</sub>
 
 ## Download
 
@@ -9,6 +40,18 @@ One theme for your whole Windows 11 desktop. Pick a wallpaper and Lumen makes a 
 The installer is not code-signed, so Windows SmartScreen will warn the first time: choose "More info", then "Run anyway". It installs for your user only and needs no admin rights.
 
 Lumen looks for a newer version here at most once a day when you open it, and tells you if there is one. Nothing is downloaded or installed until you click. You can switch the check off under Settings.
+
+## A look around
+
+| Theme from a wallpaper | Widgets you can take apart |
+|---|---|
+| ![The Theme and colours screen](docs/media/theme-dark.png) | ![The Widgets screen](docs/media/widgets-dark.png) |
+| **Your wallpaper library** | **The gallery** |
+| ![The Wallpapers screen](docs/media/wallpapers-dark.png) | ![The Gallery screen](docs/media/gallery-dark.png) |
+
+Light or dark, the app follows Windows:
+
+![The Theme and colours screen in light mode](docs/media/theme-light.png)
 
 ## What it does
 

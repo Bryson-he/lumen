@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 460" width="1200" height="460" role="img" aria-label="Lumen: a desktop whose widgets, bar and accent recolour together as the wallpaper changes">
+  <title>Lumen: one theme for your whole desktop</title>
+  <defs>
+    <linearGradient id="w1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#06202B"/><stop offset="1" stop-color="#0E4C6B"/></linearGradient>
+    <linearGradient id="w2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1B0F1F"/><stop offset="1" stop-color="#6B2D5C"/></linearGradient>
+    <linearGradient id="w3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#170F2E"/><stop offset="1" stop-color="#3A2470"/></linearGradient>
+    <linearGradient id="w4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0D1F14"/><stop offset="1" stop-color="#1F5A3A"/></linearGradient>
+    <radialGradient id="b1"><stop offset="0" stop-color="#7FE3D0" stop-opacity=".75"/><stop offset="1" stop-color="#7FE3D0" stop-opacity="0"/></radialGradient>
+    <radialGradient id="b2"><stop offset="0" stop-color="#FF7A45" stop-opacity=".8"/><stop offset="1" stop-color="#FF7A45" stop-opacity="0"/></radialGradient>
+    <radialGradient id="b3"><stop offset="0" stop-color="#F2A7E0" stop-opacity=".7"/><stop offset="1" stop-color="#F2A7E0" stop-opacity="0"/></radialGradient>
+    <radialGradient id="b4"><stop offset="0" stop-color="#E6E27A" stop-opacity=".7"/><stop offset="1" stop-color="#E6E27A" stop-opacity="0"/></radialGradient>
+    <clipPath id="screen"><rect width="1200" height="460" rx="22"/></clipPath>
+  </defs>
+  <style>
+    text { font-family: "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif; }
+    .wall { animation: 20s infinite; opacity: 0; }
+    .wall1 { animation-name: show1; } .wall2 { animation-name: show2; } .wall3 { animation-name: show3; } .wall4 { animation-name: show4; }
+    @keyframes show1 { 0%, 20% { opacity: 1 } 25%, 95% { opacity: 0 } 100% { opacity: 1 } }
+    @keyframes show2 { 0%, 20% { opacity: 0 } 25%, 45% { opacity: 1 } 50%, 100% { opacity: 0 } }
+    @keyframes show3 { 0%, 45% { opacity: 0 } 50%, 70% { opacity: 1 } 75%, 100% { opacity: 0 } }
+    @keyframes show4 { 0%, 70% { opacity: 0 } 75%, 95% { opacity: 1 } 100% { opacity: 0 } }
+    .drift { animation: drift 20s ease-in-out infinite alternate; }
+    @keyframes drift { from { transform: translate(-30px, 10px) } to { transform: translate(40px, -20px) } }
+    .primary { animation: primary 20s infinite; fill: #56D5FF; }
+    .primary-stroke { animation: primaryStroke 20s infinite; stroke: #56D5FF; }
+    .accent { animation: accent 20s infinite; fill: #FFB692; }
+    .surface { animation: surface 20s infinite; fill: #0A1519; }
+    .neutral { animation: neutral 20s infinite; fill: #212C30; }
+    .tertiary { animation: tertiary 20s infinite; fill: #ABC8F7; }
+    @keyframes primary { 0%, 20% { fill: #56D5FF } 25%, 45% { fill: #FFACE9 } 50%, 70% { fill: #DFB7FF } 75%, 95% { fill: #00E63B } 100% { fill: #56D5FF } }
+    @keyframes primaryStroke { 0%, 20% { stroke: #56D5FF } 25%, 45% { stroke: #FFACE9 } 50%, 70% { stroke: #DFB7FF } 75%, 95% { stroke: #00E63B } 100% { stroke: #56D5FF } }
+    @keyframes accent { 0%, 20% { fill: #FFB692 } 25%, 45% { fill: #FFB596 } 50%, 70% { fill: #A8D474 } 75%, 95% { fill: #F4AEFF } 100% { fill: #FFB692 } }
+    @keyframes surface { 0%, 20% { fill: #0A1519 } 25%, 45% { fill: #1A1017 } 50%, 70% { fill: #17111B } 75%, 95% { fill: #0E150C } 100% { fill: #0A1519 } }
+    @keyframes neutral { 0%, 20% { fill: #212C30 } 25%, 45% { fill: #32262E } 50%, 70% { fill: #2E2832 } 75%, 95% { fill: #242C22 } 100% { fill: #212C30 } }
+    @keyframes tertiary { 0%, 20% { fill: #ABC8F7 } 25%, 45% { fill: #FEB2C3 } 50%, 70% { fill: #EEB5E0 } 75%, 95% { fill: #91D4BD } 100% { fill: #ABC8F7 } }
+    .cpu { animation: cpu 6s ease-in-out infinite alternate; }
+    @keyframes cpu { from { width: 60px } to { width: 150px } }
+    .ram { animation: ram 9s ease-in-out infinite alternate; }
+    @keyframes ram { from { width: 96px } to { width: 120px } }
+    .track { animation: track 20s linear infinite; }
+    @keyframes track { from { width: 10px } to { width: 216px } }
+    .name { animation: 20s infinite; opacity: 0; }
+    .ink { fill: #E6EEF2; } .soft { fill: #E6EEF2; opacity: .62; }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; } .wall1, .name1 { opacity: 1; } }
+  </style>
+
+  <g clip-path="url(#screen)">
+    <!-- The wallpaper: four of them, taking turns -->
+    <g class="wall wall1"><rect width="1200" height="460" fill="url(#w1)"/><g class="drift"><ellipse cx="820" cy="170" rx="330" ry="210" fill="url(#b1)"/><ellipse cx="420" cy="420" rx="260" ry="150" fill="url(#b1)"/></g></g>
+    <g class="wall wall2"><rect width="1200" height="460" fill="url(#w2)"/><g class="drift"><ellipse cx="760" cy="330" rx="380" ry="220" fill="url(#b2)"/><ellipse cx="1060" cy="90" rx="220" ry="150" fill="url(#b2)"/></g></g>
+    <g class="wall wall3"><rect width="1200" height="460" fill="url(#w3)"/><g class="drift"><ellipse cx="880" cy="230" rx="340" ry="230" fill="url(#b3)"/><ellipse cx="380" cy="60" rx="240" ry="140" fill="url(#b3)"/></g></g>
+    <g class="wall wall4"><rect width="1200" height="460" fill="url(#w4)"/><g class="drift"><ellipse cx="800" cy="120" rx="360" ry="200" fill="url(#b4)"/><ellipse cx="560" cy="430" rx="300" ry="150" fill="url(#b4)"/></g></g>
+
+    <!-- The bar -->
+    <rect class="surface" width="1200" height="38" opacity=".88"/>
+    <text x="22" y="25" class="ink" font-size="14" font-weight="600">Lumen</text>
+    <circle class="primary" cx="92" cy="20" r="4"/>
+    <text x="1020" y="25" class="soft" font-size="13">CPU 12%</text>
+    <text x="1104" y="25" class="ink" font-size="13" font-weight="600">10:42</text>
+    <rect class="accent" x="1158" y="14" width="22" height="11" rx="5.5"/>
+
+    <!-- Clock widget -->
+    <g transform="translate(56 78)">
+      <rect class="surface" width="250" height="118" rx="16" opacity=".86"/>
+      <rect class="primary-stroke" width="250" height="118" rx="16" fill="none" stroke-width="1" opacity=".35"/>
+      <text x="20" y="32" class="soft" font-size="13">Saturday 14 November</text>
+      <text x="20" y="88" class="ink" font-size="50" font-weight="600" letter-spacing="-1">10:42</text>
+      <text x="200" y="88" class="primary" font-size="15" font-weight="600">AM</text>
+    </g>
+
+    <!-- System widget -->
+    <g transform="translate(56 214)">
+      <rect class="surface" width="250" height="152" rx="16" opacity=".86"/>
+      <rect class="primary-stroke" width="250" height="152" rx="16" fill="none" stroke-width="1" opacity=".35"/>
+      <text x="20" y="32" class="ink" font-size="14" font-weight="600">System</text>
+      <text x="20" y="60" class="soft" font-size="12">CPU</text><rect class="neutral" x="20" y="68" width="210" height="6" rx="3"/><rect class="primary cpu" x="20" y="68" width="90" height="6" rx="3"/>
+      <text x="20" y="96" class="soft" font-size="12">RAM</text><rect class="neutral" x="20" y="104" width="210" height="6" rx="3"/><rect class="tertiary ram" x="20" y="104" width="100" height="6" rx="3"/>
+      <text x="20" y="132" class="soft" font-size="12">GPU</text><rect class="neutral" x="20" y="140" width="210" height="6" rx="3"/><rect class="accent" x="20" y="140" width="34" height="6" rx="3"/>
+    </g>
+
+    <!-- Now playing widget -->
+    <g transform="translate(330 78)">
+      <rect class="surface" width="330" height="96" rx="16" opacity=".86"/>
+      <rect class="primary-stroke" width="330" height="96" rx="16" fill="none" stroke-width="1" opacity=".35"/>
+      <rect class="primary" x="16" y="16" width="64" height="64" rx="10"/>
+      <rect class="tertiary" x="16" y="48" width="64" height="32" rx="10" opacity=".7"/>
+      <text x="96" y="40" class="ink" font-size="15" font-weight="600">Now playing</text>
+      <text x="96" y="60" class="soft" font-size="12">Track title · Artist</text>
+      <rect class="neutral" x="96" y="72" width="216" height="5" rx="2.5"/><rect class="primary track" x="96" y="72" width="100" height="5" rx="2.5"/>
+    </g>
+
+    <!-- Words -->
+    <text x="700" y="250" class="ink" font-size="76" font-weight="700" letter-spacing="-2">Lumen</text>
+    <text x="704" y="292" class="ink" font-size="22" opacity=".9">One theme for your whole Windows desktop.</text>
+    <text x="704" y="324" class="soft" font-size="16">Change the wallpaper. Everything follows.</text>
+
+    <!-- The palette of the wallpaper showing now -->
+    <g transform="translate(704 352)">
+      <rect class="primary" width="44" height="44" rx="10"/>
+      <rect class="tertiary" x="54" width="44" height="44" rx="10"/>
+      <rect class="accent" x="108" width="44" height="44" rx="10"/>
+      <rect class="neutral" x="162" width="44" height="44" rx="10"/>
+      <rect class="surface" x="216" width="44" height="44" rx="10" stroke="#E6EEF2" stroke-opacity=".25"/>
+      <g font-size="14" class="soft">
+        <text class="name wall1" x="278" y="28">from "Lagoon"</text>
+        <text class="name wall2" x="278" y="28">from "Ember"</text>
+        <text class="name wall3" x="278" y="28">from "Orchid"</text>
+        <text class="name wall4" x="278" y="28">from "Meadow"</text>
+      </g>
+    </g>
+  </g>
+</svg>
