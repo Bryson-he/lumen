@@ -202,6 +202,34 @@ pub fn parse_with(text: &str, include: &dyn Fn(&str) -> Option<String>, answers:
     Ok(WidgetFile { options, name, size, parts })
 }
 
+/// The files a widget file includes, as written (not checked to exist).
+pub fn includes(text: &str) -> Vec<String> {
+    let Ok(doc) = read(text.trim_start_matches('\u{feff}')) else { return Vec::new() };
+    match doc.get("include") {
+        Some(Value::String(name)) => vec![name.clone()],
+        Some(Value::Sequence(names)) => names.iter().filter_map(|name| name.as_str().map(str::to_owned)).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Points a widget file's `include:` at another file name. Only the
+/// `include` setting is touched (and any list under it); the rest of the
+/// text, comments included, stays as it was.
+pub fn rename_include(text: &str, from: &str, to: &str) -> String {
+    let mut inside = false;
+    let lines: Vec<String> = text
+        .lines()
+        .map(|line| {
+            let top_level = !line.starts_with([' ', '\t', '-', '#']) && !line.trim().is_empty();
+            if top_level {
+                inside = line.starts_with("include") && line["include".len()..].trim_start().starts_with(':');
+            }
+            if inside { line.replace(from, to) } else { line.to_owned() }
+        })
+        .collect();
+    lines.join("\n") + if text.ends_with('\n') { "\n" } else { "" }
+}
+
 /// Whether a file is a widget (has `lumen-widget:`) rather than only shared
 /// variables and styles. A file that cannot be read at all counts as a widget
 /// if it mentions the key, so its mistake is reported.
@@ -862,6 +890,18 @@ parts:
         assert!(wrong("default: 40", "default: lots").message.contains("option `big`"));
         assert!(wrong("min: 20, max: 80", "min: 90, max: 80").message.contains("larger than"));
         assert_eq!(wrong("type: number", "type: slider").line, Some(3), "points at the options section");
+    }
+
+    #[test]
+    fn includes_are_listed_and_can_be_renamed_without_touching_the_rest() {
+        assert_eq!(includes(CLOCK), ["shared.yaml"]);
+        assert_eq!(includes("lumen-widget: 1\ninclude: [a.yaml, b.yaml]\n"), ["a.yaml", "b.yaml"]);
+        assert!(includes("lumen-widget: 1\n").is_empty());
+        let renamed = rename_include(CLOCK, "shared.yaml", "mine-shared.yaml");
+        assert!(renamed.contains("include: mine-shared.yaml") && renamed.contains("# overrides the shared one"), "{renamed}");
+        assert_eq!(renamed.replace("mine-shared.yaml", "shared.yaml"), CLOCK, "nothing else changed");
+        let listed = "lumen-widget: 1\ninclude:\n  - a.yaml\n  - b.yaml\nname: a.yaml fan\n";
+        assert_eq!(rename_include(listed, "a.yaml", "c.yaml"), "lumen-widget: 1\ninclude:\n  - c.yaml\n  - b.yaml\nname: a.yaml fan\n", "only under include");
     }
 
     #[test]

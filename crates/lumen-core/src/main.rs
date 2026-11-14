@@ -15,6 +15,7 @@ mod service;
 mod stats;
 mod store;
 mod tray;
+mod widget_packages;
 
 use std::{
     cell::RefCell,

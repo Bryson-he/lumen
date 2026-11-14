@@ -298,6 +298,21 @@ impl<D: Desktop> Service<D> {
                 std::fs::remove_file(self.widget_files_dir().join(&file)).map_err(|e| RpcError::new(code::INVALID_PARAMS, format!("could not delete {file}: {e}")))?;
                 Ok(Value::Null)
             }
+            method::EXPORT_WIDGET_PACKAGE => {
+                let file = file_param(&params)?;
+                let path = params.get("path").and_then(Value::as_str).filter(|path| !path.trim().is_empty()).ok_or_else(|| RpcError::new(code::INVALID_PARAMS, "there is nowhere to write the package"))?;
+                let written = crate::widget_packages::export(&self.widget_files_dir(), &self.fonts_dir(), &file, Path::new(path)).map_err(|why| RpcError::new(code::INVALID_PARAMS, why))?;
+                json(written.to_string_lossy())
+            }
+            method::IMPORT_WIDGET_PACKAGE => {
+                let path = params.get("path").and_then(Value::as_str).unwrap_or_default();
+                let imported = crate::widget_packages::import(&self.widget_files_dir(), &self.fonts_dir(), Path::new(path)).map_err(|why| RpcError::new(code::INVALID_PARAMS, why))?;
+                // The widgets notice the new file by themselves; new fonts they have to be told about.
+                if let (true, Some(host)) = (imported.fonts_added, &self.widget_host) {
+                    host(WidgetCommand::ReloadFonts);
+                }
+                json(imported.file)
+            }
             method::OPEN_WIDGET_FOLDER => {
                 let folder = self.widget_files_dir();
                 let _ = std::fs::create_dir_all(&folder);

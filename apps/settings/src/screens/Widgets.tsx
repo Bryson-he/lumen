@@ -1,6 +1,7 @@
 // Widgets: a scaled picture of one monitor's desktop where widgets can be
 // selected and dragged, the widget library, and the inspector.
 
+import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { hexToRgb } from "../color";
 import { call } from "../core";
@@ -212,6 +213,18 @@ export function WidgetsScreen() {
                   </Button>
                 </span>
               )}
+              <button
+                type="button"
+                className="library-item"
+                title="Add a widget someone shared as a .lumenwidget file"
+                onClick={() =>
+                  void open({ multiple: true, title: "Import widgets", filters: [{ name: "Lumen widget", extensions: ["lumenwidget"] }] }).then(async (chosen) => {
+                    for (const path of chosen ? (Array.isArray(chosen) ? chosen : [chosen]) : []) await request<string>("importWidgetPackage", { path });
+                  })
+                }
+              >
+                Import a shared widget…
+              </button>
               <button type="button" className="library-item" onClick={() => void request("openWidgetFolder")}>
                 Open the folder
               </button>

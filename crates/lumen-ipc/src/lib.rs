@@ -145,6 +145,10 @@ pub mod method {
     pub const SAVE_WIDGET_AS_FILE: &str = "saveWidgetAsFile";
     /// Params: `{ file }`. Widgets drawn from it go back to the parts their kind comes with.
     pub const DELETE_WIDGET_FILE: &str = "deleteWidgetFile";
+    /// Writes a widget file, the files it includes and the fonts it uses to one `.lumenwidget` file. Params: `{ file, path }`. Result: where it was written.
+    pub const EXPORT_WIDGET_PACKAGE: &str = "exportWidgetPackage";
+    /// Adds the widget in a `.lumenwidget` file. Params: `{ path }`. Result: the new widget file's name.
+    pub const IMPORT_WIDGET_PACKAGE: &str = "importWidgetPackage";
     /// Shows the widgets folder in File Explorer.
     pub const OPEN_WIDGET_FOLDER: &str = "openWidgetFolder";
     /// The parts each kind of widget comes with, and the live values a part can show.

@@ -2,7 +2,7 @@
 // of text, each bar, the picture) with its own font, size, colour, place and
 // visibility. Colours are theme roles, so they keep following the theme.
 
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useId, useState } from "react";
 import { useLumen } from "../store";
 import { PART_COLORS, PART_ICONS, PART_LIMITS, ROLE_NAMES, WIDGET_NAMES, type WidgetOption, type Part, type PartAlign, type PartColor, type PartWeight, type Placement, type Roles, type UpdateWidgetParams } from "../types";
@@ -37,6 +37,12 @@ export function PartsTab({
   if (!partDefaults) return <p className="muted small-13">The parts of this widget are not available right now.</p>;
   const { parts, file, own } = partsOf(placement, partDefaults, widgetFiles, widgets?.resolved);
 
+  const exportPackage = async () => {
+    if (!placement.file || !file) return;
+    const path = await saveDialog({ title: `Share ${file.name}`, defaultPath: `${file.name}.lumenwidget`, filters: [{ name: "Lumen widget", extensions: ["lumenwidget"] }] });
+    if (path) await request<string>("exportWidgetPackage", { file: placement.file, path });
+  };
+
   const saveAsFile = async () => {
     const name = (naming ?? "").trim();
     if (!name) return;
@@ -64,7 +70,12 @@ export function PartsTab({
             {file ? (
               <>
                 Drawn from the file <strong>{placement.file}</strong>.{" "}
-                {file.error ? `It has a mistake${file.errorLine ? ` on line ${file.errorLine}` : ""}: ${file.error} Showing the last version that worked.` : "Changes here are written to it."}
+                {file.error ? `It has a mistake${file.errorLine ? ` on line ${file.errorLine}` : ""}: ${file.error} Showing the last version that worked.` : "Changes here are written to it."}{" "}
+                {!file.error && (
+                  <button type="button" className="link small-13" onClick={() => void exportPackage()}>
+                    Share it as one file…
+                  </button>
+                )}
               </>
             ) : (
               <>
