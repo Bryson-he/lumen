@@ -56,6 +56,9 @@ struct Config {
     /// Whether Windows Terminal is given a "Lumen" colour scheme that follows the theme.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     terminal_scheme: bool,
+    /// Where the gallery is read from, if the user chose somewhere other than the built-in one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    gallery_source: Option<String>,
 }
 
 /// A library entry as stored in `wallpapers/index.json`.
@@ -148,6 +151,17 @@ impl Store {
     pub fn set_terminal_scheme(&self, on: bool) -> Result<()> {
         let mut config: Config = self.read_json("config.json").unwrap_or_default();
         config.terminal_scheme = on;
+        self.write_json("config.json", &config)
+    }
+
+    /// Where the user said the gallery is, if they did.
+    pub fn gallery_source(&self) -> Option<String> {
+        self.read_json::<Config>("config.json").ok()?.gallery_source
+    }
+
+    pub fn set_gallery_source(&self, source: Option<&str>) -> Result<()> {
+        let mut config: Config = self.read_json("config.json").unwrap_or_default();
+        config.gallery_source = source.map(str::to_owned);
         self.write_json("config.json", &config)
     }
 

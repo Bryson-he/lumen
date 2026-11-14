@@ -28,6 +28,11 @@ impl Drop for Handle {
 /// starts with `/` and carries the query. Fails on anything but a 200 answer,
 /// after about `timeout_ms`, or if the body is too large or not text.
 pub fn get(host: &str, path: &str, timeout_ms: i32) -> Result<String, String> {
+    String::from_utf8(get_bytes(host, path, timeout_ms, MAX_BYTES)?).map_err(|_| format!("the answer from {host} was not text"))
+}
+
+/// As [`get`], for a body that need not be text and may be up to `max_bytes` long (a file to download).
+pub fn get_bytes(host: &str, path: &str, timeout_ms: i32, max_bytes: usize) -> Result<Vec<u8>, String> {
     unsafe {
         // A plain product name: nothing about the PC or the person goes in the request.
         let session = WinHttpOpen(w!("Lumen"), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, PCWSTR::null(), PCWSTR::null(), 0);
@@ -66,7 +71,7 @@ pub fn get(host: &str, path: &str, timeout_ms: i32) -> Result<String, String> {
             if available == 0 {
                 break;
             }
-            if body.len() + available as usize > MAX_BYTES {
+            if body.len() + available as usize > max_bytes {
                 return Err(format!("the answer from {host} was too large"));
             }
             let start = body.len();
@@ -78,7 +83,7 @@ pub fn get(host: &str, path: &str, timeout_ms: i32) -> Result<String, String> {
                 break;
             }
         }
-        String::from_utf8(body).map_err(|_| format!("the answer from {host} was not text"))
+        Ok(body)
     }
 }
 

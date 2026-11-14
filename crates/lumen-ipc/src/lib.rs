@@ -11,6 +11,7 @@ use serde_json::Value;
 pub mod bar;
 pub mod behaviour;
 pub mod flyout;
+pub mod gallery;
 pub mod launcher;
 pub mod parts;
 pub mod presets;
@@ -21,6 +22,7 @@ pub mod widget_file;
 pub mod widgets;
 
 pub use flyout::{FlyoutConfig, FlyoutPosition, FlyoutStyle};
+pub use gallery::{GalleryInstall, GalleryItem, GalleryKind, GalleryState};
 pub use launcher::{LauncherConfig, LauncherHotkey};
 pub use parts::{FontList, ImportFontParams, Part, PartAlign, PartColor, PartKind, PartWeight};
 pub use weather::{Place, Units, WeatherConfig, WeatherData, WeatherState};
@@ -167,6 +169,13 @@ pub mod method {
     pub const IMPORT_WIDGET_PACKAGE: &str = "importWidgetPackage";
     /// Shows the widgets folder in File Explorer.
     pub const OPEN_WIDGET_FOLDER: &str = "openWidgetFolder";
+    /// Reads the gallery (goes online if the gallery is on the web). Result: [`GalleryState`](super::GalleryState).
+    pub const GET_GALLERY: &str = "getGallery";
+    /// Says where the gallery is. Params: `{ source }`: an https address, a folder, or nothing for the built-in one. Result: [`GalleryState`](super::GalleryState).
+    pub const SET_GALLERY_SOURCE: &str = "setGallerySource";
+    /// Downloads an item and adds it to Lumen. Params: `{ id, ok }`; a widget with a script is only added when `ok` is true.
+    /// Result: [`GalleryInstall`](super::GalleryInstall). A script that arrives this way still has to be allowed before it runs.
+    pub const INSTALL_GALLERY_ITEM: &str = "installGalleryItem";
     /// The theme written out for other apps. Result: [`ExportsState`](super::ExportsState).
     pub const GET_EXPORTS: &str = "getExports";
     /// Params: `{ terminal }`: whether Windows Terminal gets a "Lumen" colour scheme. Result: [`ExportsState`](super::ExportsState).

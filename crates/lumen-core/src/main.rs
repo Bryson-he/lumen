@@ -10,6 +10,7 @@
 
 mod desktop;
 mod exports;
+mod gallery;
 mod ipc;
 mod preset_store;
 mod service;

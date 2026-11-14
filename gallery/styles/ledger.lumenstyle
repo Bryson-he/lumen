@@ -1,0 +1,21 @@
+{
+  "lumenStyle": 1,
+  "style": {
+    "accentRole": "tertiary",
+    "background": "solid",
+    "backgroundRole": "neutral",
+    "borderFollowsTheme": false,
+    "borderRole": "outline",
+    "borderWidth": 2,
+    "cornersFollowTheme": false,
+    "font": null,
+    "gradientRole": "primary",
+    "id": "ledger",
+    "name": "Ledger",
+    "opacity": 100,
+    "radius": 4,
+    "spacing": 110,
+    "textRole": "onSurface",
+    "textScale": 100
+  }
+}

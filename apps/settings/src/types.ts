@@ -419,6 +419,39 @@ export interface WidgetOption {
   choices: string[];
 }
 
+// ----- Gallery (crates/lumen-ipc/src/gallery.rs) -----
+
+export type GalleryKind = "widget" | "style" | "preset";
+
+export interface GalleryItem {
+  id: string;
+  kind: GalleryKind;
+  name: string;
+  author: string;
+  description: string;
+  file: string;
+  /** What the gallery's list says; the downloaded file is what counts. */
+  script: boolean;
+  permissions: ScriptPermissions;
+}
+
+export interface GalleryState {
+  /** A web address or a folder; null until a gallery is set. */
+  source: string | null;
+  name: string;
+  items: GalleryItem[];
+  error: string | null;
+}
+
+export interface GalleryInstall {
+  installed: boolean;
+  /** Nothing was added: the widget has a script and the user has not said to go ahead. */
+  needsOk: boolean;
+  script: string | null;
+  permissions: ScriptPermissions;
+  added: string;
+}
+
 /** The kept theme written out for other apps (crates/lumen-ipc/src/lib.rs). */
 export interface ExportsState {
   folder: string;

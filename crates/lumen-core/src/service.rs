@@ -65,6 +65,8 @@ pub struct Service<D: Desktop> {
     widget_files: Vec<lumen_ipc::WidgetFileInfo>,
     /// The weather settings and the last forecast, as the widget host last reported them.
     weather: Option<lumen_ipc::WeatherState>,
+    /// The gallery as last read, for finding an item when it is installed.
+    gallery: Option<lumen_ipc::GalleryState>,
     /// Windows Terminal's fragments folder, where the "Lumen" colour scheme goes when switched on.
     terminal_fragments: Option<std::path::PathBuf>,
     /// The scripts widget files name, as the widget host last reported them.
@@ -105,6 +107,7 @@ impl<D: Desktop> Service<D> {
             weather: None,
             scripts: Vec::new(),
             terminal_fragments: None,
+            gallery: None,
             place_search: Box::new(lumen_widgets::weather::search),
             preset_mirror: None,
         }
@@ -252,6 +255,20 @@ impl<D: Desktop> Service<D> {
                 // Asks the place search online; the answer comes within a few seconds or not at all.
                 let places = (self.place_search)(&query).map_err(|error| RpcError::new(code::INTERNAL_ERROR, format!("could not search for places: {error}")))?;
                 json(places)
+            }
+            method::GET_GALLERY => json(self.read_gallery()),
+            method::SET_GALLERY_SOURCE => {
+                let source = params.get("source").and_then(Value::as_str).map(str::trim).filter(|source| !source.is_empty());
+                if let Some(source) = source {
+                    crate::gallery::source_from(source).map_err(|why| RpcError::new(code::INVALID_PARAMS, why))?;
+                }
+                self.store.set_gallery_source(source).map_err(store_error)?;
+                json(self.read_gallery())
+            }
+            method::INSTALL_GALLERY_ITEM => {
+                let id = params.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
+                let ok = params.get("ok").and_then(Value::as_bool).unwrap_or(false);
+                json(self.install_gallery_item(&id, ok)?)
             }
             method::GET_EXPORTS => json(self.exports_state()),
             method::SET_EXPORTS => {
@@ -628,6 +645,67 @@ impl<D: Desktop> Service<D> {
             self.emit(event::WIDGETS_CHANGED, &state);
             self.widgets = Some(state);
         }
+    }
+
+    /// Where the gallery is: what the user chose, else `LUMEN_GALLERY` (tests), else the built-in one.
+    fn gallery_source(&self) -> Option<String> {
+        self.store.gallery_source().or_else(|| std::env::var("LUMEN_GALLERY").ok().filter(|source| !source.is_empty())).or_else(|| crate::gallery::DEFAULT_SOURCE.map(str::to_owned))
+    }
+
+    /// Reads the gallery's index (online, if the gallery is on the web).
+    fn read_gallery(&mut self) -> lumen_ipc::GalleryState {
+        let Some(source) = self.gallery_source() else {
+            self.gallery = None;
+            return lumen_ipc::GalleryState::default();
+        };
+        let read = crate::gallery::source_from(&source).and_then(|place| crate::gallery::index(&place)).and_then(|text| lumen_ipc::gallery::parse_index(&text));
+        let state = match read {
+            Ok((name, items)) => lumen_ipc::GalleryState { source: Some(source), name, items, error: None },
+            Err(why) => lumen_ipc::GalleryState { source: Some(source), error: Some(format!("The gallery could not be read: {why}")), ..Default::default() },
+        };
+        self.gallery = Some(state.clone());
+        state
+    }
+
+    /// Downloads a gallery item and adds it through the same door as a file
+    /// the user picked. A widget with a script is only added once the user
+    /// has seen what the script asks for (`ok`), and even then the script
+    /// does not run until it is allowed on the Widgets screen.
+    fn install_gallery_item(&mut self, id: &str, ok: bool) -> Result<lumen_ipc::GalleryInstall, RpcError> {
+        use lumen_ipc::GalleryKind;
+        let failed = |why: String| RpcError::new(code::INTERNAL_ERROR, why);
+        let state = self.gallery.clone().ok_or_else(|| RpcError::new(code::INVALID_PARAMS, "open the gallery first"))?;
+        let item = state.items.iter().find(|item| item.id == id).cloned().ok_or_else(|| RpcError::new(code::NOT_FOUND, format!("the gallery has nothing called \"{id}\"")))?;
+        let place = crate::gallery::source_from(state.source.as_deref().unwrap_or_default()).map_err(failed)?;
+        let bytes = crate::gallery::file(&place, &item.file).map_err(|why| failed(format!("could not download {}: {why}", item.name)))?;
+
+        // Downloaded to Lumen's own folder, added from there, then removed.
+        let download = self.store.root().join(format!("gallery-download.{}", item.kind.extension()));
+        std::fs::write(&download, bytes).map_err(|e| failed(format!("could not save the download: {e}")))?;
+        let result = (|| {
+            let mut outcome = lumen_ipc::GalleryInstall::default();
+            if item.kind == GalleryKind::Widget {
+                let (script, permissions) = crate::widget_packages::inspect(&download).map_err(|why| RpcError::new(code::INVALID_PARAMS, why))?;
+                outcome.permissions = permissions;
+                outcome.script = script;
+                if outcome.script.is_some() && !ok {
+                    outcome.needs_ok = true;
+                    return Ok(outcome);
+                }
+            }
+            let path = serde_json::json!({ "path": download.to_string_lossy() });
+            let added = match item.kind {
+                GalleryKind::Widget => self.handle(method::IMPORT_WIDGET_PACKAGE, path)?,
+                GalleryKind::Style => self.handle(method::IMPORT_STYLE, path)?,
+                GalleryKind::Preset => self.handle(method::IMPORT_PRESET, path)?,
+            };
+            outcome.added = added.as_str().or_else(|| added.get("name").and_then(Value::as_str)).unwrap_or(&item.name).to_owned();
+            outcome.installed = true;
+            info!("added \"{}\" from the gallery", item.name);
+            Ok(outcome)
+        })();
+        let _ = std::fs::remove_file(&download);
+        result
     }
 
     /// Where the kept theme is written out for other apps.
@@ -1776,6 +1854,59 @@ mod tests {
         assert!(!off.terminal && !fragments.join("Lumen").exists());
         assert_eq!(service.handle(method::SET_EXPORTS, json!({})).unwrap_err().code, code::INVALID_PARAMS);
         let _ = std::fs::remove_dir_all(fragments);
+    }
+
+
+    #[tokio::test(start_paused = true)]
+    async fn a_gallery_in_a_folder_is_listed_and_installed_from() {
+        let mut service = service();
+        let root = service.store.root().to_owned();
+        let none: lumen_ipc::GalleryState = call(&mut service, method::GET_GALLERY, Value::Null);
+        assert!(none.source.is_none() && none.items.is_empty() && none.error.is_none(), "no gallery until one is set");
+        assert_eq!(service.handle(method::INSTALL_GALLERY_ITEM, json!({ "id": "dice" })).unwrap_err().code, code::INVALID_PARAMS);
+
+        // Build a gallery in a folder: a widget with a script, and one without.
+        let (making, gallery) = (root.join("making"), root.join("shared-gallery"));
+        fs::create_dir_all(&making).unwrap();
+        fs::create_dir_all(gallery.join("widgets")).unwrap();
+        fs::write(making.join("dice.yaml"), "lumen-widget: 1\nname: Dice\nscript: dice.luau\npermissions: [network]\nparts:\n  - id: roll\n    text: \"{script.roll}\"\n").unwrap();
+        fs::write(making.join("dice.luau"), "function update() return { roll = 4 } end").unwrap();
+        fs::write(making.join("plain.yaml"), "lumen-widget: 1\nname: Plain\nparts:\n  - id: a\n    text: hello\n").unwrap();
+        crate::widget_packages::export(&making, &root.join("fonts"), "dice.yaml", &gallery.join("widgets").join("dice")).unwrap();
+        crate::widget_packages::export(&making, &root.join("fonts"), "plain.yaml", &gallery.join("widgets").join("plain")).unwrap();
+        fs::write(gallery.join("widgets").join("fake.lumenwidget"), "this is not a package").unwrap();
+        let index = json!({ "lumenGallery": 1, "name": "Shared", "items": [
+            { "id": "dice", "kind": "widget", "name": "Dice", "file": "widgets/dice.lumenwidget" },
+            { "id": "plain", "kind": "widget", "name": "Plain", "file": "widgets/plain.lumenwidget" },
+            { "id": "fake", "kind": "widget", "name": "Fake", "file": "widgets/fake.lumenwidget" },
+            { "id": "gone", "kind": "style", "name": "Gone", "file": "styles/gone.lumenstyle" }
+        ] });
+        fs::write(gallery.join("gallery.json"), index.to_string()).unwrap();
+
+        assert_eq!(service.handle(method::SET_GALLERY_SOURCE, json!({ "source": "http://example.com/x" })).unwrap_err().code, code::INVALID_PARAMS);
+        let listed: lumen_ipc::GalleryState = call(&mut service, method::SET_GALLERY_SOURCE, json!({ "source": gallery }));
+        assert_eq!((listed.name.as_str(), listed.items.len(), listed.error), ("Shared", 4, None));
+
+        // The index did not mention the script; the file itself is what counts.
+        let widgets = root.join("widgets");
+        let asked: lumen_ipc::GalleryInstall = call(&mut service, method::INSTALL_GALLERY_ITEM, json!({ "id": "dice" }));
+        assert!(asked.needs_ok && !asked.installed && asked.permissions.network && asked.script.as_deref() == Some("dice.luau"));
+        assert!(!widgets.join("dice.yaml").exists() && !widgets.join("dice.luau").exists(), "nothing is added before the user says so");
+        let added: lumen_ipc::GalleryInstall = call(&mut service, method::INSTALL_GALLERY_ITEM, json!({ "id": "dice", "ok": true }));
+        assert!(added.installed && added.added == "dice.yaml" && widgets.join("dice.yaml").exists() && widgets.join("dice.luau").exists());
+        let plain: lumen_ipc::GalleryInstall = call(&mut service, method::INSTALL_GALLERY_ITEM, json!({ "id": "plain" }));
+        assert!(plain.installed && !plain.needs_ok && plain.script.is_none());
+
+        assert_eq!(service.handle(method::INSTALL_GALLERY_ITEM, json!({ "id": "fake", "ok": true })).unwrap_err().code, code::INVALID_PARAMS);
+        assert_eq!(service.handle(method::INSTALL_GALLERY_ITEM, json!({ "id": "gone" })).unwrap_err().code, code::INTERNAL_ERROR);
+        assert_eq!(service.handle(method::INSTALL_GALLERY_ITEM, json!({ "id": "nope" })).unwrap_err().code, code::NOT_FOUND);
+        assert!(!fs::read_dir(&root).unwrap().flatten().any(|entry| entry.file_name().to_string_lossy().starts_with("gallery-download")), "downloads are cleaned up");
+
+        // A folder that is not a gallery says so; clearing the source goes back to none.
+        let broken: lumen_ipc::GalleryState = call(&mut service, method::SET_GALLERY_SOURCE, json!({ "source": making }));
+        assert!(broken.error.unwrap().contains("could not be read") && broken.items.is_empty());
+        let cleared: lumen_ipc::GalleryState = call(&mut service, method::SET_GALLERY_SOURCE, json!({ "source": "" }));
+        assert!(cleared.source.is_none());
     }
 
 }

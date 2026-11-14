@@ -89,6 +89,20 @@ pub fn export(widgets_dir: &Path, fonts_dir: &Path, file: &str, destination: &Pa
     Ok(path)
 }
 
+/// Looks inside a package without adding anything: the script its widget
+/// names, if any, and what that script asks to be allowed to do.
+pub fn inspect(package: &Path) -> Result<(Option<String>, widget_file::Permissions), String> {
+    let not_a_package = |why: &dyn std::fmt::Display| format!("{} is not a Lumen widget package ({why})", package.display());
+    let mut archive = ZipArchive::new(fs::File::open(package).map_err(|e| not_a_package(&e))?).map_err(|e| not_a_package(&e))?;
+    let manifest: serde_json::Value = serde_json::from_slice(&entry(&mut archive, "package.json", MAX_YAML_BYTES).map_err(|e| not_a_package(&e))?).map_err(|e| not_a_package(&e))?;
+    let main = manifest.get("main").and_then(serde_json::Value::as_str).unwrap_or_default().to_owned();
+    if !widget_file::is_file_name(&main) {
+        return Err(not_a_package(&"its package.json does not describe one"));
+    }
+    let text = String::from_utf8(entry(&mut archive, &format!("widgets/{main}"), MAX_YAML_BYTES).map_err(|e| not_a_package(&e))?).map_err(|_| not_a_package(&"its widget file is not text"))?;
+    widget_file::script_settings(&text).map_err(|e| not_a_package(&format!("its widget file has a mistake: {}", e.message)))
+}
+
 /// Adds the widget in `package` to `widgets_dir`, and its fonts to `fonts_dir`.
 pub fn import(widgets_dir: &Path, fonts_dir: &Path, package: &Path) -> Result<Imported, String> {
     let not_a_package = |why: &dyn std::fmt::Display| format!("{} is not a Lumen widget package ({why})", package.display());
@@ -301,6 +315,7 @@ mod tests {
         assert_eq!(fs::read_to_string(to.join("dice-2.luau")).unwrap(), "function update() return { roll = 4 } end");
         let widget = widget_file::parse(&fs::read_to_string(to.join(&imported.file)).unwrap(), &|_| None).unwrap();
         assert_eq!((widget.script.as_deref(), widget.permissions.files), (Some("dice-2.luau"), true));
+        assert_eq!(inspect(&package).unwrap(), (Some("dice.luau".to_owned()), widget_file::Permissions { files: true, network: false, run: false }));
 
         // The same script again is reused, not copied.
         let again = import(&to, &fonts, &package).unwrap();

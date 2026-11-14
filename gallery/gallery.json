@@ -1,0 +1,40 @@
+{
+  "lumenGallery": 1,
+  "name": "Lumen gallery",
+  "items": [
+    {
+      "id": "big-clock",
+      "kind": "widget",
+      "name": "Big clock",
+      "author": "Lumen",
+      "description": "A large clock with the date under it.",
+      "file": "widgets/big-clock.lumenwidget"
+    },
+    {
+      "id": "dice",
+      "kind": "widget",
+      "name": "Dice",
+      "author": "Lumen",
+      "description": "Click to roll. A small example of a widget with a script; the script asks for no permissions.",
+      "file": "widgets/dice.lumenwidget",
+      "script": true
+    },
+    {
+      "id": "day-progress",
+      "kind": "widget",
+      "name": "Day progress",
+      "author": "Lumen",
+      "description": "How much of today has gone, as a bar. Its script asks for no permissions.",
+      "file": "widgets/day-progress.lumenwidget",
+      "script": true
+    },
+    {
+      "id": "ledger",
+      "kind": "style",
+      "name": "Ledger",
+      "author": "Lumen",
+      "description": "A solid card with a firm outline and nearly square corners.",
+      "file": "styles/ledger.lumenstyle"
+    }
+  ]
+}

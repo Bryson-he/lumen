@@ -290,6 +290,14 @@ fn script_of(doc: &Value, text: &str) -> Result<(Option<String>, Permissions, u3
     Ok((script, permissions, every))
 }
 
+/// The script a widget file names and what it asks for, without reading the
+/// rest of the file (for looking at a shared widget before adding it).
+pub fn script_settings(text: &str) -> Result<(Option<String>, Permissions), FileError> {
+    let text = text.trim_start_matches('\u{feff}');
+    let doc = read(text)?;
+    script_of(&doc, text).map(|(script, permissions, _)| (script, permissions))
+}
+
 /// Points a widget file's `script:` at another file name, leaving the rest of the text as it was.
 pub fn rename_script(text: &str, to: &str) -> String {
     let lines: Vec<String> = text.lines().map(|line| if line.starts_with("script") && line["script".len()..].trim_start().starts_with(':') { format!("script: {to}") } else { line.to_owned() }).collect();

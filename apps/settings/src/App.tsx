@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { BarScreen } from "./screens/Bar";
 import { ComingSoon } from "./screens/ComingSoon";
+import { Gallery } from "./screens/Gallery";
 import { Home } from "./screens/Home";
 import { Presets } from "./screens/Presets";
 import { ThemeScreen } from "./screens/Theme";
@@ -35,6 +36,8 @@ function CurrentScreen() {
       return <BarScreen />;
     case "presets":
       return <Presets />;
+    case "gallery":
+      return <Gallery />;
     default:
       return <ComingSoon screen={screen} />;
   }
