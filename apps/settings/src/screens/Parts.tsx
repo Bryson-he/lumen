@@ -8,6 +8,7 @@ import { useLumen } from "../store";
 import { PART_COLORS, PART_ICONS, PART_LIMITS, ROLE_NAMES, WIDGET_NAMES, type WidgetOption, type Part, type PartAlign, type PartColor, type PartWeight, type Placement, type Roles, type UpdateWidgetParams } from "../types";
 import { Button, Check, Segmented, Slider } from "../ui";
 import { allSources, PART_KIND_NAMES, partsOf } from "../widgetView";
+import { ScriptCard } from "./Scripts";
 
 const FONT_FILES = [{ name: "Font files", extensions: ["ttf", "otf", "ttc", "woff", "woff2"] }];
 
@@ -29,7 +30,7 @@ export function PartsTab({
   onDesign: () => void;
   onUpdate: (params: UpdateWidgetParams) => void;
 }) {
-  const { partDefaults, fonts, refreshFonts, importFonts, shown, widgetFiles, request, widgets } = useLumen();
+  const { partDefaults, fonts, refreshFonts, importFonts, shown, widgetFiles, scripts, request, widgets } = useLumen();
   const [naming, setNaming] = useState<string | null>(null);
   const setOpenId = onOpen;
   useEffect(() => void refreshFonts(), [refreshFonts]);
@@ -84,7 +85,9 @@ export function PartsTab({
             )}
           </span>
         </div>
-      ) : naming === null ? (
+      ) : null}
+      {placement.file && scripts.filter((script) => script.file === placement.file).map((script) => <ScriptCard key={script.file} script={script} />)}
+      {placement.file ? null : naming === null ? (
         <button type="button" className="link small-13 parts-save-as" onClick={() => setNaming(WIDGET_NAMES[placement.kind])}>
           Save as a widget file (to edit as text or reuse)…
         </button>
@@ -166,7 +169,7 @@ function PartFields({
   const iconId = useId();
   const clickId = useId();
   const alertId = useId();
-  const clickKind = part.click.startsWith("open ") ? "open" : part.click === "media.toggle" || part.click === "lumen.open" ? part.click : part.click ? "open" : "";
+  const clickKind = part.click.startsWith("open ") ? "open" : part.click === "media.toggle" || part.click === "lumen.open" || part.click === "script" ? part.click : part.click ? "open" : "";
   const fontId = useId();
   const colourId = useId();
   const textId = useId();
@@ -364,6 +367,7 @@ function PartFields({
           <option value="open">Open a program, file or web page</option>
           <option value="media.toggle">Play or pause</option>
           <option value="lumen.open">Open Lumen</option>
+          <option value="script">Tell the widget's script</option>
         </select>
         {clickKind === "open" && (
           <span className="parts-naming">

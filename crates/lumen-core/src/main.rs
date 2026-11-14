@@ -55,6 +55,7 @@ fn main() -> ExitCode {
     let fonts_dir = store.root().join("fonts");
     let widget_files_dir = store.root().join("widgets");
     let weather_path = store.root().join("weather.json");
+    let script_approvals_path = store.root().join("script-approvals.json");
 
     // Fullscreen changes flow main -> service; the widget host's handle and
     // its state reports flow main -> service; shutdown flows main -> service;
@@ -97,7 +98,7 @@ fn main() -> ExitCode {
 
     // The desktop widgets live on this thread. The service sends the real
     // theme as soon as it has the handle; until then they use the fallback look.
-    let options = host::Options { layout_path, bar_path, flyouts_path, launcher_path, styles_path, fonts_dir, widget_files_dir, weather_path, topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
+    let options = host::Options { layout_path, bar_path, flyouts_path, launcher_path, styles_path, fonts_dir, widget_files_dir, weather_path, script_approvals_path, topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
     let state_tx = host_tx.clone();
     let on_state = move |report| {
         let _ = state_tx.send(match report {
@@ -108,6 +109,7 @@ fn main() -> ExitCode {
             host::Report::Styles(sheet) => FromHost::Styles(Box::new(sheet)),
             host::Report::Files(files) => FromHost::Files(files),
             host::Report::Weather(state) => FromHost::Weather(Box::new(state)),
+            host::Report::Scripts(scripts) => FromHost::Scripts(scripts),
             host::Report::Costs(costs) => FromHost::Costs(costs),
         });
     };
@@ -162,6 +164,8 @@ enum FromHost {
     Files(Vec<lumen_ipc::WidgetFileInfo>),
     /// The weather settings and forecast (at start-up, and whenever they change).
     Weather(Box<lumen_ipc::WeatherState>),
+    /// The scripts widget files name, and whether each may run.
+    Scripts(Vec<lumen_ipc::ScriptInfo>),
     /// A preset was picked from the tray menu.
     ApplyPreset(String),
 }
@@ -225,6 +229,7 @@ fn run_service(
                     FromHost::Styles(sheet) => widget_service.borrow_mut().styles_changed(*sheet),
                     FromHost::Files(files) => widget_service.borrow_mut().widget_files_changed(files),
                     FromHost::Weather(state) => widget_service.borrow_mut().weather_changed(*state),
+                    FromHost::Scripts(scripts) => widget_service.borrow_mut().scripts_changed(scripts),
                     FromHost::ApplyPreset(id) => {
                         let params = serde_json::json!({ "id": id });
                         if let Err(error) = widget_service.borrow_mut().handle(lumen_ipc::method::APPLY_PRESET, params) {

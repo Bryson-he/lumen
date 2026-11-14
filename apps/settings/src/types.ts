@@ -419,6 +419,29 @@ export interface WidgetOption {
   choices: string[];
 }
 
+/** What a widget's script asks to be allowed to do. */
+export interface ScriptPermissions {
+  files: boolean;
+  network: boolean;
+  run: boolean;
+}
+
+/** One widget file's script (crates/lumen-ipc/src/scripts.rs). */
+export interface ScriptInfo {
+  /** The widget file that names it. */
+  file: string;
+  name: string;
+  script: string;
+  permissions: ScriptPermissions;
+  /** A fingerprint of the script's text; allowing it is for this exact text. */
+  hash: string;
+  approved: boolean;
+  /** Allowed before, and changed since. */
+  changed: boolean;
+  missing: boolean;
+  error: string | null;
+}
+
 /** One .yaml file in the widgets folder. */
 export interface WidgetFileInfo {
   /** Its name in the widgets folder: "big-clock.yaml". */
@@ -431,6 +454,11 @@ export interface WidgetFileInfo {
   parts: Part[];
   /** What the file lets its user adjust. */
   options: WidgetOption[];
+  /** The script that feeds this widget (a .luau file in the same folder), if it has one. */
+  script: string | null;
+  permissions: ScriptPermissions;
+  /** Seconds between the script's runs. */
+  every: number;
   /** What is wrong with the file as it is now, if anything. */
   error: string | null;
   errorLine: number | null;

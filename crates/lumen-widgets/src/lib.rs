@@ -21,6 +21,7 @@ pub mod host;
 pub mod layout;
 pub mod media;
 pub mod paint;
+pub mod script;
 pub mod parts;
 pub mod snap;
 pub mod stats;

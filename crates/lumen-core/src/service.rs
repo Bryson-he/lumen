@@ -65,6 +65,8 @@ pub struct Service<D: Desktop> {
     widget_files: Vec<lumen_ipc::WidgetFileInfo>,
     /// The weather settings and the last forecast, as the widget host last reported them.
     weather: Option<lumen_ipc::WeatherState>,
+    /// The scripts widget files name, as the widget host last reported them.
+    scripts: Vec<lumen_ipc::ScriptInfo>,
     /// Finds places by name (online, through the weather service).
     place_search: PlaceSearch,
     /// A copy of the preset list for the tray menu, which lives on another thread.
@@ -99,6 +101,7 @@ impl<D: Desktop> Service<D> {
             styles: None,
             widget_files: Vec::new(),
             weather: None,
+            scripts: Vec::new(),
             place_search: Box::new(lumen_widgets::weather::search),
             preset_mirror: None,
         }
@@ -246,6 +249,29 @@ impl<D: Desktop> Service<D> {
                 // Asks the place search online; the answer comes within a few seconds or not at all.
                 let places = (self.place_search)(&query).map_err(|error| RpcError::new(code::INTERNAL_ERROR, format!("could not search for places: {error}")))?;
                 json(places)
+            }
+            method::GET_SCRIPTS => json(&self.scripts),
+            method::READ_SCRIPT => {
+                let file = file_param(&params)?;
+                let script = self.scripts.iter().find(|info| info.file == file).map(|info| info.script.clone()).ok_or_else(|| RpcError::new(code::INVALID_PARAMS, format!("{file} has no script")))?;
+                let text = std::fs::read_to_string(self.widget_files_dir().join(&script)).map_err(|e| RpcError::new(code::INVALID_PARAMS, format!("could not read {script}: {e}")))?;
+                Ok(serde_json::json!({ "script": script, "text": text }))
+            }
+            method::APPROVE_SCRIPT => {
+                let wanted = parse::<lumen_ipc::ApproveScriptParams>(params)?;
+                let info = self.scripts.iter().find(|info| info.file == wanted.file).ok_or_else(|| RpcError::new(code::INVALID_PARAMS, format!("{} has no script", wanted.file)))?;
+                if info.missing || info.hash != wanted.hash {
+                    return Err(RpcError::new(code::INVALID_PARAMS, "the script has changed since you were shown it; look at it again before allowing it"));
+                }
+                let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets are not running, so scripts cannot run"))?;
+                host(WidgetCommand::ApproveScript { file: wanted.file, hash: wanted.hash });
+                Ok(Value::Null)
+            }
+            method::REVOKE_SCRIPT => {
+                let file = file_param(&params)?;
+                let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets are not running, so scripts cannot run"))?;
+                host(WidgetCommand::RevokeScript(file));
+                Ok(Value::Null)
             }
             method::GET_WIDGET_FILES => json(&self.widget_files),
             method::READ_WIDGET_FILE => {
@@ -575,6 +601,14 @@ impl<D: Desktop> Service<D> {
         if self.widgets.as_ref() != Some(&state) {
             self.emit(event::WIDGETS_CHANGED, &state);
             self.widgets = Some(state);
+        }
+    }
+
+    /// The widget host reports the scripts and whether each may run (at start-up and on every change).
+    pub fn scripts_changed(&mut self, scripts: Vec<lumen_ipc::ScriptInfo>) {
+        if self.scripts != scripts {
+            self.emit(event::SCRIPTS_CHANGED, &scripts);
+            self.scripts = scripts;
         }
     }
 
@@ -1554,7 +1588,7 @@ mod tests {
 
         // The host reports what it read; clients hear once per change.
         let mut rx = service.subscribe();
-        let info = lumen_ipc::WidgetFileInfo { file: saved.clone(), is_widget: true, name: "Desk clock".into(), size: [190.0, 92.0], parts: Vec::new(), options: Vec::new(), error: None, error_line: None };
+        let info = lumen_ipc::WidgetFileInfo { file: saved.clone(), is_widget: true, name: "Desk clock".into(), size: [190.0, 92.0], parts: Vec::new(), options: Vec::new(), script: None, permissions: Default::default(), every: 0, error: None, error_line: None };
         service.widget_files_changed(vec![info.clone()]);
         service.widget_files_changed(vec![info]);
         let heard = events(&mut rx);

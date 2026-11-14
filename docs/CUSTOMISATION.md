@@ -56,7 +56,7 @@ Sources are listed at the end. Where a tool's current details could not be confi
 | Click actions, hover, scroll | Rainmeter | Only on the bar's built-in modules | Parts cannot do anything |
 | Conditions and thresholds | Rainmeter, Zebar templates | No | A bar cannot change colour when a value is high; a part cannot hide when empty |
 | Author-defined options | Seelen, Wallpaper Engine | No | A shared widget cannot say "these three things are adjustable" |
-| Scripting | Rainmeter (Lua) | Planned (Luau) | Not built |
+| Scripting | Rainmeter (Lua) | Luau scripts with permissions the user agrees to (`docs/SCRIPTS.md`) | Built (M21) |
 | Packages and a gallery | Rainmeter (.rmskin), Wallpaper Engine | `.lumen` presets and `.lumenstyle` files | No widget package; no gallery |
 | Stays light, safe with games | (the weak point of most) | Yes: governor, game mode, no injection | Keep it that way as power is added |
 

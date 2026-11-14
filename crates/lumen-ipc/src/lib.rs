@@ -14,6 +14,7 @@ pub mod flyout;
 pub mod launcher;
 pub mod parts;
 pub mod presets;
+pub mod scripts;
 pub mod style;
 pub mod weather;
 pub mod widget_file;
@@ -24,6 +25,7 @@ pub use launcher::{LauncherConfig, LauncherHotkey};
 pub use parts::{FontList, ImportFontParams, Part, PartAlign, PartColor, PartKind, PartWeight};
 pub use weather::{Place, Units, WeatherConfig, WeatherData, WeatherState};
 pub use widget_file::WidgetFileInfo;
+pub use scripts::{ApproveScriptParams, ScriptInfo};
 pub use style::{ComponentStyle, ExportStyleParams, ImportStyleParams, Role, StyleAssignments, StyleBackground, StyleSheet, StylesState};
 pub use bar::{BarConfig, BarModule, BarPosition, LauncherApp};
 pub use presets::{ExportPresetParams, ImportPresetParams, Preset, PresetIdParams, PresetInfo, PresetManifest, PresetWallpaper, RenamePresetParams, SavePresetParams};
@@ -151,6 +153,14 @@ pub mod method {
     pub const IMPORT_WIDGET_PACKAGE: &str = "importWidgetPackage";
     /// Shows the widgets folder in File Explorer.
     pub const OPEN_WIDGET_FOLDER: &str = "openWidgetFolder";
+    /// The scripts widget files name, and whether each is allowed to run. Result: a list of [`ScriptInfo`](super::ScriptInfo).
+    pub const GET_SCRIPTS: &str = "getScripts";
+    /// A script's text, for reading before agreeing to it. Params: `{ file }` (the widget file). Result: `{ script, text }`.
+    pub const READ_SCRIPT: &str = "readScript";
+    /// Lets a script run with what it asks for. Params: [`ApproveScriptParams`](super::ApproveScriptParams); refused if the script has changed since the fingerprint was taken.
+    pub const APPROVE_SCRIPT: &str = "approveScript";
+    /// Stops a script and forgets that it was allowed. Params: `{ file }`.
+    pub const REVOKE_SCRIPT: &str = "revokeScript";
     /// The parts each kind of widget comes with, and the live values a part can show.
     /// Result: a map from widget kind to `{ parts, sources }`.
     pub const GET_PART_DEFAULTS: &str = "getPartDefaults";
@@ -180,6 +190,8 @@ pub mod event {
     pub const WIDGET_FILES_CHANGED: &str = "widgetFilesChanged";
     /// Params: [`WeatherState`](super::WeatherState).
     pub const WEATHER_CHANGED: &str = "weatherChanged";
+    /// Params: a list of [`ScriptInfo`](super::ScriptInfo).
+    pub const SCRIPTS_CHANGED: &str = "scriptsChanged";
 }
 
 /// JSON-RPC error codes: the standard ones plus Lumen's own (positive).

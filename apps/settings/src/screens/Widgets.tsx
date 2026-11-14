@@ -27,6 +27,7 @@ import { ChoiceTiles, lookFor, partsOf, useSampleValues, WidgetView } from "../w
 import { Designer } from "./Designer";
 import { WeatherSettings } from "./Weather";
 import { PartsTab } from "./Parts";
+import { ScriptsWaiting } from "./Scripts";
 
 const LIBRARY: { kind: WidgetKind | null; label: string }[] = [
   { kind: "clock", label: "Clock" },
@@ -120,6 +121,7 @@ export function WidgetsScreen() {
         </div>
       </PageHeader>
 
+      <ScriptsWaiting />
       <div className="split widgets-split">
         <div className="widgets-main">
           {designing && selected && shown && styles && partDefaults ? (

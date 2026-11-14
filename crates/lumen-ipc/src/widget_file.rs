@@ -24,6 +24,14 @@
 //!     box: [220, 18]
 //! ```
 //!
+//! A widget can also name a script (see `docs/SCRIPTS.md`):
+//!
+//! ```yaml
+//! script: stocks.luau           # a Luau file in the same folder
+//! permissions: [network]        # what it asks to do: files, network, run
+//! every: 60                     # seconds between runs (5 if not said)
+//! ```
+//!
 //! [`parse`] turns a file into plain [`Part`]s; [`render`] writes parts back,
 //! keeping the author's variables and styles wherever a value has not changed.
 
@@ -53,6 +61,18 @@ impl FileError {
     fn new(message: impl Into<String>) -> Self {
         Self { message: message.into(), line: None }
     }
+}
+
+/// What a widget's script is allowed to do, once the user has agreed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Permissions {
+    /// Read and write files, and look in folders.
+    pub files: bool,
+    /// Fetch from the internet.
+    pub network: bool,
+    /// Run programs, and open programs, files and web pages.
+    pub run: bool,
 }
 
 /// The kinds of option a widget file can expose.
@@ -86,6 +106,25 @@ pub struct WidgetOption {
 /// The answers one widget on the desktop has given to its file's options.
 pub type OptionValues = serde_json::Map<String, serde_json::Value>;
 
+impl Permissions {
+    /// What is asked for, in the words a widget file uses.
+    pub fn names(self) -> Vec<&'static str> {
+        [(self.files, "files"), (self.network, "network"), (self.run, "run")].into_iter().filter_map(|(asked, name)| asked.then_some(name)).collect()
+    }
+}
+
+/// How often a script runs if its file does not say, and the limits on what it can say (seconds).
+pub const DEFAULT_EVERY: u32 = 5;
+pub const EVERY_RANGE: (u32, u32) = (1, 3600);
+/// The largest script Lumen will read.
+pub const MAX_SCRIPT_BYTES: u64 = 256 * 1024;
+
+/// Whether `name` is a plain script file name in the widgets folder: `stocks.luau`.
+pub fn is_script_name(name: &str) -> bool {
+    let stem = name.strip_suffix(".luau").unwrap_or("");
+    !stem.is_empty() && stem.len() <= 64 && stem.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
 /// The most options a file may expose.
 pub const MAX_OPTIONS: usize = 24;
 
@@ -98,6 +137,12 @@ pub struct WidgetFile {
     /// The size the parts are laid out for, and the size a new widget from this file starts at.
     pub size: (f32, f32),
     pub parts: Vec<Part>,
+    /// The script that feeds this widget, if it has one: a `.luau` file in the same folder.
+    pub script: Option<String>,
+    /// What the script asks to be allowed to do.
+    pub permissions: Permissions,
+    /// Seconds between the script's runs.
+    pub every: u32,
 }
 
 /// One file in the widgets folder, as the settings app lists it.
@@ -115,6 +160,13 @@ pub struct WidgetFileInfo {
     /// What the file lets its user adjust.
     #[serde(default)]
     pub options: Vec<WidgetOption>,
+    /// The script that feeds this widget, what it asks to do, and the seconds between its runs.
+    #[serde(default)]
+    pub script: Option<String>,
+    #[serde(default)]
+    pub permissions: Permissions,
+    #[serde(default)]
+    pub every: u32,
     /// What is wrong with the file as it is now, if anything.
     pub error: Option<String>,
     pub error_line: Option<usize>,
@@ -199,7 +251,49 @@ pub fn parse_with(text: &str, include: &dyn Fn(&str) -> Option<String>, answers:
     if parts.len() != count {
         return Err(FileError::new("a part's id may only use letters, numbers and dashes, and a widget holds at most 32 parts"));
     }
-    Ok(WidgetFile { options, name, size, parts })
+    let (script, permissions, every) = script_of(&doc, text)?;
+    Ok(WidgetFile { options, name, size, parts, script, permissions, every })
+}
+
+/// Reads the `script:`, `permissions:` and `every:` settings.
+fn script_of(doc: &Value, text: &str) -> Result<(Option<String>, Permissions, u32), FileError> {
+    let script = match doc.get("script") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(name)) if is_script_name(name.trim()) => Some(name.trim().to_owned()),
+        Some(_) => return Err(at_key(FileError::new("`script` must be the name of a .luau file in the widgets folder, like `script: my-widget.luau` (letters, numbers and dashes only)"), text, "script")),
+    };
+    let mut permissions = Permissions::default();
+    let asked: Vec<&Value> = match doc.get("permissions") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Sequence(list)) => list.iter().collect(),
+        Some(one @ Value::String(_)) => vec![one],
+        Some(_) => return Err(at_key(FileError::new("`permissions` must be a list, like `permissions: [files, network]`"), text, "permissions")),
+    };
+    for value in asked {
+        match value.as_str().map(str::trim) {
+            Some("files") => permissions.files = true,
+            Some("network") => permissions.network = true,
+            Some("run") => permissions.run = true,
+            _ => return Err(at_key(FileError::new("a permission is one of `files` (read and write files), `network` (go online) or `run` (run and open programs)"), text, "permissions")),
+        }
+    }
+    let every = match doc.get("every") {
+        None | Some(Value::Null) => DEFAULT_EVERY,
+        Some(value) => match value.as_f64() {
+            Some(seconds) if seconds >= f64::from(EVERY_RANGE.0) && seconds <= f64::from(EVERY_RANGE.1) => seconds.round() as u32,
+            _ => return Err(at_key(FileError::new("`every` is the number of seconds between the script's runs, from 1 to 3600"), text, "every")),
+        },
+    };
+    if script.is_none() && permissions != Permissions::default() {
+        return Err(at_key(FileError::new("`permissions` are for a script, and this widget names none; add `script: something.luau` or remove the line"), text, "permissions"));
+    }
+    Ok((script, permissions, every))
+}
+
+/// Points a widget file's `script:` at another file name, leaving the rest of the text as it was.
+pub fn rename_script(text: &str, to: &str) -> String {
+    let lines: Vec<String> = text.lines().map(|line| if line.starts_with("script") && line["script".len()..].trim_start().starts_with(':') { format!("script: {to}") } else { line.to_owned() }).collect();
+    lines.join("\n") + if text.ends_with('\n') { "\n" } else { "" }
 }
 
 /// The files a widget file includes, as written (not checked to exist).
@@ -266,7 +360,7 @@ pub fn render_with(name: &str, size: (f32, f32), parts: &[Part], previous: Optio
         None => out.push_str(&format!("size: [{}, {}]\n", number(f64::from(size.0)), number(f64::from(size.1)))),
     }
     if let Some(doc) = &old_doc {
-        for key in ["include", "options", "variables", "styles"] {
+        for key in ["include", "script", "permissions", "every", "options", "variables", "styles"] {
             if let Some(value) = doc.get(key).filter(|value| !value.is_null()) {
                 out.push('\n');
                 emit(key, value, 0, &mut out);
@@ -534,7 +628,7 @@ fn part_from(raw: &Value, variables: &Mapping, styles: &Mapping) -> Result<Part,
             "click" => {
                 part.click = text()?;
                 if crate::behaviour::parse_action(&part.click).is_none() && !part.click.trim().is_empty() {
-                    return Err(FileError::new(format!("`click: {}` is not something a click can do; use `open <program, file or web page>`, `media.toggle` or `lumen.open`", part.click)));
+                    return Err(FileError::new(format!("`click: {}` is not something a click can do; use `open <program, file or web page>`, `media.toggle`, `lumen.open` or `script`", part.click)));
                 }
             }
             "when" | "alert-when" | "alertWhen" => {
@@ -914,4 +1008,33 @@ parts:
         }
         assert!(is_widget(CLOCK) && !is_widget(SHARED));
     }
+
+    #[test]
+    fn a_widget_can_name_a_script_and_what_it_asks_for() {
+        let text = "lumen-widget: 1\nname: Stocks\nscript: stocks.luau\npermissions: [network, run]\nevery: 60\nparts:\n  - id: price\n    text: \"{script.price}\"\n    click: script\n";
+        let file = parse(text, &|_| None).unwrap();
+        assert_eq!((file.script.as_deref(), file.permissions, file.every), (Some("stocks.luau"), Permissions { files: false, network: true, run: true }, 60));
+        assert_eq!(file.permissions.names(), ["network", "run"]);
+        let plain = parse("lumen-widget: 1\nscript: a.luau\n", &|_| None).unwrap();
+        assert_eq!((plain.permissions, plain.every), (Permissions::default(), DEFAULT_EVERY));
+        assert_eq!(parse("lumen-widget: 1\n", &|_| None).unwrap().script, None);
+
+        // Written back, the script settings are kept.
+        let again = render(&file.name, file.size, &file.parts, Some(text), &|_| None);
+        assert_eq!(parse(&again, &|_| None).unwrap(), file, "{again}");
+        assert_eq!(parse(&rename_script(text, "stocks-2.luau"), &|_| None).unwrap().script.as_deref(), Some("stocks-2.luau"));
+    }
+
+    #[test]
+    fn script_settings_with_mistakes_are_explained() {
+        let wrong = |line: &str| parse(&format!("lumen-widget: 1\n{line}\n"), &|_| None).unwrap_err();
+        for name in ["script: ../evil.luau", "script: C:/x.luau", "script: thing.exe", "script: [a]"] {
+            let error = wrong(name);
+            assert!(error.message.contains(".luau file in the widgets folder") && error.line == Some(2), "{name}: {error:?}");
+        }
+        assert!(wrong("script: a.luau\npermissions: [everything]").message.contains("a permission is one of"));
+        assert!(wrong("script: a.luau\nevery: 0").message.contains("from 1 to 3600"));
+        assert!(wrong("permissions: [files]").message.contains("this widget names none"));
+    }
+
 }

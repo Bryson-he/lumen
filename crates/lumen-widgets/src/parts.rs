@@ -65,7 +65,14 @@ pub struct Data<'a> {
     pub history: &'a History,
     /// Whether the mouse is over the widget (for parts shown only then).
     pub hovered: bool,
+    /// What the widget's script last handed back (`{script.name}`); `None` for a widget without a script.
+    pub script: Option<&'a std::collections::HashMap<String, String>>,
+    /// A line to show at the foot of the widget (its script is waiting for approval, or failed).
+    pub notice: Option<&'a str>,
 }
+
+/// The names of Lumen's own live values, other than the weather's.
+pub const SOURCES: [&str; 11] = ["clock.time", "clock.suffix", "clock.date", "stats.cpu", "stats.memory", "stats.gpu", "media.title", "media.artist", "media.progress", "media.playing", "media.active"];
 
 /// Whether a part is on screen right now: not hidden, its condition holds,
 /// and the mouse is over the widget if it only shows then.
@@ -143,6 +150,10 @@ pub fn draw(canvas: &Canvas<'_>, paint: &Paint, parts: &[Part], data: &Data<'_>,
             }
         }
     }
+    if let Some(notice) = data.notice {
+        let style = TextStyle { family: &paint.body_font, size: 11.0 * paint.text_scale, weight: Weight::Regular, color: paint.text_muted, align_right: false, align_center: true };
+        canvas.text(notice, Rect::new(8.0, (size.1 - 22.0).max(0.0), (size.0 - 16.0).max(0.0), 16.0), style);
+    }
 }
 
 /// What a click at a point inside the widget does: the action of the
@@ -152,7 +163,8 @@ pub fn action_at(parts: &[Part], data: &Data<'_>, size: (f32, f32), default_size
         let (x, y, width, height) = part.rect_in(size, default_size);
         // A few pixels of grace: text boxes are often only as tall as the text.
         let inside = point.0 >= x - 3.0 && point.0 < x + width + 3.0 && point.1 >= y - 3.0 && point.1 < y + height + 3.0;
-        inside.then(|| behaviour::parse_action(&part.click)).flatten()
+        // A click for the script says which part it was on.
+        inside.then(|| behaviour::parse_action(&part.click)).flatten().map(|action| if matches!(action, Action::Script(_)) { Action::Script(part.id.clone()) } else { action })
     })
 }
 
@@ -201,7 +213,13 @@ pub fn value_of(source: &str, data: &Data<'_>) -> Option<String> {
         // For conditions: "yes" while something is playing (or loaded), nothing otherwise.
         "media.playing" => yes(data.media.is_some_and(|media| media.playing)),
         "media.active" => yes(data.media.is_some()),
-        other => return crate::weather::value_of(other, data.weather),
+        other => {
+            // A script's values: anything it has not handed back (yet) is blank rather than left as typed.
+            if let (Some(name), Some(values)) = (other.strip_prefix("script."), data.script) {
+                return Some(values.get(name).cloned().unwrap_or_default());
+            }
+            return crate::weather::value_of(other, data.weather);
+        }
     })
 }
 
@@ -248,7 +266,7 @@ mod tests {
     use super::*;
 
     fn data<'a>(clock: &'a ClockData, stats: &'a StatsData) -> Data<'a> {
-        Data { clock, stats, media: None, art: None, weather: Box::leak(Box::default()), history: Box::leak(Box::default()), hovered: false }
+        Data { clock, stats, media: None, art: None, weather: Box::leak(Box::default()), history: Box::leak(Box::default()), hovered: false, script: None, notice: None }
     }
 
     fn clock() -> ClockData {
@@ -347,4 +365,21 @@ mod tests {
         assert_eq!((history.of("stats.cpu").last().copied(), history.of("stats.cpu").first().copied()), (Some(0.99), Some(0.40)));
         assert_eq!((history.of("stats.gpu").last().copied(), history.of("clock.time").len()), (Some(0.0), 0));
     }
+
+    #[test]
+    fn a_scripts_values_fill_parts_and_conditions() {
+        let (clock, stats) = (ClockData::now(), StatsData::default());
+        let values = std::collections::HashMap::from([("price".to_owned(), "42".to_owned())]);
+        let mut with = data(&clock, &stats);
+        assert_eq!(value_of("script.price", &with), None, "a widget without a script has no such values");
+        with.script = Some(&values);
+        assert_eq!(fill("Now {script.price} {script.unknown}!", &with), "Now 42 !");
+        assert!(behaviour::holds("script.price > 40", &|name| value_of(name, &with)) && !behaviour::holds("script.unknown", &|name| value_of(name, &with)));
+        let parts = vec![Part { id: "go".into(), click: "script".into(), x: 0.0, y: 0.0, width: 50.0, height: 20.0, ..Default::default() }];
+        assert_eq!(action_at(&parts, &with, (220.0, 110.0), (220.0, 110.0), (10.0, 10.0)), Some(Action::Script("go".into())));
+        for name in SOURCES {
+            assert!(value_of(name, &with).is_some(), "{name}");
+        }
+    }
+
 }

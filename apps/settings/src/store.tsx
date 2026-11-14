@@ -3,7 +3,7 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { call, CoreError, onConnection, onCoreEvent } from "./core";
-import type { BarConfig, ComponentStyle, FlyoutConfig, FontList, PartDefaults, WeatherConfig, WeatherState, WidgetFileInfo, LauncherConfig, MonitorInfo, StyleAssignments, StylesState, PresetInfo, PreviewState, PreviewThemeParams, Status, Theme, ThemeState, WallpaperEntry, WidgetsState } from "./types";
+import type { BarConfig, ComponentStyle, FlyoutConfig, FontList, PartDefaults, WeatherConfig, WeatherState, WidgetFileInfo, ScriptInfo, LauncherConfig, MonitorInfo, StyleAssignments, StylesState, PresetInfo, PreviewState, PreviewThemeParams, Status, Theme, ThemeState, WallpaperEntry, WidgetsState } from "./types";
 
 export type Screen = "home" | "presets" | "wallpapers" | "theme" | "widgets" | "bar" | "plugins" | "gallery" | "settings";
 
@@ -63,6 +63,8 @@ interface Lumen {
   setWeather: (config: WeatherConfig) => Promise<void>;
   /** The .yaml files in the widgets folder, as last read. */
   widgetFiles: WidgetFileInfo[];
+  /** The scripts widget files name, and whether each is allowed to run. */
+  scripts: ScriptInfo[];
   /** Sends any request to the core; null (with the message strip set) if it failed. */
   request: <T>(method: string, params?: unknown) => Promise<T | null>;
   /** The parts each kind of widget comes with. Null until the core reports them. */
@@ -121,6 +123,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
   const [styles, setStylesState] = useState<StylesState | null>(null);
   const [partDefaults, setPartDefaults] = useState<PartDefaults | null>(null);
   const [widgetFiles, setWidgetFiles] = useState<WidgetFileInfo[]>([]);
+  const [scripts, setScripts] = useState<ScriptInfo[]>([]);
   const [weather, setWeatherState] = useState<WeatherState | null>(null);
   const [fonts, setFonts] = useState<FontList | null>(null);
   const [presets, setPresets] = useState<PresetInfo[]>([]);
@@ -179,6 +182,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       call<StylesState>("getStyles").then(setStylesState, () => setStylesState(null)),
       call<PartDefaults>("getPartDefaults").then(setPartDefaults, () => setPartDefaults(null)),
       call<WidgetFileInfo[]>("getWidgetFiles").then(setWidgetFiles, () => setWidgetFiles([])),
+      call<ScriptInfo[]>("getScripts").then(setScripts, () => setScripts([])),
       call<WeatherState>("getWeather").then(setWeatherState, () => setWeatherState(null)),
     ]);
   }, [refreshTheme, refreshWallpapers, refreshStatus, attempt]);
@@ -205,6 +209,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
         if (method === "launcherChanged") setLauncherState(params as LauncherConfig);
         if (method === "stylesChanged") setStylesState(params as StylesState);
         if (method === "widgetFilesChanged") setWidgetFiles(params as WidgetFileInfo[]);
+        if (method === "scriptsChanged") setScripts(params as ScriptInfo[]);
         if (method === "weatherChanged") setWeatherState(params as WeatherState);
         if (method === "presetsChanged") {
           setPresets(params as PresetInfo[]);
@@ -462,6 +467,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       weather,
       setWeather,
       widgetFiles,
+      scripts,
       request,
       partDefaults,
       fonts,
@@ -481,7 +487,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       setWallpaperOnly,
       wallpaperOf,
     }),
-    [screen, themeView, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, widgets, widgetRequest, bar, setBar, flyouts, setFlyouts, showFlyout, launcher, setLauncher, styles, setStyles, styleRequest, weather, setWeather, widgetFiles, request, partDefaults, fonts, refreshFonts, importFonts, presets, presetRequest, importPresets, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
+    [screen, themeView, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, widgets, widgetRequest, bar, setBar, flyouts, setFlyouts, showFlyout, launcher, setLauncher, styles, setStyles, styleRequest, weather, setWeather, widgetFiles, scripts, request, partDefaults, fonts, refreshFonts, importFonts, presets, presetRequest, importPresets, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;

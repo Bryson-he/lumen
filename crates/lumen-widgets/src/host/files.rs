@@ -65,6 +65,11 @@ impl Host {
     pub(super) fn reload_files(&mut self) {
         let fresh = read_folder(&self.options.widget_files_dir, &self.files.list);
         if fresh == self.files.list {
+            // A script's own file may be what changed.
+            if self.sync_scripts() {
+                self.draw(None);
+                self.sync_timers();
+            }
             return;
         }
         for file in &fresh {
@@ -75,6 +80,7 @@ impl Host {
         }
         self.files.list = fresh;
         self.files.answered.borrow_mut().clear();
+        self.sync_scripts();
         self.draw(None);
         self.sync_timers();
         self.sync_edit_surfaces();
@@ -163,13 +169,13 @@ fn read_folder(folder: &Path, previous: &[WidgetFileInfo]) -> Vec<WidgetFileInfo
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
-        let blank = || WidgetFileInfo { file: name.clone(), is_widget: true, name: name.trim_end_matches(".yaml").trim_end_matches(".yml").to_owned(), size: [widget_file::DEFAULT_SIZE.0, widget_file::DEFAULT_SIZE.1], parts: Vec::new(), options: Vec::new(), error: None, error_line: None };
+        let blank = || WidgetFileInfo { file: name.clone(), is_widget: true, name: name.trim_end_matches(".yaml").trim_end_matches(".yml").to_owned(), size: [widget_file::DEFAULT_SIZE.0, widget_file::DEFAULT_SIZE.1], parts: Vec::new(), options: Vec::new(), script: None, permissions: Default::default(), every: 0, error: None, error_line: None };
         if !widget_file::is_widget(&text) {
             files.push(WidgetFileInfo { is_widget: false, ..blank() });
             continue;
         }
         files.push(match widget_file::parse(&text, &|other| read_include(folder, other)) {
-            Ok(file) => WidgetFileInfo { name: file.name, size: [file.size.0, file.size.1], parts: file.parts, options: file.options, ..blank() },
+            Ok(file) => WidgetFileInfo { name: file.name, size: [file.size.0, file.size.1], parts: file.parts, options: file.options, script: file.script, permissions: file.permissions, every: file.every, ..blank() },
             Err(error) => {
                 let last_good = previous.iter().find(|old| old.file == name && old.is_widget).cloned().unwrap_or_else(blank);
                 WidgetFileInfo { error: Some(error.message), error_line: error.line, ..last_good }

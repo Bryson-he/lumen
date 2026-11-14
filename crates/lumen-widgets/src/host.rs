@@ -15,6 +15,7 @@ mod files;
 mod flyouts;
 mod launchers;
 mod styles;
+mod scripts;
 mod weathers;
 
 use std::{
@@ -103,6 +104,8 @@ pub struct Options {
     pub widget_files_dir: PathBuf,
     /// Where the weather settings are kept (`weather.json`); the last forecast is kept beside it.
     pub weather_path: PathBuf,
+    /// Where the scripts the user has agreed to are noted (`script-approvals.json`).
+    pub script_approvals_path: PathBuf,
     /// Keep widgets above other windows (for testing; normally they sit on the desktop).
     pub topmost: bool,
 }
@@ -138,6 +141,10 @@ pub enum Command {
     SetWeather(lumen_ipc::weather::WeatherConfig),
     /// Fetch the forecast now.
     RefreshWeather,
+    /// Let a widget file's script run: the user agreed to the text with this fingerprint.
+    ApproveScript { file: String, hash: String },
+    /// Stop a widget file's script and forget that it was allowed.
+    RevokeScript(String),
 }
 
 /// What the host tells its owner.
@@ -155,6 +162,8 @@ pub enum Report {
     Files(Vec<lumen_ipc::widget_file::WidgetFileInfo>),
     /// The weather settings or the forecast changed (also sent once at start-up).
     Weather(lumen_ipc::weather::WeatherState),
+    /// The scripts, or whether one may run, changed (also sent once at start-up).
+    Scripts(Vec<lumen_ipc::scripts::ScriptInfo>),
     /// The layout, selection, edit mode or list of switched-off widgets changed.
     State(WidgetsState),
     /// Fresh per-widget costs, about every ten seconds while widgets are running.
@@ -175,6 +184,8 @@ struct Inbox {
     media: Option<Option<MediaInfo>>,
     /// A forecast fetch that finished, with the settings it was for.
     weather: Option<(lumen_ipc::weather::WeatherConfig, Result<lumen_ipc::weather::WeatherData, String>)>,
+    /// Script calls that finished.
+    scripts: Vec<scripts::ScriptResult>,
 }
 
 impl HostHandle {
@@ -190,6 +201,11 @@ impl HostHandle {
 
     fn set_weather(&self, config: lumen_ipc::weather::WeatherConfig, result: Result<lumen_ipc::weather::WeatherData, String>) {
         self.inbox.lock().unwrap_or_else(|p| p.into_inner()).weather = Some((config, result));
+        self.wake();
+    }
+
+    fn script_result(&self, result: scripts::ScriptResult) {
+        self.inbox.lock().unwrap_or_else(|p| p.into_inner()).scripts.push(result);
         self.wake();
     }
 
@@ -300,6 +316,7 @@ struct Host {
     files: files::Files,
 
     weather: weathers::Weather,
+    scripts: scripts::Scripts,
 
     /// How the system readings have moved lately, for graph parts.
     history: parts::History,
@@ -358,10 +375,12 @@ pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'stat
         paints: styles::Paints::plain(&Paint::from_theme(theme)),
         files: files::Files::default(),
         weather: weathers::Weather::default(),
+        scripts: scripts::Scripts::default(),
         history: parts::History::default(),
     };
     host.start_files();
     host.load_weather();
+    host.load_scripts();
     host.styles = styles::load_styles(&host.options.styles_path);
     host.refresh_paints();
     host.bar = bars::load_bar(&host.options.bar_path);
@@ -469,9 +488,10 @@ pub fn stop() {
         host.sync_launcher_hotkey();
     });
     set_input_handler(None);
-    if let Some(host) = HOST.take() {
+    if let Some(mut host) = HOST.take() {
+        host.stop_scripts();
         unsafe {
-            for timer in [TIMER_CLOCK, TIMER_STATS, TIMER_MEDIA, TIMER_HOVER, files::TIMER_FILES, weathers::TIMER_WEATHER] {
+            for timer in [TIMER_CLOCK, TIMER_STATS, TIMER_MEDIA, TIMER_HOVER, files::TIMER_FILES, weathers::TIMER_WEATHER, scripts::TIMER_SCRIPTS] {
                 let _ = KillTimer(Some(host.window), timer);
             }
             let _ = UnregisterHotKey(Some(host.window), HOTKEY_EDIT);
@@ -713,6 +733,8 @@ impl Host {
             let (width, height) = self.slots[index].surface.size();
             // Its file's parts, its own, or the arrangement its kind comes with.
             let Some((parts, default_size)) = self.placement(&id).map(|placement| self.parts_of(placement)) else { continue };
+            let file = self.placement(&id).and_then(|placement| placement.file.clone());
+            let (script, notice) = self.scripts.view(file.as_deref());
             let (clock, stats, media, weather, history) = (&self.clock, &self.stats, self.media.as_ref(), &self.weather.state, &self.history);
             let hovered = self.slots[index].hovered;
             let art = &mut self.art;
@@ -723,7 +745,7 @@ impl Host {
                 {
                     *art = canvas.bitmap_from_rgba(cover.size, cover.size, &cover.rgba).ok();
                 }
-                let data = parts::Data { clock, stats, media, art: art.as_ref(), weather, history, hovered };
+                let data = parts::Data { clock, stats, media, art: art.as_ref(), weather, history, hovered, script, notice: notice.as_deref() };
                 parts::draw(canvas, &paint, &parts, &data, (width, height), default_size);
             });
             self.governor.record_draw(&id, started.elapsed());
@@ -771,7 +793,7 @@ impl Host {
 
     /// The live values, for working out what a part shows or does outside drawing.
     fn part_data(&self, hovered: bool) -> parts::Data<'_> {
-        parts::Data { clock: &self.clock, stats: &self.stats, media: self.media.as_ref(), art: None, weather: &self.weather.state, history: &self.history, hovered }
+        parts::Data { clock: &self.clock, stats: &self.stats, media: self.media.as_ref(), art: None, weather: &self.weather.state, history: &self.history, hovered, script: None, notice: None }
     }
 
     /// What a click at a point on a widget's window does, if anything (not while editing).
@@ -783,7 +805,8 @@ impl Host {
         let placement = self.placement(&slot.id)?;
         let (parts, default_size) = self.parts_of(placement);
         let scale = slot.surface.scale();
-        parts::action_at(&parts, &self.part_data(true), slot.surface.size(), default_size, (x as f32 / scale, y as f32 / scale))
+        let data = parts::Data { script: self.scripts.view(placement.file.as_deref()).0, ..self.part_data(true) };
+        parts::action_at(&parts, &data, slot.surface.size(), default_size, (x as f32 / scale, y as f32 / scale))
     }
 
     /// A widget was clicked (outside edit mode): do what the part under the mouse says.
@@ -797,6 +820,12 @@ impl Host {
                 let exists = std::path::Path::new(&target).exists();
                 if !(is_web_address(&target) || exists) || !lumen_win::shell::open(&target) {
                     warn!("a widget tried to open {target}, which is not a web page or a file on this PC");
+                }
+            }
+            Some(Action::Script(part)) => {
+                let file = self.slots.iter().find(|slot| slot.surface.window() == window).and_then(|slot| self.placement(&slot.id)).and_then(|placement| placement.file.clone());
+                if let Some(file) = file {
+                    self.script_clicked(&file, part);
                 }
             }
             None => {}
@@ -844,10 +873,13 @@ impl Host {
         // Weather is fetched only while something shows it; the timer is aimed at when the forecast goes stale.
         let weather_due = self.weather_due_in();
         timer(weathers::TIMER_WEATHER, weather_due.is_some(), weather_due.unwrap_or(0));
+        // Scripts run only while a widget that uses one is on screen.
+        let scripts_due = self.scripts_due_in();
+        timer(scripts::TIMER_SCRIPTS, scripts_due.is_some(), scripts_due.unwrap_or(0));
     }
 
     fn on_timer(&mut self, timer: usize) {
-        if self.on_flyout_timer(timer) || self.on_files_timer(timer) || self.on_weather_timer(timer) {
+        if self.on_flyout_timer(timer) || self.on_files_timer(timer) || self.on_weather_timer(timer) || self.on_scripts_timer(timer) {
             return;
         }
         match timer {
@@ -913,10 +945,13 @@ impl Host {
 
     /// Handles what other threads left in the inbox.
     fn on_wake(&mut self) {
-        let (commands, media, weather) = {
+        let (commands, media, weather, script_results) = {
             let mut inbox = self.inbox.lock().unwrap_or_else(|p| p.into_inner());
-            (std::mem::take(&mut inbox.commands), inbox.media.take(), inbox.weather.take())
+            (std::mem::take(&mut inbox.commands), inbox.media.take(), inbox.weather.take(), std::mem::take(&mut inbox.scripts))
         };
+        for result in script_results {
+            self.on_script_result(result);
+        }
         if let Some((config, result)) = weather {
             self.on_weather_result(config, result);
         }
@@ -995,6 +1030,8 @@ impl Host {
             Command::SetStyles(sheet) => self.set_styles(*sheet),
             Command::SetWeather(config) => self.set_weather(config),
             Command::RefreshWeather => self.refresh_weather(),
+            Command::ApproveScript { file, hash } => self.approve_script(&file, &hash),
+            Command::RevokeScript(file) => self.revoke_script(&file),
             Command::ReloadFonts => {
                 if let Err(error) = self.rebuild() {
                     warn!("could not reload the fonts: {error}");

@@ -16,15 +16,18 @@ pub enum Action {
     ToggleMedia,
     /// Open the Lumen app.
     OpenLumen,
+    /// Tell the widget's script that this part was clicked (the part's id is filled in by whoever finds the click).
+    Script(String),
 }
 
-/// Reads a part's `click` setting: `open <target>`, `media.toggle` or
-/// `lumen.open`. `None` for anything else, including nothing.
+/// Reads a part's `click` setting: `open <target>`, `media.toggle`,
+/// `lumen.open` or `script`. `None` for anything else, including nothing.
 pub fn parse_action(text: &str) -> Option<Action> {
     let text = text.trim();
     match text {
         "media.toggle" => Some(Action::ToggleMedia),
         "lumen.open" => Some(Action::OpenLumen),
+        "script" => Some(Action::Script(String::new())),
         _ => text.strip_prefix("open ").map(str::trim).filter(|target| !target.is_empty()).map(|target| Action::Open(target.to_owned())),
     }
 }

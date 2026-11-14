@@ -4,7 +4,11 @@
 //! A package is a zip:
 //! - `package.json`: `{ "lumenWidgetPackage": 1, "name": …, "main": "big-clock.yaml" }`
 //! - `widgets/<name>.yaml`: the widget file and each file it includes
+//! - `widgets/<name>.luau`: the widget's script, if it has one
 //! - `fonts/<file>`: font files Lumen was given that the widget's parts use
+//!
+//! A script that arrives in a package is never allowed to run by the import:
+//! the user is asked about it like any other script.
 //!
 //! Importing never overwrites anything: a name that is taken gets a new one,
 //! and the widget's `include:` line is pointed at the new name.
@@ -58,6 +62,12 @@ pub fn export(widgets_dir: &Path, fonts_dir: &Path, file: &str, destination: &Pa
                 zip.start_file(format!("widgets/{include}"), text_options)?;
                 zip.write_all(shared.as_bytes())?;
             }
+        }
+        if let Some(script) = &widget.script
+            && let Ok(source) = fs::read_to_string(widgets_dir.join(script))
+        {
+            zip.start_file(format!("widgets/{script}"), text_options)?;
+            zip.write_all(source.as_bytes())?;
         }
         // The font files Lumen was given whose family a part asks for. (Fonts
         // installed in Windows, and the two that ship with Lumen, are not copied.)
@@ -127,7 +137,23 @@ pub fn import(widgets_dir: &Path, fonts_dir: &Path, package: &Path) -> Result<Im
     }
     // Check it reads, with its includes as they now are, before it is added.
     let read_include = |name: &str| widget_file::is_file_name(name).then(|| fs::read_to_string(widgets_dir.join(name)).ok()).flatten();
-    widget_file::parse(&text, &read_include).map_err(|e| not_a_package(&format!("its widget file has a mistake: {}", e.message)))?;
+    let widget = widget_file::parse(&text, &read_include).map_err(|e| not_a_package(&format!("its widget file has a mistake: {}", e.message)))?;
+    // Its script, under a name that is free (or the same script already there).
+    if let Some(script) = &widget.script {
+        let source = String::from_utf8(entry(&mut archive, &format!("widgets/{script}"), widget_file::MAX_SCRIPT_BYTES).map_err(|e| not_a_package(&e))?).map_err(|_| not_a_package(&"its script is not text"))?;
+        let same = |name: &str| fs::read_to_string(widgets_dir.join(name)).is_ok_and(|there| there == source);
+        let (base, mut name, mut number) = (script.trim_end_matches(".luau"), script.clone(), 2);
+        while widgets_dir.join(&name).exists() && !same(&name) {
+            name = format!("{base}-{number}.luau");
+            number += 1;
+        }
+        if !same(&name) {
+            fs::write(widgets_dir.join(&name), &source).map_err(|e| format!("could not write {name}: {e}"))?;
+        }
+        if &name != script {
+            text = widget_file::rename_script(&text, &name);
+        }
+    }
     let file = free(&main);
     fs::write(widgets_dir.join(&file), &text).map_err(|e| format!("could not write {file}: {e}"))?;
 
@@ -256,4 +282,31 @@ mod tests {
         assert_eq!(fs::read_dir(&widgets).unwrap().count(), 1, "nothing from the refused packages was written");
         assert!(export(&widgets, &fonts, "missing.yaml", &root.join("x")).is_err());
     }
+
+    #[test]
+    fn a_package_carries_the_widgets_script_and_never_replaces_one() {
+        let root = std::env::temp_dir().join(format!("lumen-package-script-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (from, to, fonts) = (root.join("from"), root.join("to"), root.join("fonts"));
+        fs::create_dir_all(&from).unwrap();
+        fs::create_dir_all(&to).unwrap();
+        fs::write(from.join("dice.yaml"), "lumen-widget: 1\nname: Dice\nscript: dice.luau\npermissions: [files]\nparts:\n  - id: roll\n    text: \"{script.roll}\"\n").unwrap();
+        fs::write(from.join("dice.luau"), "function update() return { roll = 4 } end").unwrap();
+        let package = export(&from, &fonts, "dice.yaml", &root.join("dice")).unwrap();
+
+        // Someone else's script of the same name is already here.
+        fs::write(to.join("dice.luau"), "function update() return { roll = 1 } end").unwrap();
+        let imported = import(&to, &fonts, &package).unwrap();
+        assert_eq!(fs::read_to_string(to.join("dice.luau")).unwrap(), "function update() return { roll = 1 } end", "left alone");
+        assert_eq!(fs::read_to_string(to.join("dice-2.luau")).unwrap(), "function update() return { roll = 4 } end");
+        let widget = widget_file::parse(&fs::read_to_string(to.join(&imported.file)).unwrap(), &|_| None).unwrap();
+        assert_eq!((widget.script.as_deref(), widget.permissions.files), (Some("dice-2.luau"), true));
+
+        // The same script again is reused, not copied.
+        let again = import(&to, &fonts, &package).unwrap();
+        assert_eq!(again.file, "dice-2.yaml");
+        assert!(!to.join("dice-3.luau").exists());
+        let _ = fs::remove_dir_all(root);
+    }
+
 }
