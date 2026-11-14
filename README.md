@@ -29,14 +29,14 @@
 
 ## On a real desktop
 
-<img align="right" width="44%" src="docs/media/desktop.webp" alt="A desktop at night with Lumen widgets and no backgrounds: the date in a handwritten font, a large clock, what is playing with a row of progress blocks, system bars, and a phone's battery level from Home Assistant">
+<img align="right" width="44%" src="docs/media/desktop.jpg" alt="Lumen widgets with no backgrounds over a night sky: the date in a handwritten font, a large clock, what is playing with a row of progress blocks, system bars, and a phone's battery level from Home Assistant">
 
 ### Widgets that look like part of the wallpaper
 
-This is a desktop in daily use. Every piece on it is a Lumen widget with its background switched off, coloured by the theme Lumen made from the photo behind it.
+This is a layout in daily use, shown here over a backdrop drawn for this page. Every piece is a Lumen widget with its background switched off, so it sits straight on the wallpaper.
 
 - **Date and clock.** Two fonts in one widget: a handwritten date over a large clock.
-- **Now playing.** Cover, title and artist, with progress as a row of blocks instead of a bar.
+- **Now playing.** Cover, title and artist, with progress as a row of blocks instead of a bar (placeholder track here).
 - **System.** Processor, memory and graphics as thin bars.
 - **Phone charge.** A phone's battery level, read live from Home Assistant.
 
