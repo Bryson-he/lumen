@@ -249,7 +249,7 @@ pub fn parse_with(text: &str, include: &dyn Fn(&str) -> Option<String>, answers:
     let count = parts.len();
     let parts = sanitise_parts(parts);
     if parts.len() != count {
-        return Err(FileError::new("a part's id may only use letters, numbers and dashes, and a widget holds at most 32 parts"));
+        return Err(FileError::new("a part's id may only use letters, numbers and dashes, and a widget holds at most 64 parts"));
     }
     let (script, permissions, every) = script_of(&doc, text)?;
     Ok(WidgetFile { options, name, size, parts, script, permissions, every })

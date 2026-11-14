@@ -855,7 +855,7 @@ button.preview-chip:hover:not(:disabled) {
 }
 .ha-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.3fr) minmax(0, 1fr) 70px;
+  grid-template-columns: 18px minmax(0, 1.4fr) minmax(0, 1.3fr) minmax(0, 1fr) 70px;
   gap: 12px;
   align-items: baseline;
   width: 100%;
@@ -934,4 +934,35 @@ button.preview-chip:hover:not(:disabled) {
 }
 .widget-delete-confirm {
   font-size: 13px;
+}
+
+.ha-row-picked {
+  background: var(--surface-selected);
+}
+.ha-row input {
+  margin: 0;
+  align-self: center;
+}
+.ha-chosen {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: 10px 12px;
+  border-radius: var(--radius-input);
+  border: 1px solid var(--border-strong);
+  background: var(--surface-raised);
+}
+.ha-chosen > span:first-child {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.ha-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ha-title .parts-text {
+  width: 180px;
 }

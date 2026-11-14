@@ -306,6 +306,18 @@ impl<D: Desktop> Service<D> {
                 self.write_widget_file(&file, &lumen_ipc::home_assistant::widget_yaml(entity, name))?;
                 json(file)
             }
+            method::NEW_HA_PANEL => {
+                let chosen = ha_entities_param(&params)?;
+                let title = params.get("title").and_then(Value::as_str).map(str::trim).filter(|title| !title.is_empty()).unwrap_or("Home");
+                let file = self.free_widget_file_name(title);
+                self.write_widget_file(&file, &lumen_ipc::home_assistant::panel_yaml(&chosen, title))?;
+                json(file)
+            }
+            method::GET_HA_ROWS => {
+                let chosen = ha_entities_param(&params)?;
+                let number = |key: &str, fallback: f64| params.get(key).and_then(Value::as_f64).filter(|value| value.is_finite()).unwrap_or(fallback) as f32;
+                json(lumen_ipc::home_assistant::rows(&chosen, number("top", 16.0).clamp(0.0, 1900.0), number("width", 280.0).clamp(160.0, 2000.0)))
+            }
             method::OPEN_HA_TOKENS => {
                 let address = lumen_ipc::HaConfig { address: params.get("address").and_then(Value::as_str).unwrap_or_default().to_owned(), token: String::new() }.sanitised().address;
                 lumen_win::http::split_url(&address).map_err(|why| RpcError::new(code::INVALID_PARAMS, format!("Type Home Assistant's address first: {why}")))?;
@@ -1049,6 +1061,20 @@ pub async fn auto_revert<D: Desktop>(service: Rc<std::cell::RefCell<Service<D>>>
 type PlaceSearch = Box<dyn Fn(&str) -> Result<Vec<lumen_ipc::Place>, String>>;
 
 /// The `file` of a request: a plain file name in the widgets folder, never a path.
+/// The entities picked from the list: `{ entities: [{ id, name }] }`, each a real entity id.
+fn ha_entities_param(params: &Value) -> Result<Vec<(String, String)>, RpcError> {
+    let chosen: Vec<(String, String)> = params
+        .get("entities")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entity| Some((entity.get("id")?.as_str()?.to_owned(), entity.get("name").and_then(Value::as_str).unwrap_or_default().to_owned())))
+        .filter(|(id, _)| lumen_ipc::home_assistant::is_entity_id(id))
+        .take(lumen_ipc::home_assistant::MAX_ROWS)
+        .collect();
+    if chosen.is_empty() { Err(RpcError::new(code::INVALID_PARAMS, "pick at least one thing from Home Assistant")) } else { Ok(chosen) }
+}
+
 fn file_param(params: &Value) -> Result<String, RpcError> {
     let file = params.get("file").and_then(Value::as_str).unwrap_or_default();
     if lumen_ipc::widget_file::is_file_name(file) {
@@ -2105,6 +2131,15 @@ mod tests {
         let text = fs::read_to_string(service.store.root().join("widgets").join(&file)).unwrap();
         assert!(file == "neon-light.yaml" && text.contains("ha.toggle switch.neon_light") && !text.contains("secret-token"));
         assert_eq!(service.handle(method::NEW_HA_WIDGET, json!({ "entity": "../etc" })).unwrap_err().code, code::INVALID_PARAMS);
+
+        // Several at once make one panel; the same rows can be asked for as parts, to add to a widget that exists.
+        let picked = json!([{ "id": "switch.neon_light", "name": "Neon light" }, { "id": "sensor.office_temperature", "name": "Office" }, { "id": "../nope", "name": "x" }]);
+        let panel: String = call(&mut service, method::NEW_HA_PANEL, json!({ "entities": picked, "title": "Living room" }));
+        let text = fs::read_to_string(service.store.root().join("widgets").join(&panel)).unwrap();
+        assert!(panel == "living-room.yaml" && text.contains("{ha.sensor.office_temperature}") && text.contains("ha.toggle switch.neon_light") && !text.contains("nope"));
+        let rows: Vec<lumen_ipc::Part> = call(&mut service, method::GET_HA_ROWS, json!({ "entities": picked, "top": 120, "width": 300 }));
+        assert!(rows.len() == 6 && rows.iter().all(|part| part.y >= 120.0));
+        assert_eq!(service.handle(method::NEW_HA_PANEL, json!({ "entities": [] })).unwrap_err().code, code::INVALID_PARAMS);
     }
 
 }

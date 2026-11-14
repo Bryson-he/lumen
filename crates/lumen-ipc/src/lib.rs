@@ -189,6 +189,10 @@ pub mod method {
     pub const LIST_HA_ENTITIES: &str = "listHaEntities";
     /// Makes a widget file for one entity. Params: `{ entity, name }`. Result: the file's name.
     pub const NEW_HA_WIDGET: &str = "newHaWidget";
+    /// Makes one widget file showing several entities as rows. Params: `{ entities: [{ id, name }], title }`. Result: the file's name.
+    pub const NEW_HA_PANEL: &str = "newHaPanel";
+    /// The parts that show entities as rows, for adding to a widget that exists. Params: `{ entities: [{ id, name }], top, width }`. Result: a list of parts.
+    pub const GET_HA_ROWS: &str = "getHaRows";
     /// Opens Home Assistant's own page for making access tokens in the browser. Params: `{ address }`.
     pub const OPEN_HA_TOKENS: &str = "openHaTokens";
     /// Packs a widget file for the online gallery and opens the page where it is offered. Params: `{ file }`.

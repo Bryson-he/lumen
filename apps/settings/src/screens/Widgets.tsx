@@ -7,7 +7,7 @@ import { hexToRgb } from "../color";
 import { call } from "../core";
 import { PageHeader } from "../Shell";
 import { useLumen } from "../store";
-import { type Anchor,
+import { type Part, type Anchor,
   WIDGET_CPU_BUDGET,
   WIDGET_GRID,
   WIDGET_MIN_SIZE,
@@ -192,14 +192,41 @@ export function WidgetsScreen() {
             {pickingHa && (
               <HaPicker
                 onClose={() => setPickingHa(false)}
-                onPick={async (entity) => {
-                  const file = await request<string>("newHaWidget", { entity: entity.id, name: entity.name });
+                onMake={async (entities, title) => {
+                  const file =
+                    entities.length === 1
+                      ? await request<string>("newHaWidget", { entity: entities[0].id, name: entities[0].name })
+                      : await request<string>("newHaPanel", { entities: entities.map(({ id, name }) => ({ id, name })), title });
                   if (!file) return;
                   // Give the desktop a moment to notice the new file before placing a widget from it.
                   await new Promise((resolve) => setTimeout(resolve, 500));
                   await widgetRequest("addWidget", monitor.primary ? { kind: "clock", file } : { kind: "clock", file, monitor: monitor.id });
                   setPickingHa(false);
                 }}
+                addTo={
+                  selected && partDefaults && !layout.locked
+                    ? {
+                        name: widgetFiles.find((file) => file.file === selected.file)?.name ?? WIDGET_NAMES[selected.kind],
+                        add: async (entities) => {
+                          // The new rows go under whatever the widget already has, and the widget grows to hold them.
+                          const { parts, defaultSize } = partsOf(selected, partDefaults, widgetFiles, widgets.resolved);
+                          const bottom = parts.filter((part) => !part.hidden).reduce((lowest, part) => Math.max(lowest, part.y + part.height), 0);
+                          const top = Math.round(bottom + 10);
+                          const rows = await request<Part[]>("getHaRows", { entities: entities.map(({ id, name }) => ({ id, name })), top, width: defaultSize[0] });
+                          if (!rows || rows.length === 0) return;
+                          // A thing already on the widget is not added twice.
+                          const have = new Set(parts.map((part) => part.id));
+                          const fresh = rows.filter((part) => !have.has(part.id));
+                          if (fresh.length === 0) return;
+                          const scale = selected.scale ?? 1;
+                          const lowest = fresh.reduce((low, part) => Math.max(low, part.y + part.height), 0) + 12;
+                          const grow = Math.max(0, lowest - defaultSize[1]) * scale;
+                          update({ id: selected.id, parts: [...parts, ...fresh], height: Math.round(Math.max(selected.height, defaultSize[1] * scale + grow)) });
+                          setPickingHa(false);
+                        },
+                      }
+                    : null
+                }
               />
             )}
           </div>

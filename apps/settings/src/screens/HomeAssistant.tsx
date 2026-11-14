@@ -84,12 +84,21 @@ export function HaConnection() {
   );
 }
 
-/** The list of everything in Home Assistant; picking one makes a widget for it. */
-export function HaPicker({ onPick, onClose }: { onPick: (entity: HaEntity) => void | Promise<void>; onClose: () => void }) {
+/** The most things one widget takes at once (the core's limit). */
+const MOST = 12;
+
+/**
+ * The list of everything in Home Assistant. Tick one or several, then make a
+ * widget from them, or add them to the widget that is selected.
+ */
+export function HaPicker({ onMake, addTo, onClose }: { onMake: (entities: HaEntity[], title: string) => void | Promise<void>; addTo: { name: string; add: (entities: HaEntity[]) => void | Promise<void> } | null; onClose: () => void }) {
   const { homeAssistant, request, go } = useLumen();
   const [entities, setEntities] = useState<HaEntity[] | null>(null);
   const [search, setSearch] = useState("");
   const [only, setOnly] = useState<"all" | "switch" | "read">("all");
+  const [picked, setPicked] = useState<string[]>([]);
+  const [title, setTitle] = useState("Home");
+  const [busy, setBusy] = useState(false);
   const connected = homeAssistant?.status === "connected";
   useEffect(() => {
     if (!connected) return;
@@ -106,9 +115,20 @@ export function HaPicker({ onPick, onClose }: { onPick: (entity: HaEntity) => vo
     const words = search.toLowerCase().split(/\s+/).filter(Boolean);
     return (entities ?? []).filter((entity) => (only === "all" || (only === "switch") === entity.clickable) && words.every((word) => entity.name.toLowerCase().includes(word) || entity.id.includes(word)));
   }, [entities, search, only]);
+  // In the order they were ticked, which is the order of the rows.
+  const chosen = picked.map((id) => (entities ?? []).find((entity) => entity.id === id)).filter((entity): entity is HaEntity => !!entity);
+  const toggle = (id: string) => setPicked((now) => (now.includes(id) ? now.filter((other) => other !== id) : now.length >= MOST ? now : [...now, id]));
+  const run = async (work: () => void | Promise<void>) => {
+    setBusy(true);
+    try {
+      await work();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <section className="panel ha-picker" aria-label="Add something from Home Assistant">
+    <section className="panel ha-picker" aria-label="Add from Home Assistant">
       <div className="field-row wrap">
         <h2 className="panel-title">Add from Home Assistant</h2>
         <Button size="bar" onClick={onClose}>
@@ -138,21 +158,58 @@ export function HaPicker({ onPick, onClose }: { onPick: (entity: HaEntity) => vo
             <p className="muted small-14">{entities.length === 0 ? "Home Assistant sent back nothing." : "Nothing matches."}</p>
           ) : (
             <ul className="ha-list">
-              {shown.slice(0, 300).map((entity) => (
-                <li key={entity.id}>
-                  <button type="button" className="ha-row" title={`Add a widget for ${entity.name}`} onClick={() => void onPick(entity)}>
-                    <span className="ha-name">{entity.name}</span>
-                    <span className="muted small ha-id">{entity.id}</span>
-                    <span className="small-13 ha-state">{entity.state}</span>
-                    <span className="muted small ha-kind">{entity.clickable ? "Switch" : "Reading"}</span>
-                  </button>
-                </li>
-              ))}
+              {shown.slice(0, 300).map((entity) => {
+                const ticked = picked.includes(entity.id);
+                return (
+                  <li key={entity.id}>
+                    <label className={`ha-row${ticked ? " ha-row-picked" : ""}`}>
+                      <input type="checkbox" checked={ticked} disabled={!ticked && picked.length >= MOST} onChange={() => toggle(entity.id)} />
+                      <span className="ha-name">{entity.name}</span>
+                      <span className="muted small ha-id">{entity.id}</span>
+                      <span className="small-13 ha-state">{entity.state}</span>
+                      <span className="muted small ha-kind">{entity.clickable ? "Switch" : "Reading"}</span>
+                    </label>
+                  </li>
+                );
+              })}
             </ul>
           )}
+          {entities && shown.length > 300 && <p className="muted small">Showing the first 300 of {shown.length}; search to narrow it down.</p>}
+
+          <div className="ha-chosen" role="status">
+            {chosen.length === 0 ? (
+              <span className="muted small-14">Tick one thing, or several to put them together in one widget (up to {MOST}).</span>
+            ) : (
+              <>
+                <span className="small-14">
+                  <strong>{chosen.length === 1 ? chosen[0].name : `${chosen.length} things`}</strong>
+                  {chosen.length > 1 && <span className="muted"> · {chosen.map((entity) => entity.name).join(", ")}</span>}
+                </span>
+                {chosen.length > 1 && (
+                  <label className="ha-title">
+                    <span className="muted small">Widget title</span>
+                    <input className="parts-text" type="text" maxLength={60} value={title} onChange={(event) => setTitle(event.target.value)} />
+                  </label>
+                )}
+                <span className="header-actions">
+                  <Button size="bar" kind="primary" disabled={busy} onClick={() => void run(() => onMake(chosen, title))}>
+                    {chosen.length === 1 ? "Make a widget" : "Make one widget with them all"}
+                  </Button>
+                  {addTo && (
+                    <Button size="bar" disabled={busy} onClick={() => void run(() => addTo.add(chosen))}>
+                      Add to “{addTo.name}”
+                    </Button>
+                  )}
+                  <Button size="bar" disabled={busy} onClick={() => setPicked([])}>
+                    Clear
+                  </Button>
+                </span>
+              </>
+            )}
+          </div>
           <p className="muted small">
-            {entities && shown.length > 300 ? `Showing the first 300 of ${shown.length}; search to narrow it down. ` : ""}
-            Picking one adds a small widget you can restyle like any other. In any part's text you can also write {"{ha.light.desk}"} for a state, {"{ha.light.desk.name}"} for a name, or any attribute such as {"{ha.light.desk.brightness}"}.
+            {addTo ? "" : "To add to a widget you already have, select it in the picture first. "}
+            In any part's text you can also write {"{ha.light.desk}"} for a state, {"{ha.light.desk.name}"} for a name, or any attribute such as {"{ha.light.desk.brightness}"}.
           </p>
         </>
       )}

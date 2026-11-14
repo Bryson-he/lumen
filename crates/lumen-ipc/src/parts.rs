@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::{style::Role, widgets::WidgetKind};
 
 /// The most parts one widget holds.
-pub const MAX_PARTS: usize = 32;
+pub const MAX_PARTS: usize = 64;
 /// Text size limits, in logical pixels.
 pub const TEXT_SIZE_RANGE: (f32, f32) = (6.0, 400.0);
 
@@ -386,7 +386,7 @@ mod tests {
         assert_eq!(parts.len(), 1, "duplicates, odd ids and empty ids are dropped");
         assert_eq!((parts[0].x, parts[0].width, parts[0].size, parts[0].opacity), (0.0, 1.0, 400.0, 10));
         assert_eq!((parts[0].font.as_deref(), parts[0].name.as_str()), (None, "a"));
-        assert_eq!(sanitise_parts((0..50).map(|n| Part { id: format!("p{n}"), ..Default::default() }).collect()).len(), MAX_PARTS);
+        assert_eq!(sanitise_parts((0..90).map(|n| Part { id: format!("p{n}"), ..Default::default() }).collect()).len(), MAX_PARTS);
     }
 
     #[test]

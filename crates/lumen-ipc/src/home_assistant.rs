@@ -227,6 +227,71 @@ pub fn click_service(entity: &str, state: &str) -> (&'static str, &'static str) 
     }
 }
 
+/// How tall one entity's row is in a panel, and how far in the rows sit.
+pub const ROW_HEIGHT: f32 = 32.0;
+const ROW_MARGIN: f32 = 16.0;
+/// The most entities one panel (or one "add to this widget") takes.
+pub const MAX_ROWS: usize = 12;
+
+/// The parts that show a list of entities as rows, one under another: a dot
+/// and a name on the left, the state on the right, and a click that switches
+/// (or runs) the ones that can be. `top` is where the first row starts and
+/// `width` how wide the widget is. Ids are made from the entity ids, so two
+/// rows for different entities never clash.
+pub fn rows(entities: &[(String, String)], top: f32, width: f32) -> Vec<crate::parts::Part> {
+    use crate::parts::{Part, PartAlign, PartColor, PartKind, PartWeight};
+    let inner = (width - ROW_MARGIN * 2.0).max(120.0);
+    let mut parts = Vec::new();
+    for (index, (entity, name)) in entities.iter().filter(|(entity, _)| is_entity_id(entity)).take(MAX_ROWS).enumerate() {
+        let y = top + ROW_HEIGHT * index as f32;
+        // "light.desk_lamp" -> "light-desk-lamp", short enough to leave room for a suffix.
+        let slug: String = entity.replace(['.', '_'], "-").chars().take(38).collect();
+        let click = if is_clickable(entity) { format!("ha.toggle {entity}") } else { String::new() };
+        let label = if name.trim().is_empty() { entity.clone() } else { name.trim().chars().take(40).collect() };
+        let row = |suffix: &str, title: &str| Part { id: format!("{slug}-{suffix}"), name: format!("{label}: {title}"), click: click.clone(), ..Default::default() };
+        let text_x = ROW_MARGIN + 22.0;
+        if is_run_only(entity) {
+            parts.push(Part { kind: PartKind::Icon, text: "play".into(), color: PartColor::Highlight, x: ROW_MARGIN - 2.0, y: y + 5.0, width: 18.0, height: 18.0, ..row("icon", "run") });
+            parts.push(Part { text: format!("{{ha.{entity}.name}}"), size: 14.0, x: text_x, y: y + 4.0, width: inner - 22.0, height: 22.0, stretch: true, ..row("name", "name") });
+            continue;
+        }
+        if is_clickable(entity) {
+            parts.push(Part { kind: PartKind::Shape, color: PartColor::Highlight, radius: 5.0, when: format!("ha.{entity}.on"), x: ROW_MARGIN, y: y + 10.0, width: 10.0, height: 10.0, ..row("on", "on") });
+            parts.push(Part { kind: PartKind::Shape, color: PartColor::Outline, radius: 5.0, when: format!("!ha.{entity}.on"), x: ROW_MARGIN, y: y + 10.0, width: 10.0, height: 10.0, ..row("off", "off") });
+        }
+        let name_x = if is_clickable(entity) { text_x } else { ROW_MARGIN };
+        let state_width = (inner * 0.4).round();
+        parts.push(Part { text: format!("{{ha.{entity}.name}}"), size: 14.0, x: name_x, y: y + 4.0, width: inner - state_width - (name_x - ROW_MARGIN) - 8.0, height: 22.0, stretch: true, ..row("name", "name") });
+        parts.push(Part {
+            text: format!("{{ha.{entity}}}"),
+            size: 14.0,
+            weight: PartWeight::Medium,
+            color: if is_clickable(entity) { PartColor::Muted } else { PartColor::Highlight },
+            align: PartAlign::Right,
+            x: ROW_MARGIN + inner - state_width,
+            y: y + 4.0,
+            width: state_width,
+            height: 22.0,
+            ..row("state", "state")
+        });
+    }
+    parts
+}
+
+/// A widget file showing several entities as rows, under a title.
+pub fn panel_yaml(entities: &[(String, String)], title: &str) -> String {
+    use crate::parts::{Part, PartWeight};
+    let title: String = title.trim().chars().filter(|c| !c.is_control()).take(60).collect();
+    let title = if title.is_empty() { "Home".to_owned() } else { title };
+    let width = 280.0;
+    let count = entities.iter().filter(|(entity, _)| is_entity_id(entity)).take(MAX_ROWS).count();
+    let mut parts = vec![Part { id: "title".into(), name: "Title".into(), text: title.clone(), size: 15.0, weight: PartWeight::SemiBold, x: ROW_MARGIN, y: 12.0, width: width - ROW_MARGIN * 2.0, height: 22.0, stretch: true, ..Default::default() }];
+    parts.extend(rows(entities, 42.0, width));
+    // The right-hand states keep to the right edge when the widget is made wider.
+    let size = (width, 42.0 + ROW_HEIGHT * count as f32 + 10.0);
+    crate::widget_file::render(&title, size, &parts, None, &|_| None)
+}
+
 /// A widget file showing one entity: a switch for things a click can change, a reading for the rest.
 pub fn widget_yaml(entity: &str, name: &str) -> String {
     let title = name.replace(['"', '\\', '\n'], " ");
@@ -320,4 +385,36 @@ mod tests {
             assert_eq!(file.parts.iter().any(|part| part.click == format!("ha.toggle {entity}")), is_clickable(entity));
         }
     }
+
+    #[test]
+    fn several_entities_make_one_panel_with_a_row_each() {
+        let chosen = vec![("switch.neon_light".to_owned(), "Neon light".to_owned()), ("sensor.office_temperature".to_owned(), "Office".to_owned()), ("scene.movie_night".to_owned(), "Movie night".to_owned()), ("not an entity".to_owned(), "Junk".to_owned())];
+        let text = panel_yaml(&chosen, "Living room");
+        let file = crate::widget_file::parse(&text, &|_| None).unwrap_or_else(|error| panic!("{} in\n{text}", error.message));
+        assert_eq!((file.name.as_str(), file.size), ("Living room", (280.0, 42.0 + 3.0 * ROW_HEIGHT + 10.0)));
+        let ids: Vec<&str> = file.parts.iter().map(|part| part.id.as_str()).collect();
+        assert_eq!(ids, ["title", "switch-neon-light-on", "switch-neon-light-off", "switch-neon-light-name", "switch-neon-light-state", "sensor-office-temperature-name", "sensor-office-temperature-state", "scene-movie-night-icon", "scene-movie-night-name"]);
+        let part = |id: &str| file.parts.iter().find(|part| part.id == id).unwrap();
+        // A switch is clicked anywhere on its row; a reading is not clickable; a scene is run.
+        assert_eq!((part("switch-neon-light-name").click.as_str(), part("sensor-office-temperature-state").click.as_str(), part("scene-movie-night-name").click.as_str()), ("ha.toggle switch.neon_light", "", "ha.toggle scene.movie_night"));
+        assert_eq!((part("switch-neon-light-on").when.as_str(), part("switch-neon-light-off").when.as_str()), ("ha.switch.neon_light.on", "!ha.switch.neon_light.on"));
+        // Rows sit one under another and nothing overlaps the next row.
+        assert_eq!((part("switch-neon-light-name").y, part("sensor-office-temperature-name").y, part("scene-movie-night-name").y), (46.0, 78.0, 110.0));
+        // Every entity mentioned is found again, so Lumen knows what to ask Home Assistant for.
+        let mut found = BTreeSet::new();
+        for part in &file.parts {
+            for text in [&part.text, &part.when, &part.click] {
+                entities_in(text, &mut found);
+            }
+        }
+        assert_eq!(found.into_iter().collect::<Vec<_>>(), ["scene.movie_night", "sensor.office_temperature", "switch.neon_light"]);
+
+        // Added to a widget that already has parts: the rows start where asked, and at most twelve are taken.
+        let many: Vec<(String, String)> = (0..20).map(|n| (format!("light.lamp_{n}"), format!("Lamp {n}"))).collect();
+        let added = rows(&many, 200.0, 320.0);
+        assert_eq!(added.len(), MAX_ROWS * 4);
+        assert!(added.iter().all(|part| part.y >= 200.0 && part.id.len() <= 48));
+        assert_eq!(crate::parts::sanitise_parts(added.clone()).len(), added.len(), "ids are plain and there is room for them all");
+    }
+
 }

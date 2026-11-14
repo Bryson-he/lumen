@@ -15,7 +15,13 @@ The token is kept in a file in your Lumen folder on this PC. It is never put in 
 
 ## Adding something
 
-On the **Widgets** screen choose **Home Assistant…**. Search the list and pick a thing:
+On the **Widgets** screen choose **Home Assistant…**. Search the list and tick what you want.
+
+**Several things in one widget.** Tick up to twelve, give the widget a title, and choose "Make one widget with them all". You get a panel with a row for each: a dot and a name for things you can switch (click the row to switch it), the reading on the right for sensors, and a play arrow for scenes and scripts.
+
+**Adding to a widget you already have.** Select the widget in the picture first, then open the list, tick what you want and choose "Add to …". The rows go underneath what is there, the widget grows to hold them, and something already on it is not added twice.
+
+**One thing.** Tick one and choose "Make a widget":
 
 - something you can switch (a light, plug, fan, lock, cover…) becomes a small switch widget: click it to switch it;
 - a scene, script or button becomes a "click to run" widget;
