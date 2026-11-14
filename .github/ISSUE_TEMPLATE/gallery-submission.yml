@@ -1,0 +1,59 @@
+name: Offer something to the gallery
+description: Share a widget, a component style or a look with everyone who uses Lumen.
+title: "Gallery: "
+labels: ["gallery"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for sharing. Attach the file Lumen made for you in the last box (drag it in). It is looked at before it is listed, so it will not appear straight away.
+  - type: input
+    id: name
+    attributes:
+      label: Name
+      description: What it should be called in the gallery.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What is it?
+      options:
+        - A widget
+        - A component style
+        - A look (preset)
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: One or two sentences on what it does or looks like.
+    validations:
+      required: true
+  - type: input
+    id: author
+    attributes:
+      label: Credit as
+      description: The name to show as its author. Leave empty to use your GitHub name.
+  - type: textarea
+    id: script
+    attributes:
+      label: If it has a script, what does the script do and why does it need its permissions?
+      description: Leave empty if there is no script. A script should ask only for what it needs.
+  - type: textarea
+    id: file
+    attributes:
+      label: The file
+      description: Drag the file in here. A widget from "Offer it to the online gallery…" is in your Downloads folder and ends in .lumenwidget.zip. For a style or a look, put the exported file in a .zip first.
+    validations:
+      required: true
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Before you send
+      options:
+        - label: I made this, or I have the right to share it, and I am happy for it to be shared under the MIT licence.
+          required: true
+        - label: It does not copy another product's name, artwork or look.
+          required: true
