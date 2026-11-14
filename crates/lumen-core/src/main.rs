@@ -207,6 +207,12 @@ fn run_service(
         let service = Rc::new(RefCell::new(Service::new(store, desktop)));
         // Write the kept theme out for other apps, in case it changed while Lumen was not running.
         service.borrow_mut().set_terminal_fragments(exports::terminal_fragments_dir());
+        // A copy run against a test profile is never offered "start with Windows".
+        if std::env::var_os("LUMEN_DATA_DIR").is_none()
+            && let Ok(program) = std::env::current_exe()
+        {
+            service.borrow_mut().set_startup_entry(lumen_win::startup::RUN_KEY.to_owned(), program);
+        }
         service.borrow_mut().set_preset_mirror(preset_mirror);
         info!("listening on {pipe_name}");
         let _ = ready_tx.send(Ok(()));

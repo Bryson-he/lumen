@@ -23,3 +23,4 @@ zip = { version = "9.5.1", default-features = false, features = ["deflate"] }
 [dev-dependencies]
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 tokio = { version = "1.54.1", features = ["test-util"] }
+windows-registry = "0.100.0"

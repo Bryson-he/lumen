@@ -419,6 +419,13 @@ export interface WidgetOption {
   choices: string[];
 }
 
+/** Whether Lumen starts with Windows (crates/lumen-ipc/src/lib.rs). */
+export interface StartupState {
+  enabled: boolean;
+  /** False for a copy that cannot be set to start with Windows (a test profile). */
+  available: boolean;
+}
+
 // ----- Gallery (crates/lumen-ipc/src/gallery.rs) -----
 
 export type GalleryKind = "widget" | "style" | "preset";

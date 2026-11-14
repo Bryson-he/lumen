@@ -1225,3 +1225,28 @@ h3 {
 .other-apps p {
   margin: 0;
 }
+
+/* ---------- Settings ---------- */
+
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-gap-sm);
+  max-width: 720px;
+}
+.settings-list p {
+  margin: 0;
+}
+.settings-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px 18px;
+  margin: 0;
+}
+.settings-facts dd {
+  margin: 0;
+}
+.settings-path {
+  overflow-wrap: anywhere;
+  user-select: text;
+}

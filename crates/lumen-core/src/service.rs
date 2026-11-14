@@ -65,6 +65,8 @@ pub struct Service<D: Desktop> {
     widget_files: Vec<lumen_ipc::WidgetFileInfo>,
     /// The weather settings and the last forecast, as the widget host last reported them.
     weather: Option<lumen_ipc::WeatherState>,
+    /// Where "start with Windows" is recorded (a registry key) and the program it starts; `None` if not offered.
+    startup_entry: Option<(String, std::path::PathBuf)>,
     /// The gallery as last read, for finding an item when it is installed.
     gallery: Option<lumen_ipc::GalleryState>,
     /// Windows Terminal's fragments folder, where the "Lumen" colour scheme goes when switched on.
@@ -108,6 +110,7 @@ impl<D: Desktop> Service<D> {
             scripts: Vec::new(),
             terminal_fragments: None,
             gallery: None,
+            startup_entry: None,
             place_search: Box::new(lumen_widgets::weather::search),
             preset_mirror: None,
         }
@@ -255,6 +258,14 @@ impl<D: Desktop> Service<D> {
                 // Asks the place search online; the answer comes within a few seconds or not at all.
                 let places = (self.place_search)(&query).map_err(|error| RpcError::new(code::INTERNAL_ERROR, format!("could not search for places: {error}")))?;
                 json(places)
+            }
+            method::GET_STARTUP => json(self.startup_state()),
+            method::SET_STARTUP => {
+                let on = params.get("on").and_then(Value::as_bool).ok_or_else(|| RpcError::new(code::INVALID_PARAMS, "say whether Lumen should start with Windows: { on: true or false }"))?;
+                let (key, program) = self.startup_entry.as_ref().ok_or_else(|| RpcError::new(code::INVALID_PARAMS, "this copy of Lumen cannot be set to start with Windows"))?;
+                lumen_win::startup::set_enabled(key, lumen_win::startup::ENTRY, program, on).map_err(|why| RpcError::new(code::INTERNAL_ERROR, why))?;
+                info!("start with Windows: {on}");
+                json(self.startup_state())
             }
             method::GET_GALLERY => json(self.read_gallery()),
             method::SET_GALLERY_SOURCE => {
@@ -644,6 +655,18 @@ impl<D: Desktop> Service<D> {
         if self.widgets.as_ref() != Some(&state) {
             self.emit(event::WIDGETS_CHANGED, &state);
             self.widgets = Some(state);
+        }
+    }
+
+    /// Says where "start with Windows" is recorded and which program it starts.
+    pub fn set_startup_entry(&mut self, key: String, program: std::path::PathBuf) {
+        self.startup_entry = Some((key, program));
+    }
+
+    fn startup_state(&self) -> lumen_ipc::StartupState {
+        match &self.startup_entry {
+            Some((key, program)) => lumen_ipc::StartupState { enabled: lumen_win::startup::is_enabled(key, lumen_win::startup::ENTRY, program), available: true },
+            None => lumen_ipc::StartupState::default(),
         }
     }
 
@@ -1907,6 +1930,28 @@ mod tests {
         assert!(broken.error.unwrap().contains("could not be read") && broken.items.is_empty());
         let cleared: lumen_ipc::GalleryState = call(&mut service, method::SET_GALLERY_SOURCE, json!({ "source": "" }));
         assert!(cleared.source.is_none());
+    }
+
+
+    #[tokio::test(start_paused = true)]
+    async fn starting_with_windows_is_one_entry_that_can_be_switched() {
+        let mut service = service();
+        let none: lumen_ipc::StartupState = call(&mut service, method::GET_STARTUP, Value::Null);
+        assert!(!none.available && !none.enabled, "a test profile is never offered it");
+        assert_eq!(service.handle(method::SET_STARTUP, json!({ "on": true })).unwrap_err().code, code::INVALID_PARAMS);
+
+        // A registry key of the test's own stands in for Windows' start-up list.
+        let root = format!(r"Software\LumenTest-service-{}", std::process::id());
+        service.set_startup_entry(format!(r"{root}\Run"), std::path::PathBuf::from(r"C:\Lumen\lumen-core.exe"));
+        let off: lumen_ipc::StartupState = call(&mut service, method::GET_STARTUP, Value::Null);
+        assert!(off.available && !off.enabled);
+        let on: lumen_ipc::StartupState = call(&mut service, method::SET_STARTUP, json!({ "on": true }));
+        assert!(on.enabled);
+        assert_eq!(lumen_win::startup::command(&format!(r"{root}\Run"), "Lumen").as_deref(), Some(r#""C:\Lumen\lumen-core.exe""#));
+        let back: lumen_ipc::StartupState = call(&mut service, method::SET_STARTUP, json!({ "on": false }));
+        assert!(!back.enabled);
+        assert_eq!(service.handle(method::SET_STARTUP, json!({})).unwrap_err().code, code::INVALID_PARAMS);
+        windows_registry::CURRENT_USER.remove_tree(&root).unwrap();
     }
 
 }

@@ -29,6 +29,16 @@ pub use weather::{Place, Units, WeatherConfig, WeatherData, WeatherState};
 pub use widget_file::WidgetFileInfo;
 pub use scripts::{ApproveScriptParams, ScriptInfo};
 
+/// Whether Lumen starts with Windows.
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartupState {
+    /// Lumen is in Windows' start-up list for this user.
+    pub enabled: bool,
+    /// False when this copy of Lumen cannot be set to start with Windows (a test profile).
+    pub available: bool,
+}
+
 /// The kept theme written out for other apps, and whether Windows Terminal has been given the scheme.
 #[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -169,6 +179,10 @@ pub mod method {
     pub const IMPORT_WIDGET_PACKAGE: &str = "importWidgetPackage";
     /// Shows the widgets folder in File Explorer.
     pub const OPEN_WIDGET_FOLDER: &str = "openWidgetFolder";
+    /// Whether Lumen starts when the user signs in to Windows. Result: [`StartupState`](super::StartupState).
+    pub const GET_STARTUP: &str = "getStartup";
+    /// Params: `{ on }`. Adds Lumen to, or takes it out of, Windows' own start-up list for this user. Result: [`StartupState`](super::StartupState).
+    pub const SET_STARTUP: &str = "setStartup";
     /// Reads the gallery (goes online if the gallery is on the web). Result: [`GalleryState`](super::GalleryState).
     pub const GET_GALLERY: &str = "getGallery";
     /// Says where the gallery is. Params: `{ source }`: an https address, a folder, or nothing for the built-in one. Result: [`GalleryState`](super::GalleryState).
