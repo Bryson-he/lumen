@@ -923,3 +923,15 @@ button.preview-chip:hover:not(:disabled) {
 .place-spot:nth-child(-n + 3) { align-items: flex-start; }
 .place-spot:nth-child(n + 4):nth-child(-n + 6) { align-items: center; }
 .place-spot:nth-child(n + 7) { align-items: flex-end; }
+
+.parts-size {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.parts-size-box {
+  width: 110px;
+}
+.widget-delete-confirm {
+  font-size: 13px;
+}

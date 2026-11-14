@@ -438,7 +438,15 @@ impl<D: Desktop> Service<D> {
                         host(WidgetCommand::Update(lumen_ipc::widgets::UpdateWidgetParams { file: Some(String::new()), ..update_for(&widget.id) }));
                     }
                 }
+                // Its script goes with it, unless another widget file uses the same script.
+                let script = self.widget_files.iter().find(|info| info.file == file).and_then(|info| info.script.clone());
                 std::fs::remove_file(self.widget_files_dir().join(&file)).map_err(|e| RpcError::new(code::INVALID_PARAMS, format!("could not delete {file}: {e}")))?;
+                if let Some(script) = script.filter(|script| lumen_ipc::widget_file::is_script_name(script) && !self.widget_files.iter().any(|info| info.file != file && info.script.as_deref() == Some(script.as_str()))) {
+                    let _ = std::fs::remove_file(self.widget_files_dir().join(&script));
+                    if let Some(host) = &self.widget_host {
+                        host(WidgetCommand::RevokeScript(file.clone()));
+                    }
+                }
                 Ok(Value::Null)
             }
             method::EXPORT_WIDGET_PACKAGE => {
@@ -794,7 +802,15 @@ impl<D: Desktop> Service<D> {
             }
             let path = serde_json::json!({ "path": download.to_string_lossy() });
             let added = match item.kind {
-                GalleryKind::Widget => self.handle(method::IMPORT_WIDGET_PACKAGE, path)?,
+                GalleryKind::Widget => {
+                    // Looked at here too, so the screen can say "you already have this" instead of adding a copy.
+                    let imported = crate::widget_packages::import(&self.widget_files_dir(), &self.fonts_dir(), &download).map_err(|why| RpcError::new(code::INVALID_PARAMS, why))?;
+                    if let (true, Some(host)) = (imported.fonts_added, &self.widget_host) {
+                        host(WidgetCommand::ReloadFonts);
+                    }
+                    outcome.already = imported.already;
+                    Value::String(imported.file)
+                }
                 GalleryKind::Style => self.handle(method::IMPORT_STYLE, path)?,
                 GalleryKind::Preset => self.handle(method::IMPORT_PRESET, path)?,
             };
@@ -2006,7 +2022,10 @@ mod tests {
         assert!(asked.needs_ok && !asked.installed && asked.permissions.network && asked.script.as_deref() == Some("dice.luau"));
         assert!(!widgets.join("dice.yaml").exists() && !widgets.join("dice.luau").exists(), "nothing is added before the user says so");
         let added: lumen_ipc::GalleryInstall = call(&mut service, method::INSTALL_GALLERY_ITEM, json!({ "id": "dice", "ok": true }));
-        assert!(added.installed && added.added == "dice.yaml" && widgets.join("dice.yaml").exists() && widgets.join("dice.luau").exists());
+        assert!(added.installed && !added.already && added.added == "dice.yaml" && widgets.join("dice.yaml").exists() && widgets.join("dice.luau").exists());
+        // Asked for again, it is not added a second time.
+        let again: lumen_ipc::GalleryInstall = call(&mut service, method::INSTALL_GALLERY_ITEM, json!({ "id": "dice", "ok": true }));
+        assert!(again.installed && again.already && again.added == "dice.yaml" && !widgets.join("dice-2.yaml").exists() && !widgets.join("dice-2.luau").exists());
         let plain: lumen_ipc::GalleryInstall = call(&mut service, method::INSTALL_GALLERY_ITEM, json!({ "id": "plain" }));
         assert!(plain.installed && !plain.needs_ok && plain.script.is_none());
 

@@ -105,6 +105,9 @@ pub struct GalleryInstall {
     pub permissions: Permissions,
     /// What it is called in Lumen now (a widget file's name, a style's or a preset's).
     pub added: String,
+    /// True if exactly this widget was already in Lumen, so nothing new was added.
+    #[serde(default)]
+    pub already: bool,
 }
 
 /// Whether a path inside a gallery is a plain relative one: folders and a

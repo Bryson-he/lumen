@@ -333,7 +333,14 @@ function PartFields({
               )}
             </select>
           </div>
-          <Slider label="Text size" min={PART_LIMITS.textSize[0]} max={PART_LIMITS.textSize[1]} value={Math.round(part.size)} format={(v) => `${v} px`} disabled={locked} onCommit={(size) => onChange({ size })} />
+          <Check checked={part.fit} disabled={locked} onChange={(fit) => onChange({ fit })}>
+            Fit the text to its box
+          </Check>
+          {part.fit ? (
+            <span className="muted small">The text is as large as its box allows. Resize the box (drag a corner in "Design with the mouse") to resize the text.</span>
+          ) : (
+            <SizeField value={Math.round(part.size)} disabled={locked} onCommit={(size) => onChange({ size })} />
+          )}
           <div className="field">
             <span className="small-14">Weight</span>
             <Segmented<PartWeight>
@@ -532,6 +539,28 @@ function OptionsPanel({ options, answers, locked, onChange }: { options: WidgetO
 }
 
 /** One line of text that is saved when the box is left or Enter is pressed. */
+/** Text size: a slider for the usual range, and a box to type any size up to the limit. */
+function SizeField({ value, disabled, onCommit }: { value: number; disabled: boolean; onCommit: (size: number) => void }) {
+  const id = useId();
+  const [typed, setTyped] = useState(String(value));
+  useEffect(() => setTyped(String(value)), [value]);
+  const [least, most] = PART_LIMITS.textSize;
+  const commit = () => {
+    const size = Math.round(Number(typed));
+    if (Number.isFinite(size) && size >= least) onCommit(Math.min(most, size));
+    else setTyped(String(value));
+  };
+  return (
+    <div className="parts-size">
+      <Slider label="Text size" min={least} max={160} value={Math.min(160, value)} format={() => `${value} px`} disabled={disabled} onCommit={onCommit} />
+      <label htmlFor={id} className="muted small">
+        Or type a size, up to {most}
+      </label>
+      <input id={id} className="parts-text parts-size-box" type="number" min={least} max={most} value={typed} disabled={disabled} onChange={(event) => setTyped(event.target.value)} onBlur={commit} onKeyDown={(event) => event.key === "Enter" && commit()} />
+    </div>
+  );
+}
+
 function LineField({ label, value, placeholder, disabled, onCommit }: { label: string; value: string; placeholder?: string; disabled?: boolean; onCommit: (value: string) => void }) {
   const id = useId();
   const [text, setText] = useState(value);

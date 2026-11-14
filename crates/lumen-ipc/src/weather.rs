@@ -31,6 +31,19 @@ pub struct WeatherConfig {
     pub enabled: bool,
     pub place: Option<Place>,
     pub units: Units,
+    /// How the weather pictures are drawn.
+    pub pictures: Pictures,
+}
+
+/// How the little weather pictures (sun, cloud, rain) are drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Pictures {
+    /// Windows' colour emoji.
+    #[default]
+    Colour,
+    /// Plain one-colour symbols, drawn in the part's own colour so they follow the theme.
+    Plain,
 }
 
 impl WeatherConfig {
@@ -119,7 +132,21 @@ pub fn describe(code: u8) -> &'static str {
 }
 
 /// A weather code as a small picture (an emoji, drawn in colour).
-pub fn symbol(code: u8, is_day: bool) -> &'static str {
+pub fn symbol(code: u8, is_day: bool, pictures: Pictures) -> &'static str {
+    // Plain symbols end in U+FE0E, which asks for the one-colour form of a character that also has an emoji form.
+    if pictures == Pictures::Plain {
+        return match code {
+            0 | 1 if is_day => "\u{2600}\u{FE0E}",
+            0 | 1 => "\u{263E}\u{FE0E}",
+            2 if is_day => "\u{26C5}\u{FE0E}",
+            2 | 3 | 45 | 48 => "\u{2601}\u{FE0E}",
+            51..=57 => "\u{2602}\u{FE0E}",
+            61..=67 | 80..=82 => "\u{2614}\u{FE0E}",
+            71..=77 | 85 | 86 => "\u{2744}\u{FE0E}",
+            95..=99 => "\u{26A1}\u{FE0E}",
+            _ => "·",
+        };
+    }
     match code {
         0 | 1 if is_day => "☀️",
         0 | 1 => "🌙",
@@ -158,7 +185,13 @@ mod tests {
     #[test]
     fn codes_have_words_and_pictures() {
         assert_eq!((describe(0), describe(63), describe(95), describe(200)), ("Clear", "Rain", "Thunderstorm", "Unknown"));
-        assert_ne!(symbol(0, true), symbol(0, false), "sun by day, moon by night");
-        assert_eq!(symbol(65, true), symbol(80, false));
+        assert_ne!(symbol(0, true, Pictures::Colour), symbol(0, false, Pictures::Colour), "sun by day, moon by night");
+        assert_eq!(symbol(65, true, Pictures::Colour), symbol(80, false, Pictures::Colour));
+        // The plain set is different characters, each asking for its one-colour form.
+        for code in [0u8, 2, 3, 45, 55, 63, 75, 96] {
+            let plain = symbol(code, true, Pictures::Plain);
+            assert!(plain.ends_with('\u{FE0E}') && plain != symbol(code, true, Pictures::Colour), "{code}");
+        }
+        assert_ne!(symbol(0, true, Pictures::Plain), symbol(0, false, Pictures::Plain));
     }
 }

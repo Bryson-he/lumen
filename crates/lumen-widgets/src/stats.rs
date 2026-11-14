@@ -33,6 +33,22 @@ pub struct StatsData {
     pub memory: u8,
     /// `None` when Windows offers no GPU counter (some VMs and remote sessions).
     pub gpu: Option<u8>,
+    /// How full the system drive is; `None` if Windows will not say.
+    pub disk: Option<u8>,
+    /// How long Windows has been running, in minutes.
+    pub uptime_minutes: u64,
+}
+
+/// "3 d 4 h", "5 h 12 min", "8 min".
+pub fn uptime_text(minutes: u64) -> String {
+    let (days, hours, mins) = (minutes / 1440, minutes % 1440 / 60, minutes % 60);
+    if days > 0 {
+        format!("{days} d {hours} h")
+    } else if hours > 0 {
+        format!("{hours} h {mins} min")
+    } else {
+        format!("{mins} min")
+    }
 }
 
 pub struct StatsSampler {
@@ -40,12 +56,14 @@ pub struct StatsSampler {
     last_total: u64,
     gpu: Option<GpuCounter>,
     last_gpu: Option<u8>,
+    disk: Option<u8>,
+    disk_checked: Option<std::time::Instant>,
 }
 
 impl StatsSampler {
     pub fn new() -> Self {
         let (last_idle, last_total) = processor_times();
-        Self { last_idle, last_total, gpu: GpuCounter::open(), last_gpu: None }
+        Self { last_idle, last_total, gpu: GpuCounter::open(), last_gpu: None, disk: None, disk_checked: None }
     }
 
     /// Reads the current values. CPU and GPU are averages since the previous call.
@@ -60,7 +78,13 @@ impl StatsSampler {
         if let Some(reading) = self.gpu.as_mut().and_then(GpuCounter::read) {
             self.last_gpu = Some(percent(reading));
         }
-        StatsData { cpu: percent(cpu), memory: memory_load(), gpu: self.last_gpu }
+        // The drive is asked about once a minute at most: it changes slowly.
+        if self.disk_checked.is_none_or(|at| at.elapsed() > std::time::Duration::from_secs(60)) {
+            self.disk = lumen_win::disk::system_drive_used();
+            self.disk_checked = Some(std::time::Instant::now());
+        }
+        let uptime_minutes = unsafe { windows::Win32::System::SystemInformation::GetTickCount64() } / 60_000;
+        StatsData { cpu: percent(cpu), memory: memory_load(), gpu: self.last_gpu, disk: self.disk, uptime_minutes }
     }
 }
 

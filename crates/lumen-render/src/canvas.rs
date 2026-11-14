@@ -7,7 +7,7 @@ use windows::{
             Common::{D2D_RECT_F, D2D_SIZE_F, D2D_SIZE_U, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_FIGURE_BEGIN_HOLLOW, D2D1_FIGURE_END_OPEN, D2D1_GRADIENT_STOP, D2D1_PIXEL_FORMAT},
             D2D1_ARC_SEGMENT, D2D1_ARC_SIZE_LARGE, D2D1_ARC_SIZE_SMALL, D2D1_CAP_STYLE_ROUND, D2D1_ELLIPSE, D2D1_LINE_JOIN_ROUND, D2D1_STROKE_STYLE_PROPERTIES, D2D1_SWEEP_DIRECTION_CLOCKWISE, ID2D1Factory, ID2D1PathGeometry, ID2D1StrokeStyle,
             D2D1_BITMAP_OPTIONS_NONE, D2D1_BITMAP_PROPERTIES1, D2D1_BRUSH_PROPERTIES, D2D1_BUFFER_PRECISION_8BPC_UNORM, D2D1_COLOR_INTERPOLATION_MODE_PREMULTIPLIED,
-            D2D1_COLOR_SPACE_SRGB, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT, D2D1_EXTEND_MODE_CLAMP, D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_ROUNDED_RECT, ID2D1Bitmap1,
+            D2D1_COLOR_SPACE_SRGB, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_EXTEND_MODE_CLAMP, D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES, D2D1_ROUNDED_RECT, ID2D1Bitmap1,
             ID2D1Brush, ID2D1DeviceContext,
         },
         DirectWrite::{
@@ -257,7 +257,10 @@ impl Canvas<'_> {
                 return;
             };
             if let Some(brush) = self.brush(style.color) {
-                self.dc.DrawTextLayout(Vector2 { X: bounds.x, Y: bounds.y }, &layout, &brush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+                // Text that asks for the one-colour form of a symbol (U+FE0E) is drawn without colour glyphs,
+                // so a plain weather picture in the middle of a line takes the line's own colour.
+                let options = if text.contains('︎') { D2D1_DRAW_TEXT_OPTIONS_NONE } else { D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT };
+                self.dc.DrawTextLayout(Vector2 { X: bounds.x, Y: bounds.y }, &layout, &brush, options);
             }
         }
     }

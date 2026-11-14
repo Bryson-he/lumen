@@ -143,6 +143,14 @@ export function sampleValues(now: Date): Record<string, string> {
       .trim(),
     "clock.suffix": (pieces.find((piece) => piece.type === "dayPeriod")?.value ?? "").toUpperCase(),
     "clock.date": now.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "short" }),
+    "clock.weekday": now.toLocaleDateString(undefined, { weekday: "long" }),
+    "clock.day": String(now.getDate()),
+    "clock.month": now.toLocaleDateString(undefined, { month: "long" }),
+    "clock.year": String(now.getFullYear()),
+    "clock.hour": pieces.find((piece) => piece.type === "hour")?.value ?? "",
+    "clock.minute": pieces.find((piece) => piece.type === "minute")?.value ?? "",
+    "stats.disk": "61%",
+    "stats.uptime": "5 h 12 min",
     "stats.cpu": "12%",
     "stats.memory": "41%",
     "stats.gpu": "8%",
@@ -164,7 +172,21 @@ export function sampleValues(now: Date): Record<string, string> {
     ...Object.fromEntries([1, 2, 3].flatMap((day) => [[`weather.day${day}.name`, ["Mon", "Tue", "Wed"][day - 1]], [`weather.day${day}.icon`, ["🌧️", "☁️", "☀️"][day - 1]], [`weather.day${day}.high`, `${20 - day}°`], [`weather.day${day}.low`, `${11 - day}°`]])),
   };
 }
-const SAMPLE_FRACTIONS: Record<string, number> = { "stats.cpu": 0.12, "stats.memory": 0.41, "stats.gpu": 0.08, "media.progress": 0.64 };
+const SAMPLE_FRACTIONS: Record<string, number> = { "stats.cpu": 0.12, "stats.memory": 0.41, "stats.gpu": 0.08, "stats.disk": 0.61, "media.progress": 0.64 };
+
+/** How much of its box's height a line of text set to "fit" takes (matches the desktop). */
+const FIT_HEIGHT = 0.74;
+let measurer: CanvasRenderingContext2D | null | undefined;
+
+/** The text size that fills a box: its height first, then smaller if the words are too wide. */
+export function fittedSize(text: string, family: string, weight: number, width: number, height: number): number {
+  const byHeight = Math.min(1000, Math.max(4, height * FIT_HEIGHT));
+  if (measurer === undefined) measurer = typeof document === "undefined" ? null : document.createElement("canvas").getContext("2d");
+  if (!measurer || !text) return byHeight;
+  measurer.font = `${weight} ${byHeight}px ${family}`;
+  const wide = measurer.measureText(text).width;
+  return wide > width && wide > 0 ? Math.max(4, (byHeight * width) / wide) : byHeight;
+}
 
 /** A text part's words: its live value, or its text with any `{live.value}` filled in. */
 export function partText(part: Part, values: Record<string, string>): string {
@@ -282,12 +304,12 @@ function PartView({ part, look, values, size, defaultSize }: { part: Part; look:
     );
   }
   if (part.kind === "text") {
+    const words = partText(part, values);
+    const family = `'${part.font ?? look.font}', var(--font-body)`;
+    const fontSize = part.fit ? fittedSize(words, `'${part.font ?? look.font}', sans-serif`, WEIGHTS[part.weight], rect.width, rect.height) : part.size * look.textScale;
     return (
-      <span
-        className="wv-text"
-        style={{ ...box, color: colour, fontFamily: `'${part.font ?? look.font}', var(--font-body)`, fontSize: part.size * look.textScale, fontWeight: WEIGHTS[part.weight], textAlign: part.align === "centre" ? "center" : part.align }}
-      >
-        {partText(part, values)}
+      <span className="wv-text" style={{ ...box, color: colour, fontFamily: family, fontSize, lineHeight: part.fit ? `${rect.height}px` : undefined, fontWeight: WEIGHTS[part.weight], textAlign: part.align === "centre" ? "center" : part.align }}>
+        {words}
       </span>
     );
   }

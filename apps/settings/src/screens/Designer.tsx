@@ -11,6 +11,9 @@ import { allSources, PART_KIND_NAMES, rectIn, sampleValues, WidgetView, type Loo
 
 /** How close (in screen pixels) an edge must come to a line to snap to it. */
 const SNAP_REACH = 6;
+/** Where nothing lines up, parts land on a grid of this many widget pixels. */
+const GRID = 4;
+const onGrid = (value: number) => Math.round(value / GRID) * GRID;
 const MIN_PART = 4;
 const HISTORY_LIMIT = 60;
 
@@ -165,12 +168,29 @@ export function Designer({
       const reach = event.altKey ? 0 : SNAP_REACH / zoom;
       const x = snapAxis(origin.x + dx, origin.width, xs, reach);
       const y = snapAxis(origin.y + dy, origin.height, ys, reach);
-      rect = { ...origin, x: x.start, y: y.start };
+      // Lined up with something, or else on the grid (hold Alt for neither).
+      const free = event.altKey;
+      rect = { ...origin, x: x.line != null || free ? x.start : onGrid(x.start), y: y.line != null || free ? y.start : onGrid(y.start) };
       lines = { x: x.line, y: y.line };
     } else {
-      const width = Math.max(MIN_PART, origin.width + (state.right ? dx : -dx));
-      const height = Math.max(MIN_PART, origin.height + (state.bottom ? dy : -dy));
-      rect = { x: state.right ? origin.x : origin.x + origin.width - width, y: state.bottom ? origin.y : origin.y + origin.height - height, width, height };
+      // The edge being dragged snaps to the widget's edges and middle and to the other parts' edges, or else to the grid.
+      const others = parts.filter((item) => item.id !== state.id && !item.hidden).map(shown);
+      const reach = event.altKey ? -1 : SNAP_REACH / zoom;
+      const edge = (wanted: number, candidates: number[]) => {
+        let best: number | null = null;
+        for (const line of candidates) if (Math.abs(line - wanted) <= reach && (best === null || Math.abs(line - wanted) < Math.abs(best - wanted))) best = line;
+        return { at: best ?? (event.altKey ? wanted : onGrid(wanted)), line: best };
+      };
+      const xs = [0, size[0] / 2, size[0], ...others.flatMap((o) => [o.x, o.x + o.width])];
+      const ys = [0, size[1] / 2, size[1], ...others.flatMap((o) => [o.y, o.y + o.height])];
+      const movingX = edge(state.right ? origin.x + origin.width + dx : origin.x + dx, xs);
+      const movingY = edge(state.bottom ? origin.y + origin.height + dy : origin.y + dy, ys);
+      const fixedX = state.right ? origin.x : origin.x + origin.width;
+      const fixedY = state.bottom ? origin.y : origin.y + origin.height;
+      const width = Math.max(MIN_PART, Math.abs(movingX.at - fixedX));
+      const height = Math.max(MIN_PART, Math.abs(movingY.at - fixedY));
+      rect = { x: state.right ? origin.x : fixedX - width, y: state.bottom ? origin.y : fixedY - height, width, height };
+      lines = { x: movingX.line, y: movingY.line };
     }
     const next = parts.map((item) => (item.id === state.id ? { ...item, ...stored(item, rect) } : item));
     state.latest = next;
@@ -200,7 +220,7 @@ export function Designer({
     for (let n = 2; parts.some((part) => part.id === id); n++) id = `${base}-${n}`;
     return id;
   };
-  const blank: Part = { id: "", name: "", kind: "text", source: "", text: "", x: 16, y: 16, width: 120, height: 18, stretch: false, fromBottom: false, font: null, size: 13, weight: "regular", color: "text", opacity: 100, align: "left", hidden: false, radius: 0, click: "", when: "", alertWhen: "", alertColor: "accent", hoverOnly: false };
+  const blank: Part = { id: "", name: "", kind: "text", source: "", text: "", x: 16, y: 16, width: 120, height: 18, stretch: false, fromBottom: false, font: null, size: 13, weight: "regular", color: "text", opacity: 100, align: "left", hidden: false, radius: 0, click: "", when: "", alertWhen: "", alertColor: "accent", hoverOnly: false, fit: false };
   const add = (part: Partial<Part> & { id: string; name: string }) => {
     setAdding(false);
     const made = { ...blank, ...part, id: freshId(part.id) };
@@ -409,7 +429,7 @@ export function Designer({
       </div>
       <p className="muted small-13">
         {picked
-          ? `${picked.name}: drag to move, drag a corner to resize. Arrow keys move it by one pixel (Shift for eight); hold Alt while dragging to stop it snapping. Its font, colour and text are in the Parts panel on the right.`
+          ? `${picked.name}: drag to move, drag a corner to resize. Arrow keys move it by one pixel (Shift for eight); parts snap to each other, to the widget's edges and middle, and otherwise to a 4-pixel grid; hold Alt while dragging to place it freely. Its font, colour and text are in the Parts panel on the right.`
           : "Click a part to select it. Your real widget on the desktop changes as you work, and everything is saved as you go."}
       </p>
       {file && code && <CodeView file={file} />}

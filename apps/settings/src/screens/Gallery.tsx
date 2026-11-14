@@ -134,7 +134,7 @@ export function Gallery() {
                       {item.description && <p className="small-14">{item.description}</p>}
                       {result?.installed ? (
                         <p className="small-13 gallery-added" role="status">
-                          {group.added}
+                          {result.already ? "You already have this one; nothing new was added." : group.added}
                           {result.script ? " Its script will not run until you allow it there." : ""}{" "}
                           {group.kind !== "style" && (
                             <button type="button" className="link small-13" onClick={() => go(group.kind === "widget" ? "widgets" : "presets")}>

@@ -9,6 +9,7 @@ pub mod accent;
 pub mod appbar;
 pub mod apps;
 pub mod audio;
+pub mod disk;
 pub mod appearance;
 pub mod fullscreen;
 pub mod http;

@@ -169,7 +169,7 @@ pub fn value_of(source: &str, state: &WeatherState) -> Option<String> {
         let day = data.days.get(index)?;
         Some(match field {
             "name" => day.name.clone(),
-            "icon" => symbol(day.code, true).to_owned(),
+            "icon" => symbol(day.code, true, state.config.pictures).to_owned(),
             "high" => degrees(day.high),
             "low" => degrees(day.low),
             _ => return None,
@@ -178,7 +178,7 @@ pub fn value_of(source: &str, state: &WeatherState) -> Option<String> {
     Some(match name {
         "temp" => degrees(data.temperature),
         "condition" => describe(data.code).to_owned(),
-        "icon" => symbol(data.code, data.is_day).to_owned(),
+        "icon" => symbol(data.code, data.is_day, state.config.pictures).to_owned(),
         "feels" => degrees(data.feels_like),
         "high" => day(0, "high").unwrap_or_else(|| "–".to_owned()),
         "low" => day(0, "low").unwrap_or_else(|| "–".to_owned()),
@@ -216,7 +216,7 @@ mod tests {
         "daily":{"time":["2026-11-14","2026-11-15","2026-11-16","2026-11-17"],"weather_code":[2,61,3,0],"temperature_2m_max":[12.8,10.4,9.1,8.6],"temperature_2m_min":[7.2,6.5,4.9,2.1]}}"#;
 
     fn london() -> WeatherConfig {
-        WeatherConfig { enabled: true, place: Some(Place { name: "London, England, United Kingdom".into(), latitude: 51.50853, longitude: -0.12574 }), units: Units::Celsius }
+        WeatherConfig { enabled: true, place: Some(Place { name: "London, England, United Kingdom".into(), latitude: 51.50853, longitude: -0.12574 }), units: Units::Celsius, pictures: Default::default() }
     }
 
     #[test]

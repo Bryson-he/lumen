@@ -34,6 +34,8 @@ pub struct Imported {
     pub file: String,
     /// Whether any font file was added (the widgets then need to load fonts again).
     pub fonts_added: bool,
+    /// True if exactly this widget was already there, so nothing was added.
+    pub already: bool,
 }
 
 /// Writes `file` (in `widgets_dir`) and everything it needs to `destination`,
@@ -168,6 +170,11 @@ pub fn import(widgets_dir: &Path, fonts_dir: &Path, package: &Path) -> Result<Im
             text = widget_file::rename_script(&text, &name);
         }
     }
+    // Exactly this widget, already here: use it, rather than keeping a second copy.
+    let same = fs::read_dir(widgets_dir).into_iter().flatten().flatten().map(|found| found.path()).find(|path| path.extension().is_some_and(|ext| ext == "yaml" || ext == "yml") && fs::read_to_string(path).is_ok_and(|there| there == text));
+    if let Some(existing) = same.and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned())) {
+        return Ok(Imported { file: existing, fonts_added: false, already: true });
+    }
     let file = free(&main);
     fs::write(widgets_dir.join(&file), &text).map_err(|e| format!("could not write {file}: {e}"))?;
 
@@ -188,7 +195,7 @@ pub fn import(widgets_dir: &Path, fonts_dir: &Path, package: &Path) -> Result<Im
             fonts_added = true;
         }
     }
-    Ok(Imported { file, fonts_added })
+    Ok(Imported { file, fonts_added, already: false })
 }
 
 fn entry(archive: &mut ZipArchive<fs::File>, name: &str, limit: u64) -> Result<Vec<u8>, String> {
@@ -240,15 +247,15 @@ mod tests {
         // On another PC: nothing there yet.
         let (_, other_widgets, other_fonts) = dirs("round-trip-other");
         let imported = import(&other_widgets, &other_fonts, &package).unwrap();
-        assert_eq!(imported, Imported { file: "clock.yaml".into(), fonts_added: true });
+        assert_eq!(imported, Imported { file: "clock.yaml".into(), fonts_added: true, already: false });
         assert_eq!(fs::read_to_string(other_widgets.join("clock.yaml")).unwrap(), WIDGET);
         assert_eq!(fs::read_to_string(other_widgets.join("shared.yaml")).unwrap(), SHARED);
         assert!(other_fonts.join("grotesk.woff2").is_file());
 
-        // Imported again: a second copy under a new name; the identical shared file and font are reused.
+        // Imported again: it is already there, so no second copy is made.
         let again = import(&other_widgets, &other_fonts, &package).unwrap();
-        assert_eq!(again, Imported { file: "clock-2.yaml".into(), fonts_added: false });
-        assert_eq!(fs::read_dir(&other_widgets).unwrap().count(), 3);
+        assert_eq!(again, Imported { file: "clock.yaml".into(), fonts_added: false, already: true });
+        assert_eq!(fs::read_dir(&other_widgets).unwrap().count(), 2);
     }
 
     #[test]
@@ -319,7 +326,8 @@ mod tests {
 
         // The same script again is reused, not copied.
         let again = import(&to, &fonts, &package).unwrap();
-        assert_eq!(again.file, "dice-2.yaml");
+        assert!(again.already && again.file == imported.file, "the same widget is not added a second time");
+        assert!(!to.join("dice-2.yaml").exists());
         assert!(!to.join("dice-3.luau").exists());
         let _ = fs::remove_dir_all(root);
     }

@@ -14,7 +14,7 @@ use windows::{
 pub const SIZE: (f32, f32) = (190.0, 92.0);
 
 /// What the clock shows.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ClockData {
     /// "Thursday 13 Nov", in the user's language.
     pub date: String,
@@ -22,6 +22,14 @@ pub struct ClockData {
     pub time: String,
     /// "AM" / "PM" in 12-hour form, otherwise empty.
     pub suffix: String,
+    /// The pieces of the date and time on their own, for laying out separately:
+    /// "Saturday", "14", "November", "2026", "5" (or "17"), "21".
+    pub weekday: String,
+    pub day: String,
+    pub month: String,
+    pub year: String,
+    pub hour: String,
+    pub minute: String,
 }
 
 impl ClockData {
@@ -33,6 +41,12 @@ impl ClockData {
             date: format_date(&now, w!("dddd d MMM")),
             time: format_time(&now, if twelve_hour { w!("h:mm") } else { w!("H:mm") }),
             suffix: if twelve_hour { format_time(&now, w!("tt")) } else { String::new() },
+            weekday: format_date(&now, w!("dddd")),
+            day: format_date(&now, w!("d ")).trim().to_owned(),
+            month: format_date(&now, w!("MMMM")),
+            year: format_date(&now, w!("yyyy")),
+            hour: format_time(&now, if twelve_hour { w!("h ") } else { w!("H ") }).trim().to_owned(),
+            minute: format_time(&now, w!("mm")),
         }
     }
 }

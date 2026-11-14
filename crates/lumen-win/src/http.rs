@@ -199,4 +199,13 @@ mod tests {
         assert!(ask("POST", &[("Authorization".into(), "Bearer x\r\nEvil: 1".into())]).contains("cannot be sent as a header"));
     }
 
+
+    /// Needs the internet, so it only runs when asked for: cargo test -p lumen-win online -- --ignored
+    #[test]
+    #[ignore]
+    fn online_a_secure_page_is_fetched() {
+        let secure = get("example.com", "/", 10_000);
+        assert!(secure.as_ref().is_ok_and(|page| page.contains("Example Domain")), "https: {secure:?}");
+    }
+
 }

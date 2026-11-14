@@ -90,6 +90,21 @@ export function WeatherSettings() {
       </div>
 
       <div className="field">
+        <span className="small-14">Pictures</span>
+        <Segmented
+          label="Weather pictures"
+          look="grid-2"
+          value={config.pictures ?? "colour"}
+          onChange={(pictures) => change({ pictures })}
+          options={[
+            { value: "colour", label: "Colour" },
+            { value: "plain", label: "Plain, one colour" },
+          ]}
+        />
+        <span className="muted small">Plain pictures are drawn in each part's own colour, so they follow your theme.</span>
+      </div>
+
+      <div className="field">
         <span className="small-14">Units</span>
         <Segmented
           label="Units"

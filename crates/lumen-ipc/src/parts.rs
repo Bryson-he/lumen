@@ -13,7 +13,7 @@ use crate::{style::Role, widgets::WidgetKind};
 /// The most parts one widget holds.
 pub const MAX_PARTS: usize = 32;
 /// Text size limits, in logical pixels.
-pub const TEXT_SIZE_RANGE: (f32, f32) = (6.0, 200.0);
+pub const TEXT_SIZE_RANGE: (f32, f32) = (6.0, 400.0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -139,6 +139,9 @@ pub struct Part {
     pub alert_color: PartColor,
     /// Only shown while the mouse is over the widget.
     pub hover_only: bool,
+    /// Text only: make the text as large as its box allows, instead of using `size`.
+    /// Resizing the box then resizes the text.
+    pub fit: bool,
 }
 
 impl Default for Part {
@@ -168,6 +171,7 @@ impl Default for Part {
             alert_when: String::new(),
             alert_color: PartColor::Accent,
             hover_only: false,
+            fit: false,
         }
     }
 }
@@ -317,8 +321,8 @@ pub fn parts_use(parts: &[Part], family: &str) -> bool {
 /// The live values a part can show, for the settings app's "shows" list.
 pub fn sources_for(kind: WidgetKind) -> Vec<(&'static str, &'static str)> {
     match kind {
-        WidgetKind::Clock => vec![("clock.time", "Time"), ("clock.suffix", "AM / PM"), ("clock.date", "Date")],
-        WidgetKind::SystemStats => vec![("stats.cpu", "CPU use"), ("stats.memory", "Memory use"), ("stats.gpu", "GPU use")],
+        WidgetKind::Clock => vec![("clock.time", "Time"), ("clock.suffix", "AM / PM"), ("clock.date", "Date"), ("clock.weekday", "Day of the week"), ("clock.day", "Day of the month"), ("clock.month", "Month"), ("clock.year", "Year"), ("clock.hour", "Hour"), ("clock.minute", "Minute")],
+        WidgetKind::SystemStats => vec![("stats.cpu", "CPU use"), ("stats.memory", "Memory use"), ("stats.gpu", "GPU use"), ("stats.disk", "Disk used"), ("stats.uptime", "Time since start-up")],
         WidgetKind::NowPlaying => vec![("media.title", "Title"), ("media.artist", "Artist"), ("media.progress", "Progress"), ("media.art", "Cover")],
         WidgetKind::Weather => vec![
             ("weather.temp", "Temperature"),
@@ -380,7 +384,7 @@ mod tests {
         let wild = Part { id: "a".into(), x: f32::NAN, width: -5.0, size: 900.0, opacity: 0, font: Some("   ".into()), ..Default::default() };
         let parts = sanitise_parts(vec![wild, Part { id: "a".into(), ..Default::default() }, Part { id: "has space".into(), ..Default::default() }, Part::default()]);
         assert_eq!(parts.len(), 1, "duplicates, odd ids and empty ids are dropped");
-        assert_eq!((parts[0].x, parts[0].width, parts[0].size, parts[0].opacity), (0.0, 1.0, 200.0, 10));
+        assert_eq!((parts[0].x, parts[0].width, parts[0].size, parts[0].opacity), (0.0, 1.0, 400.0, 10));
         assert_eq!((parts[0].font.as_deref(), parts[0].name.as_str()), (None, "a"));
         assert_eq!(sanitise_parts((0..50).map(|n| Part { id: format!("p{n}"), ..Default::default() }).collect()).len(), MAX_PARTS);
     }

@@ -29,6 +29,87 @@
       "script": true
     },
     {
+      "id": "minimal-time",
+      "kind": "widget",
+      "name": "Minimal time",
+      "author": "Lumen",
+      "description": "Just the time, as large as the widget. Resize the widget and the time follows.",
+      "file": "widgets/minimal-time.lumenwidget"
+    },
+    {
+      "id": "stacked-clock",
+      "kind": "widget",
+      "name": "Stacked clock",
+      "author": "Lumen",
+      "description": "The hour over the minutes, with the day and date beside them.",
+      "file": "widgets/stacked-clock.lumenwidget"
+    },
+    {
+      "id": "date-tile",
+      "kind": "widget",
+      "name": "Date tile",
+      "author": "Lumen",
+      "description": "Today as a tile: the day of the week, a big number, the month.",
+      "file": "widgets/date-tile.lumenwidget"
+    },
+    {
+      "id": "system-dials",
+      "kind": "widget",
+      "name": "System dials",
+      "author": "Lumen",
+      "description": "Processor, memory and graphics as three dials.",
+      "file": "widgets/system-dials.lumenwidget"
+    },
+    {
+      "id": "system-blocks",
+      "kind": "widget",
+      "name": "System blocks",
+      "author": "Lumen",
+      "description": "Processor, memory, graphics and disk as rows of blocks.",
+      "file": "widgets/system-blocks.lumenwidget"
+    },
+    {
+      "id": "media-controls",
+      "kind": "widget",
+      "name": "Media controls",
+      "author": "Lumen",
+      "description": "What is playing, with buttons to go back, play or pause, and skip.",
+      "file": "widgets/media-controls.lumenwidget"
+    },
+    {
+      "id": "weather-now",
+      "kind": "widget",
+      "name": "Weather now",
+      "author": "Lumen",
+      "description": "The weather now, large. Colour or plain pictures, as set under Weather.",
+      "file": "widgets/weather-now.lumenwidget"
+    },
+    {
+      "id": "forecast-strip",
+      "kind": "widget",
+      "name": "Forecast strip",
+      "author": "Lumen",
+      "description": "The next three days side by side.",
+      "file": "widgets/forecast-strip.lumenwidget"
+    },
+    {
+      "id": "disk-and-uptime",
+      "kind": "widget",
+      "name": "Disk and uptime",
+      "author": "Lumen",
+      "description": "How full the system drive is, and how long the PC has been on.",
+      "file": "widgets/disk-and-uptime.lumenwidget"
+    },
+    {
+      "id": "greeting",
+      "kind": "widget",
+      "name": "Greeting",
+      "author": "Lumen",
+      "description": "Good morning, afternoon or evening in a handwritten hand. Its script asks for no permissions.",
+      "file": "widgets/greeting.lumenwidget",
+      "script": true
+    },
+    {
       "id": "home-assistant",
       "kind": "widget",
       "name": "Home Assistant by script",

@@ -390,6 +390,8 @@ export interface Part {
   alertColor: PartColor;
   /** Only shown while the mouse is over the widget. */
   hoverOnly: boolean;
+  /** Text only: as large as its box allows, instead of the size given. */
+  fit: boolean;
 }
 
 /** What getPartDefaults returns, per kind of widget. */
@@ -410,7 +412,7 @@ export const PART_COLORS: [PartColor, string][] = [
   ["highlight", "Highlight"],
 ];
 /** The text sizes the slider offers (the core accepts 6–200). */
-export const PART_LIMITS = { textSize: [8, 96] } as const;
+export const PART_LIMITS = { textSize: [8, 400] } as const;
 
 // ----- Widget files (crates/lumen-ipc/src/widget_file.rs) -----
 
@@ -492,6 +494,8 @@ export interface GalleryInstall {
   script: string | null;
   permissions: ScriptPermissions;
   added: string;
+  /** Exactly this widget was already in Lumen, so nothing new was added. */
+  already?: boolean;
 }
 
 /** The kept theme written out for other apps (crates/lumen-ipc/src/lib.rs). */
@@ -562,6 +566,8 @@ export interface WeatherConfig {
   enabled: boolean;
   place: Place | null;
   units: "celsius" | "fahrenheit";
+  /** Colour emoji, or plain one-colour symbols that follow the theme. */
+  pictures: "colour" | "plain";
 }
 
 export interface WeatherData {

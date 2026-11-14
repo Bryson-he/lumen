@@ -45,8 +45,8 @@ use crate::{
 
 /// The size a widget file gets if it does not say.
 pub const DEFAULT_SIZE: (f32, f32) = (220.0, 110.0);
-const PART_KEYS: [&str; 23] = [
-    "id", "name", "kind", "text", "source", "style", "font", "size", "weight", "color", "opacity", "align", "at", "box", "stretch", "from-bottom", "radius", "hidden", "click", "when", "alert-when", "alert-color", "hover-only",
+const PART_KEYS: [&str; 24] = [
+    "id", "name", "kind", "text", "source", "style", "font", "size", "weight", "color", "opacity", "align", "at", "box", "stretch", "from-bottom", "radius", "hidden", "click", "when", "alert-when", "alert-color", "hover-only", "fit",
 ];
 
 /// What is wrong with a file, in words for the person who wrote it.
@@ -633,6 +633,7 @@ fn part_from(raw: &Value, variables: &Mapping, styles: &Mapping) -> Result<Part,
             "from-bottom" | "fromBottom" => part.from_bottom = flag()?,
             "radius" => part.radius = num()?,
             "hidden" => part.hidden = flag()?,
+            "fit" => part.fit = flag()?,
             // The other way round, for an on/off option: `shown: $show-date`.
             "shown" => part.hidden = !flag()?,
             "click" => {
@@ -742,6 +743,7 @@ fn literal(part: &Part) -> Mapping {
     set("alert-when", Value::String(part.alert_when.clone()));
     set("alert-color", Value::String(colour_name(part.alert_color)));
     set("hover-only", Value::Bool(part.hover_only));
+    set("fit", Value::Bool(part.fit));
     map
 }
 

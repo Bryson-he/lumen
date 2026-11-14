@@ -19,6 +19,17 @@ use crate::{clock::ClockData, media::MediaInfo, paint::Paint, stats::StatsData};
 /// Windows' own icon font, and the font that draws emoji in colour.
 const ICON_FONT: &str = "Segoe Fluent Icons";
 const EMOJI_FONT: &str = "Segoe UI Emoji";
+const SYMBOL_FONT: &str = "Segoe UI Symbol";
+/// How much of a box's height a line of text set to "fit" takes up (the rest is room above and below the letters).
+pub const FIT_HEIGHT: f32 = 0.74;
+
+/// The text size that fills a box: tall enough for the box's height, then
+/// smaller if the words would be wider than the box. `width_at` measures the text at a size.
+pub fn fitted_size(box_height: f32, box_width: f32, width_at: impl Fn(f32) -> f32) -> f32 {
+    let by_height = (box_height * FIT_HEIGHT).clamp(4.0, 1000.0);
+    let wide = width_at(by_height);
+    if wide > box_width && wide > 0.0 { (by_height * box_width / wide).max(4.0) } else { by_height }
+}
 
 /// How a value has moved lately: the newest reading last, each 0.0–1.0.
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -74,7 +85,7 @@ pub struct Data<'a> {
 }
 
 /// The names of Lumen's own live values, other than the weather's.
-pub const SOURCES: [&str; 11] = ["clock.time", "clock.suffix", "clock.date", "stats.cpu", "stats.memory", "stats.gpu", "media.title", "media.artist", "media.progress", "media.playing", "media.active"];
+pub const SOURCES: [&str; 19] = ["clock.weekday", "clock.day", "clock.month", "clock.year", "clock.hour", "clock.minute", "stats.disk", "stats.uptime", "clock.time", "clock.suffix", "clock.date", "stats.cpu", "stats.memory", "stats.gpu", "media.title", "media.artist", "media.progress", "media.playing", "media.active"];
 
 /// Whether a part is on screen right now: not hidden, its condition holds,
 /// and the mouse is over the widget if it only shows then.
@@ -97,13 +108,23 @@ pub fn draw(canvas: &Canvas<'_>, paint: &Paint, parts: &[Part], data: &Data<'_>,
         match part.kind {
             PartKind::Text => {
                 let text = text_for(part, data);
-                let family = part.font.as_deref().unwrap_or(&paint.body_font);
+                let mut family = part.font.as_deref().unwrap_or(&paint.body_font);
+                // A plain (one-colour) weather picture is drawn from Windows' symbol font, not its colour emoji font.
+                let plain = text.contains('\u{FE0E}');
+                if plain && family == EMOJI_FONT {
+                    family = SYMBOL_FONT;
+                }
+                let text = if plain && family == SYMBOL_FONT { text.replace('\u{FE0E}', "") } else { text };
                 let weight = match part.weight {
                     PartWeight::Regular => Weight::Regular,
                     PartWeight::Medium => Weight::Medium,
                     PartWeight::SemiBold => Weight::SemiBold,
                 };
-                let style = TextStyle { family, size: part.size * paint.text_scale * zoom, weight, color: colour, align_right: part.align == PartAlign::Right, align_center: part.align == PartAlign::Centre };
+                let mut style = TextStyle { family, size: part.size * paint.text_scale * zoom, weight, color: colour, align_right: part.align == PartAlign::Right, align_center: part.align == PartAlign::Centre };
+                if part.fit {
+                    // As large as the box allows: its height first, then narrowed if the words are too wide.
+                    style.size = fitted_size(height, width, |size| canvas.text_width(&text, TextStyle { size, ..style }));
+                }
                 canvas.text(&text, rect, style);
             }
             PartKind::Icon => {
@@ -242,6 +263,14 @@ pub fn value_of(source: &str, data: &Data<'_>) -> Option<String> {
         "clock.time" => data.clock.time.clone(),
         "clock.suffix" => data.clock.suffix.clone(),
         "clock.date" => data.clock.date.clone(),
+        "clock.weekday" => data.clock.weekday.clone(),
+        "clock.day" => data.clock.day.clone(),
+        "clock.month" => data.clock.month.clone(),
+        "clock.year" => data.clock.year.clone(),
+        "clock.hour" => data.clock.hour.clone(),
+        "clock.minute" => data.clock.minute.clone(),
+        "stats.disk" => percent(data.stats.disk),
+        "stats.uptime" => crate::stats::uptime_text(data.stats.uptime_minutes),
         "stats.cpu" => percent(Some(data.stats.cpu)),
         "stats.memory" => percent(Some(data.stats.memory)),
         "stats.gpu" => percent(data.stats.gpu),
@@ -294,6 +323,7 @@ fn fraction_for(source: &str, data: &Data<'_>) -> Option<f32> {
         "stats.cpu" => Some(percent(data.stats.cpu)),
         "stats.memory" => Some(percent(data.stats.memory)),
         "stats.gpu" => Some(percent(data.stats.gpu.unwrap_or(0))),
+        "stats.disk" => Some(percent(data.stats.disk.unwrap_or(0))),
         "media.progress" => data.media.and_then(MediaInfo::progress),
         // Any other value that is a percentage (humidity) fills by that much.
         other => Some(value_of(other, data).filter(|value| value.trim_end().ends_with('%')).and_then(|value| behaviour::number_in(&value)).map_or(0.0, |n| (n / 100.0).clamp(0.0, 1.0) as f32)),
@@ -312,12 +342,12 @@ mod tests {
     }
 
     fn clock() -> ClockData {
-        ClockData { date: "Saturday 14 Nov".into(), time: "9:45".into(), suffix: "AM".into() }
+        ClockData { date: "Saturday 14 Nov".into(), time: "9:45".into(), suffix: "AM".into(), ..Default::default() }
     }
 
     #[test]
     fn text_parts_show_their_live_value_or_their_own_text() {
-        let (clock, stats) = (clock(), StatsData { cpu: 12, memory: 41, gpu: None });
+        let (clock, stats) = (clock(), StatsData { cpu: 12, memory: 41, gpu: None, ..Default::default() });
         let data = data(&clock, &stats);
         let said = |kind: WidgetKind, id: &str| text_for(default_parts(kind).iter().find(|p| p.id == id).unwrap(), &data);
         assert_eq!(said(WidgetKind::Clock, "time"), "9:45");
@@ -330,7 +360,7 @@ mod tests {
 
     #[test]
     fn text_can_mix_fixed_words_and_live_values() {
-        let (clock, stats) = (clock(), StatsData { cpu: 12, memory: 41, gpu: None });
+        let (clock, stats) = (clock(), StatsData { cpu: 12, memory: 41, gpu: None, ..Default::default() });
         let data = data(&clock, &stats);
         assert_eq!(fill("CPU {stats.cpu} · {clock.time} {clock.suffix}", &data), "CPU 12% · 9:45 AM");
         assert_eq!(fill("{ stats.memory } used", &data), "41% used", "spaces inside the braces are fine");
@@ -342,7 +372,7 @@ mod tests {
 
     #[test]
     fn bars_and_rings_follow_their_value_and_vanish_when_there_is_none() {
-        let (clock, stats) = (ClockData { date: String::new(), time: String::new(), suffix: String::new() }, StatsData { cpu: 50, memory: 100, gpu: None });
+        let (clock, stats) = (ClockData { date: String::new(), time: String::new(), suffix: String::new(), ..Default::default() }, StatsData { cpu: 50, memory: 100, gpu: None, ..Default::default() });
         let data = data(&clock, &stats);
         assert_eq!(fraction_for("stats.cpu", &data), Some(0.5));
         assert_eq!(fraction_for("stats.gpu", &data), Some(0.0), "no reading: an empty bar");
@@ -354,7 +384,7 @@ mod tests {
     fn part_colours_come_from_the_paint_and_change_while_an_alert_holds() {
         let theme = Theme::from_color(Color::new(0x2F, 0x5B, 0xEA), Variant::Tonal, Mode::Dark, 0).unwrap();
         let paint = Paint::from_theme(&theme);
-        let (clock, stats) = (clock(), StatsData { cpu: 95, memory: 41, gpu: None });
+        let (clock, stats) = (clock(), StatsData { cpu: 95, memory: 41, gpu: None, ..Default::default() });
         let data = data(&clock, &stats);
         let part = |color: PartColor, opacity: u8| Part { color, opacity, ..Default::default() };
         assert_eq!(colour(&paint, &part(PartColor::Text, 100), &data), paint.text);
@@ -370,7 +400,7 @@ mod tests {
 
     #[test]
     fn conditions_and_hover_decide_what_is_drawn() {
-        let (clock, stats) = (clock(), StatsData { cpu: 95, memory: 41, gpu: None });
+        let (clock, stats) = (clock(), StatsData { cpu: 95, memory: 41, gpu: None, ..Default::default() });
         let mut data = data(&clock, &stats);
         let when = |condition: &str| Part { when: condition.into(), ..Default::default() };
         assert!(visible(&when("stats.cpu > 90"), &data) && !visible(&when("stats.cpu < 90"), &data));
@@ -384,7 +414,7 @@ mod tests {
 
     #[test]
     fn a_click_finds_the_topmost_visible_part_with_an_action() {
-        let (clock, stats) = (clock(), StatsData { cpu: 10, memory: 41, gpu: None });
+        let (clock, stats) = (clock(), StatsData { cpu: 10, memory: 41, gpu: None, ..Default::default() });
         let data = data(&clock, &stats);
         let part = |id: &str, x: f32, click: &str, when: &str| Part { id: id.into(), x, y: 10.0, width: 40.0, height: 20.0, click: click.into(), when: when.into(), ..Default::default() };
         let parts = vec![part("under", 10.0, "lumen.open", ""), part("over", 30.0, "media.toggle", ""), part("plain", 100.0, "", ""), part("gone", 160.0, "lumen.open", "stats.cpu > 90")];
@@ -401,7 +431,7 @@ mod tests {
     fn history_keeps_the_latest_readings() {
         let mut history = History::default();
         for cpu in 0..100u8 {
-            history.push(&StatsData { cpu, memory: 50, gpu: None });
+            history.push(&StatsData { cpu, memory: 50, gpu: None, ..Default::default() });
         }
         assert_eq!(history.cpu.len(), History::LENGTH);
         assert_eq!((history.of("stats.cpu").last().copied(), history.of("stats.cpu").first().copied()), (Some(0.99), Some(0.40)));
@@ -458,6 +488,31 @@ mod tests {
         assert_eq!(fraction_for("ha.sensor.battery", &with), Some(0.83), "a percentage fills a bar or a dial");
         let parts = vec![Part { id: "lamp".into(), click: "ha.toggle light.desk".into(), x: 0.0, y: 0.0, width: 50.0, height: 20.0, ..Default::default() }];
         assert_eq!(action_at(&parts, &with, (220.0, 110.0), (220.0, 110.0), 1.0, (10.0, 10.0)), Some(Action::HomeAssistant("light.desk".into())));
+    }
+
+
+    #[test]
+    fn text_set_to_fit_fills_its_box() {
+        // Letters about half as wide as they are tall, five of them.
+        let width_at = |size: f32| size * 0.5 * 5.0;
+        assert_eq!(fitted_size(100.0, 400.0, width_at), 74.0, "the height decides while the words fit");
+        assert_eq!(fitted_size(100.0, 92.5, width_at), 37.0, "a narrow box makes the text smaller");
+        assert_eq!(fitted_size(200.0, 800.0, width_at), 148.0, "a bigger box, bigger text: no upper limit of its own");
+        assert_eq!(fitted_size(2.0, 400.0, width_at), 4.0, "never unreadably small");
+        assert_eq!(fitted_size(100.0, 400.0, |_| 0.0), 74.0, "nothing to measure");
+    }
+
+    #[test]
+    fn the_new_clock_and_system_values_are_there() {
+        let clock = ClockData::now();
+        let stats = StatsData { disk: Some(61), uptime_minutes: 3 * 1440 + 4 * 60 + 9, ..Default::default() };
+        let with = data(&clock, &stats);
+        for name in ["clock.weekday", "clock.day", "clock.month", "clock.year", "clock.hour", "clock.minute"] {
+            assert!(value_of(name, &with).is_some_and(|value| !value.trim().is_empty() && value == value.trim()), "{name}: {:?}", value_of(name, &with));
+        }
+        assert!(value_of("clock.day", &with).unwrap().parse::<u8>().is_ok_and(|day| (1..=31).contains(&day)));
+        assert_eq!((value_of("stats.disk", &with).unwrap().as_str(), value_of("stats.uptime", &with).unwrap().as_str(), fraction_for("stats.disk", &with)), ("61%", "3 d 4 h", Some(0.61)));
+        assert_eq!((crate::stats::uptime_text(8), crate::stats::uptime_text(5 * 60 + 12)), ("8 min".to_owned(), "5 h 12 min".to_owned()));
     }
 
 }

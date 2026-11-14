@@ -61,6 +61,8 @@ export function WidgetsScreen() {
   const { widgets, widgetRequest, shown, wallpapers, styles, partDefaults, widgetFiles, request, go } = useLumen();
   const [newFile, setNewFile] = useState<string | null>(null);
   const [pickingHa, setPickingHa] = useState(false);
+  const [managing, setManaging] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
   // The designer: one widget large, its parts editable with the mouse.
   const [designing, setDesigning] = useState(false);
   const [partId, setPartId] = useState<string | null>(null);
@@ -204,6 +206,27 @@ export function WidgetsScreen() {
 
           <div className="stack-10">
             <span className="label">Your widget files — click to add one; edit them here or in any text editor</span>
+            {managing && (
+              <div className="strip widget-delete-confirm" role="status">
+                {deleting ? (
+                  <>
+                    <span>
+                      Delete <strong>{deleting}</strong>{widgetFiles.find((file) => file.file === deleting)?.script ? " and its script" : ""}? Widgets on your desktop made from it go back to a plain widget. This cannot be undone.
+                    </span>
+                    <span className="header-actions">
+                      <Button size="bar" onClick={() => void request("deleteWidgetFile", { file: deleting }).then(() => setDeleting(null))}>
+                        Delete it
+                      </Button>
+                      <Button size="bar" kind="primary" onClick={() => setDeleting(null)}>
+                        Keep it
+                      </Button>
+                    </span>
+                  </>
+                ) : (
+                  <span>Click a widget file to delete it. Two with the same name are told apart by their file names.</span>
+                )}
+              </div>
+            )}
             <div className="library">
               {widgetFiles
                 .filter((file) => file.isWidget)
@@ -213,12 +236,28 @@ export function WidgetsScreen() {
                     type="button"
                     className={`library-item${file.error ? " library-item-broken" : ""}`}
                     title={file.error ? `${file.file} has a mistake${file.errorLine ? ` on line ${file.errorLine}` : ""}: ${file.error}` : `Add a widget from ${file.file}`}
-                    onClick={() => void widgetRequest("addWidget", monitor.primary ? { kind: "clock", file: file.file } : { kind: "clock", file: file.file, monitor: monitor.id })}
+                    onClick={() => (managing ? setDeleting(file.file) : void widgetRequest("addWidget", monitor.primary ? { kind: "clock", file: file.file } : { kind: "clock", file: file.file, monitor: monitor.id }))}
                   >
+                    {managing && <span aria-hidden="true">✕ </span>}
                     {file.name}
+                    {managing && <span className="muted small"> · {file.file}</span>}
                     {file.error && <span className="muted small"> · mistake</span>}
                   </button>
                 ))}
+              {widgetFiles.some((file) => file.isWidget) && (
+                <button
+                  type="button"
+                  className="library-item"
+                  aria-pressed={managing}
+                  title="Delete widget files you no longer want"
+                  onClick={() => {
+                    setManaging((on) => !on);
+                    setDeleting(null);
+                  }}
+                >
+                  {managing ? "Done removing" : "Remove some…"}
+                </button>
+              )}
               {newFile === null ? (
                 <button type="button" className="library-item library-gallery" onClick={() => setNewFile("My widget")}>
                   + New widget file
