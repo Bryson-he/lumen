@@ -207,6 +207,7 @@ fn run_service(
         let service = Rc::new(RefCell::new(Service::new(store, desktop)));
         // Write the kept theme out for other apps, in case it changed while Lumen was not running.
         service.borrow_mut().set_terminal_fragments(exports::terminal_fragments_dir());
+        service.borrow_mut().set_built_in_gallery(gallery::built_in());
         // A copy run against a test profile is never offered "start with Windows".
         if std::env::var_os("LUMEN_DATA_DIR").is_none()
             && let Ok(program) = std::env::current_exe()
@@ -290,5 +291,40 @@ impl std::io::Write for Tee {
 
     fn flush(&mut self) -> std::io::Result<()> {
         self.0.flush()
+    }
+}
+
+#[cfg(test)]
+mod power_tests {
+    use std::path::Path;
+
+    /// Lumen must never stop the screens turning off or the PC going to
+    /// sleep. Windows only stays awake for a program that asks it to, or
+    /// that fakes mouse and keyboard input; this fails if any of Lumen's
+    /// own code starts doing either.
+    #[test]
+    fn nothing_in_lumen_asks_windows_to_stay_awake() {
+        // Split so this file does not match itself.
+        let banned: Vec<String> = [("SetThread", "ExecutionState"), ("PowerSet", "Request"), ("PowerCreate", "Request"), ("ES_DISPLAY", "_REQUIRED"), ("ES_SYSTEM", "_REQUIRED"), ("Send", "Input("), ("mouse", "_event"), ("keybd", "_event"), ("wake", "Lock"), ("SPI_SETSCREEN", "SAVE")].iter().map(|(a, b)| format!("{a}{b}")).collect();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+        let mut checked = 0;
+        let mut stack = vec![root.join("crates"), root.join("apps").join("settings").join("src"), root.join("apps").join("settings").join("src-tauri").join("src")];
+        while let Some(folder) = stack.pop() {
+            for entry in std::fs::read_dir(&folder).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if !matches!(path.file_name().and_then(|name| name.to_str()), Some("target" | "node_modules")) {
+                        stack.push(path);
+                    }
+                } else if matches!(path.extension().and_then(|ext| ext.to_str()), Some("rs" | "ts" | "tsx")) {
+                    let text = std::fs::read_to_string(&path).unwrap_or_default();
+                    for word in &banned {
+                        assert!(!text.contains(word.as_str()), "{} uses {word}, which can keep the PC or its screens awake", path.display());
+                    }
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 40, "the source files were not found ({checked} checked)");
     }
 }

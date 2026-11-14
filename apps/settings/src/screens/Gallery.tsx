@@ -99,8 +99,8 @@ export function Gallery() {
 
       {gallery && !gallery.source && (
         <section className="panel" aria-label="No gallery yet">
-          <h2 className="panel-title">The gallery does not have a home online yet</h2>
-          <p className="muted">When it does, everything in it will be listed here. If someone has given you a gallery's address, or you have a gallery folder on this PC, enter it to browse it now.</p>
+          <h2 className="panel-title">No gallery was found</h2>
+          <p className="muted">The gallery that comes with Lumen is missing from this copy. If someone has shared a gallery with you, enter its address, or the folder it is in, to browse it.</p>
           {sourceForm}
         </section>
       )}
@@ -196,7 +196,7 @@ export function Gallery() {
                   setEditing(true);
                 }}
               >
-                Use a different gallery…
+                Browse a gallery someone shared…
               </button>
             </>
           )}

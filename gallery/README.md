@@ -2,7 +2,9 @@
 
 Looks, component styles and widgets to share. Lumen's Gallery screen reads `gallery.json` and lists what is in it; "Add to Lumen" downloads the item's file and adds it the same way as a file you pick yourself.
 
-This folder is the whole gallery. Put it online as it is (a GitHub repository works: point Lumen at the raw address of `gallery.json`), or point Lumen at the folder on your PC to try it.
+This folder is the whole gallery, and it ships with Lumen: the Gallery screen reads it from the copy installed beside the program, so nothing goes online.
+
+To share a gallery of your own, put a folder like this one anywhere other people can reach: a GitHub repository works as it is (give people the raw address of its `gallery.json`), and so does a shared folder. They enter the address under "Browse a gallery someone shared…".
 
 ## What is in it
 
@@ -32,7 +34,7 @@ This folder is the whole gallery. Put it online as it is (a GitHub repository wo
 
 `kind` is `widget`, `style` or `preset`. `script` and `permissions` are only for widgets that have a script, and only for showing in the list: Lumen reads what a script really asks for from the file itself, shows that before adding the widget, and never runs a script until the person has allowed it.
 
-3. Open a pull request.
+3. For the gallery that ships with Lumen, open a pull request. For your own, just put the folder where people can reach it.
 
 ## Rules for what is accepted
 

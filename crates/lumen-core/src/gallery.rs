@@ -11,8 +11,13 @@ use std::path::{Path, PathBuf};
 
 use lumen_ipc::gallery::is_safe_path;
 
-/// The gallery Lumen ships pointing at. `None` until the gallery has a home online.
-pub const DEFAULT_SOURCE: Option<&str> = None;
+/// The gallery that comes with Lumen: the `gallery` folder beside the
+/// program, if it is there. The gallery is local unless the user points
+/// Lumen at one somebody has shared online.
+pub fn built_in() -> Option<PathBuf> {
+    let folder = std::env::current_exe().ok()?.parent()?.join("gallery");
+    folder.join(INDEX_FILE).is_file().then_some(folder)
+}
 const INDEX_FILE: &str = "gallery.json";
 const INDEX_BYTES: usize = 1024 * 1024;
 /// The largest file an item may be (a preset carries its wallpaper).

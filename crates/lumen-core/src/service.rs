@@ -67,6 +67,8 @@ pub struct Service<D: Desktop> {
     weather: Option<lumen_ipc::WeatherState>,
     /// Where "start with Windows" is recorded (a registry key) and the program it starts; `None` if not offered.
     startup_entry: Option<(String, std::path::PathBuf)>,
+    /// The gallery that came with Lumen (a folder beside the program), if there is one.
+    built_in_gallery: Option<std::path::PathBuf>,
     /// The gallery as last read, for finding an item when it is installed.
     gallery: Option<lumen_ipc::GalleryState>,
     /// Windows Terminal's fragments folder, where the "Lumen" colour scheme goes when switched on.
@@ -110,6 +112,7 @@ impl<D: Desktop> Service<D> {
             scripts: Vec::new(),
             terminal_fragments: None,
             gallery: None,
+            built_in_gallery: None,
             startup_entry: None,
             place_search: Box::new(lumen_widgets::weather::search),
             preset_mirror: None,
@@ -670,9 +673,14 @@ impl<D: Desktop> Service<D> {
         }
     }
 
-    /// Where the gallery is: what the user chose, else `LUMEN_GALLERY` (tests), else the built-in one.
+    /// Where the gallery is: what the user chose, else `LUMEN_GALLERY` (tests), else the one that came with Lumen.
     fn gallery_source(&self) -> Option<String> {
-        self.store.gallery_source().or_else(|| std::env::var("LUMEN_GALLERY").ok().filter(|source| !source.is_empty())).or_else(|| crate::gallery::DEFAULT_SOURCE.map(str::to_owned))
+        self.store.gallery_source().or_else(|| std::env::var("LUMEN_GALLERY").ok().filter(|source| !source.is_empty())).or_else(|| self.built_in_gallery.as_ref().map(|folder| folder.to_string_lossy().into_owned()))
+    }
+
+    /// Says where the gallery that came with Lumen is.
+    pub fn set_built_in_gallery(&mut self, folder: Option<std::path::PathBuf>) {
+        self.built_in_gallery = folder;
     }
 
     /// Reads the gallery's index (online, if the gallery is on the web).
@@ -1930,6 +1938,11 @@ mod tests {
         assert!(broken.error.unwrap().contains("could not be read") && broken.items.is_empty());
         let cleared: lumen_ipc::GalleryState = call(&mut service, method::SET_GALLERY_SOURCE, json!({ "source": "" }));
         assert!(cleared.source.is_none());
+
+        // With a gallery that came with Lumen, that is what shows when the user has chosen nothing.
+        service.set_built_in_gallery(Some(gallery.clone()));
+        let own: lumen_ipc::GalleryState = call(&mut service, method::GET_GALLERY, Value::Null);
+        assert_eq!((own.name.as_str(), own.items.len()), ("Shared", 4));
     }
 
 

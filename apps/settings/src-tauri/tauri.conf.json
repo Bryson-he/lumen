@@ -42,7 +42,8 @@
     ],
     "shortDescription": "One theme for your whole Windows desktop",
     "resources": {
-      "../../../target/release/lumen-core.exe": "lumen-core.exe"
+      "../../../target/release/lumen-core.exe": "lumen-core.exe",
+      "../../../gallery/": "gallery/"
     },
     "windows": {
       "nsis": {
