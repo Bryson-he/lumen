@@ -28,6 +28,7 @@ import { Designer } from "./Designer";
 import { WeatherSettings } from "./Weather";
 import { PartsTab } from "./Parts";
 import { ScriptsWaiting } from "./Scripts";
+import { HaPicker } from "./HomeAssistant";
 
 const LIBRARY: { kind: WidgetKind | null; label: string }[] = [
   { kind: "clock", label: "Clock" },
@@ -46,6 +47,7 @@ type Tab = "layout" | "style" | "parts" | "data";
 export function WidgetsScreen() {
   const { widgets, widgetRequest, shown, wallpapers, styles, partDefaults, widgetFiles, request, go } = useLumen();
   const [newFile, setNewFile] = useState<string | null>(null);
+  const [pickingHa, setPickingHa] = useState(false);
   // The designer: one widget large, its parts editable with the mouse.
   const [designing, setDesigning] = useState(false);
   const [partId, setPartId] = useState<string | null>(null);
@@ -165,10 +167,26 @@ export function WidgetsScreen() {
                   {item.label}
                 </button>
               ))}
+              <button type="button" className="library-item" aria-expanded={pickingHa} title="Add a switch or a reading from Home Assistant" onClick={() => setPickingHa((open) => !open)}>
+                Home Assistant…
+              </button>
               <button type="button" className="library-item library-gallery" onClick={() => go("gallery")}>
                 Browse gallery →
               </button>
             </div>
+            {pickingHa && (
+              <HaPicker
+                onClose={() => setPickingHa(false)}
+                onPick={async (entity) => {
+                  const file = await request<string>("newHaWidget", { entity: entity.id, name: entity.name });
+                  if (!file) return;
+                  // Give the desktop a moment to notice the new file before placing a widget from it.
+                  await new Promise((resolve) => setTimeout(resolve, 500));
+                  await widgetRequest("addWidget", monitor.primary ? { kind: "clock", file } : { kind: "clock", file, monitor: monitor.id });
+                  setPickingHa(false);
+                }}
+              />
+            )}
           </div>
 
           <div className="stack-10">

@@ -207,7 +207,7 @@ function PartFields({
   const iconId = useId();
   const clickId = useId();
   const alertId = useId();
-  const clickKind = part.click.startsWith("open ") ? "open" : ["media.toggle", "media.next", "media.previous", "lumen.open", "script"].includes(part.click) ? part.click : part.click ? "open" : "";
+  const clickKind = part.click.startsWith("ha.toggle") ? "ha" : part.click.startsWith("open ") ? "open" : ["media.toggle", "media.next", "media.previous", "lumen.open", "script"].includes(part.click) ? part.click : part.click ? "open" : "";
   const fontId = useId();
   const colourId = useId();
   const textId = useId();
@@ -409,15 +409,22 @@ function PartFields({
         <label htmlFor={clickId} className="small-14">
           When clicked
         </label>
-        <select id={clickId} value={clickKind} disabled={locked} onChange={(event) => onChange({ click: event.target.value === "open" ? "open " : event.target.value })}>
+        <select id={clickId} value={clickKind} disabled={locked} onChange={(event) => onChange({ click: event.target.value === "open" ? "open " : event.target.value === "ha" ? "ha.toggle " : event.target.value })}>
           <option value="">Nothing</option>
           <option value="open">Open a program, file or web page</option>
           <option value="media.toggle">Play or pause</option>
           <option value="media.next">Next track</option>
           <option value="media.previous">Previous track</option>
           <option value="lumen.open">Open Lumen</option>
+          <option value="ha">Switch or run something in Home Assistant</option>
           <option value="script">Tell the widget's script</option>
         </select>
+        {clickKind === "ha" && (
+          <span className="parts-naming">
+            <LineField label="Which thing" placeholder="light.desk, switch.neon_light, scene.movie_night…" value={part.click.replace(/^ha\.toggle\s*/, "")} disabled={locked} onCommit={(entity) => onChange({ click: entity.trim() ? `ha.toggle ${entity.trim()}` : "" })} />
+            <span className="muted small">Its entity id, as Home Assistant lists it. The Widgets screen's “Home Assistant…” button shows them all.</span>
+          </span>
+        )}
         {clickKind === "open" && (
           <span className="parts-naming">
             <LineField label="What to open" placeholder="https://… or C:\…\app.exe" value={part.click.replace(/^open\s*/, "")} disabled={locked} onCommit={(target) => onChange({ click: target ? `open ${target}` : "" })} />

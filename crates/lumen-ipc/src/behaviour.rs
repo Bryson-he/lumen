@@ -19,6 +19,8 @@ pub enum Action {
     PreviousTrack,
     /// Open the Lumen app.
     OpenLumen,
+    /// Switch (or run) something in Home Assistant, by its entity id.
+    HomeAssistant(String),
     /// Tell the widget's script that this part was clicked (the part's id is filled in by whoever finds the click).
     Script(String),
 }
@@ -33,6 +35,7 @@ pub fn parse_action(text: &str) -> Option<Action> {
         "media.previous" => Some(Action::PreviousTrack),
         "lumen.open" => Some(Action::OpenLumen),
         "script" => Some(Action::Script(String::new())),
+        _ if text.starts_with("ha.toggle ") => Some(text["ha.toggle ".len()..].trim()).filter(|entity| crate::home_assistant::is_entity_id(entity)).map(|entity| Action::HomeAssistant(entity.to_owned())),
         _ => text.strip_prefix("open ").map(str::trim).filter(|target| !target.is_empty()).map(|target| Action::Open(target.to_owned())),
     }
 }

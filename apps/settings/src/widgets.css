@@ -816,3 +816,69 @@ button.preview-chip:hover:not(:disabled) {
   margin-top: 6px;
   overflow-wrap: anywhere;
 }
+
+/* ---------- Home Assistant ---------- */
+
+.ha-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ha-form .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ha-picker {
+  margin-top: 4px;
+}
+.ha-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ha-filter .parts-text {
+  flex: 1 1 260px;
+  width: auto;
+}
+.ha-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 340px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+}
+.ha-list li + li {
+  border-top: 1px solid var(--border);
+}
+.ha-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.3fr) minmax(0, 1fr) 70px;
+  gap: 12px;
+  align-items: baseline;
+  width: 100%;
+  padding: 9px 12px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.ha-row:hover,
+.ha-row:focus-visible {
+  background: var(--surface-selected);
+}
+.ha-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ha-name {
+  font-weight: 500;
+}
+.ha-kind {
+  text-align: right;
+}

@@ -12,6 +12,7 @@ pub mod bar;
 pub mod behaviour;
 pub mod flyout;
 pub mod gallery;
+pub mod home_assistant;
 pub mod launcher;
 pub mod parts;
 pub mod presets;
@@ -22,6 +23,7 @@ pub mod widget_file;
 pub mod widgets;
 
 pub use flyout::{FlyoutConfig, FlyoutPosition, FlyoutStyle};
+pub use home_assistant::{HaConfig, HaEntity, HaState, HaStatus, SetHaParams};
 pub use gallery::{GalleryInstall, GalleryItem, GalleryKind, GalleryOffer, GalleryState};
 pub use launcher::{LauncherConfig, LauncherHotkey};
 pub use parts::{FontList, ImportFontParams, Part, PartAlign, PartColor, PartKind, PartWeight};
@@ -179,6 +181,16 @@ pub mod method {
     pub const IMPORT_WIDGET_PACKAGE: &str = "importWidgetPackage";
     /// Shows the widgets folder in File Explorer.
     pub const OPEN_WIDGET_FOLDER: &str = "openWidgetFolder";
+    /// The Home Assistant connection, without its token. Result: [`HaState`](super::HaState).
+    pub const GET_HOME_ASSISTANT: &str = "getHomeAssistant";
+    /// Params: [`SetHaParams`](super::SetHaParams). Saves the connection and tries it; the outcome arrives as `homeAssistantChanged`.
+    pub const SET_HOME_ASSISTANT: &str = "setHomeAssistant";
+    /// Everything Home Assistant knows about, for picking from (goes to Home Assistant now). Result: a list of [`HaEntity`](super::HaEntity).
+    pub const LIST_HA_ENTITIES: &str = "listHaEntities";
+    /// Makes a widget file for one entity. Params: `{ entity, name }`. Result: the file's name.
+    pub const NEW_HA_WIDGET: &str = "newHaWidget";
+    /// Opens Home Assistant's own page for making access tokens in the browser. Params: `{ address }`.
+    pub const OPEN_HA_TOKENS: &str = "openHaTokens";
     /// Packs a widget file for the online gallery and opens the page where it is offered. Params: `{ file }`.
     /// Result: [`GalleryOffer`](super::GalleryOffer). Nothing is uploaded: the user attaches the file on that page themselves.
     pub const OFFER_TO_GALLERY: &str = "offerToGallery";
@@ -238,6 +250,8 @@ pub mod event {
     pub const WEATHER_CHANGED: &str = "weatherChanged";
     /// Params: a list of [`ScriptInfo`](super::ScriptInfo).
     pub const SCRIPTS_CHANGED: &str = "scriptsChanged";
+    /// Params: [`HaState`](super::HaState).
+    pub const HOME_ASSISTANT_CHANGED: &str = "homeAssistantChanged";
 }
 
 /// JSON-RPC error codes: the standard ones plus Lumen's own (positive).

@@ -13,6 +13,7 @@
 mod bars;
 mod files;
 mod flyouts;
+mod ha;
 mod launchers;
 mod styles;
 mod scripts;
@@ -104,6 +105,8 @@ pub struct Options {
     pub widget_files_dir: PathBuf,
     /// Where the weather settings are kept (`weather.json`); the last forecast is kept beside it.
     pub weather_path: PathBuf,
+    /// Where the Home Assistant connection is kept (`home-assistant.json`), token included; it never leaves this PC.
+    pub home_assistant_path: PathBuf,
     /// Where the scripts the user has agreed to are noted (`script-approvals.json`).
     pub script_approvals_path: PathBuf,
     /// Keep widgets above other windows (for testing; normally they sit on the desktop).
@@ -141,6 +144,8 @@ pub enum Command {
     SetWeather(lumen_ipc::weather::WeatherConfig),
     /// Fetch the forecast now.
     RefreshWeather,
+    /// Replace the Home Assistant connection, and try it.
+    SetHomeAssistant(lumen_ipc::home_assistant::HaConfig),
     /// Let a widget file's script run: the user agreed to the text with this fingerprint.
     ApproveScript { file: String, hash: String },
     /// Stop a widget file's script and forget that it was allowed.
@@ -162,6 +167,8 @@ pub enum Report {
     Files(Vec<lumen_ipc::widget_file::WidgetFileInfo>),
     /// The weather settings or the forecast changed (also sent once at start-up).
     Weather(lumen_ipc::weather::WeatherState),
+    /// The Home Assistant connection changed or was tried (also sent once at start-up). Never holds the token.
+    HomeAssistant(lumen_ipc::home_assistant::HaState),
     /// The scripts, or whether one may run, changed (also sent once at start-up).
     Scripts(Vec<lumen_ipc::scripts::ScriptInfo>),
     /// The layout, selection, edit mode or list of switched-off widgets changed.
@@ -186,6 +193,8 @@ struct Inbox {
     weather: Option<(lumen_ipc::weather::WeatherConfig, Result<lumen_ipc::weather::WeatherData, String>)>,
     /// Script calls that finished.
     scripts: Vec<scripts::ScriptResult>,
+    /// Home Assistant calls that finished.
+    ha: Vec<ha::HaResult>,
 }
 
 impl HostHandle {
@@ -201,6 +210,11 @@ impl HostHandle {
 
     fn set_weather(&self, config: lumen_ipc::weather::WeatherConfig, result: Result<lumen_ipc::weather::WeatherData, String>) {
         self.inbox.lock().unwrap_or_else(|p| p.into_inner()).weather = Some((config, result));
+        self.wake();
+    }
+
+    fn ha_result(&self, result: ha::HaResult) {
+        self.inbox.lock().unwrap_or_else(|p| p.into_inner()).ha.push(result);
         self.wake();
     }
 
@@ -317,6 +331,7 @@ struct Host {
 
     weather: weathers::Weather,
     scripts: scripts::Scripts,
+    ha: ha::Ha,
 
     /// How the system readings have moved lately, for graph parts.
     history: parts::History,
@@ -376,11 +391,13 @@ pub fn start(theme: &Theme, options: Options, on_report: impl Fn(Report) + 'stat
         files: files::Files::default(),
         weather: weathers::Weather::default(),
         scripts: scripts::Scripts::default(),
+        ha: ha::Ha::default(),
         history: parts::History::default(),
     };
     host.start_files();
     host.load_weather();
     host.load_scripts();
+    host.load_ha();
     host.styles = styles::load_styles(&host.options.styles_path);
     host.refresh_paints();
     host.bar = bars::load_bar(&host.options.bar_path);
@@ -491,7 +508,7 @@ pub fn stop() {
     if let Some(mut host) = HOST.take() {
         host.stop_scripts();
         unsafe {
-            for timer in [TIMER_CLOCK, TIMER_STATS, TIMER_MEDIA, TIMER_HOVER, files::TIMER_FILES, weathers::TIMER_WEATHER, scripts::TIMER_SCRIPTS] {
+            for timer in [TIMER_CLOCK, TIMER_STATS, TIMER_MEDIA, TIMER_HOVER, files::TIMER_FILES, weathers::TIMER_WEATHER, scripts::TIMER_SCRIPTS, ha::TIMER_HA] {
                 let _ = KillTimer(Some(host.window), timer);
             }
             let _ = UnregisterHotKey(Some(host.window), HOTKEY_EDIT);
@@ -735,6 +752,7 @@ impl Host {
             let Some((parts, default_size)) = self.placement(&id).map(|placement| self.parts_of(placement)) else { continue };
             let file = self.placement(&id).and_then(|placement| placement.file.clone());
             let (script, notice) = self.scripts.view(file.as_deref());
+            let home = self.ha.view();
             let (clock, stats, media, weather, history) = (&self.clock, &self.stats, self.media.as_ref(), &self.weather.state, &self.history);
             let hovered = self.slots[index].hovered;
             let art = &mut self.art;
@@ -745,7 +763,7 @@ impl Host {
                 {
                     *art = canvas.bitmap_from_rgba(cover.size, cover.size, &cover.rgba).ok();
                 }
-                let data = parts::Data { clock, stats, media, art: art.as_ref(), weather, history, hovered, script, notice: notice.as_deref() };
+                let data = parts::Data { clock, stats, media, art: art.as_ref(), weather, history, hovered, script, ha: home, notice: notice.as_deref() };
                 parts::draw(canvas, &paint, &parts, &data, (width, height), default_size);
             });
             self.governor.record_draw(&id, started.elapsed());
@@ -793,7 +811,7 @@ impl Host {
 
     /// The live values, for working out what a part shows or does outside drawing.
     fn part_data(&self, hovered: bool) -> parts::Data<'_> {
-        parts::Data { clock: &self.clock, stats: &self.stats, media: self.media.as_ref(), art: None, weather: &self.weather.state, history: &self.history, hovered, script: None, notice: None }
+        parts::Data { clock: &self.clock, stats: &self.stats, media: self.media.as_ref(), art: None, weather: &self.weather.state, history: &self.history, hovered, script: None, ha: self.ha.view(), notice: None }
     }
 
     /// What a click at a point on a widget's window does, if anything (not while editing).
@@ -824,6 +842,7 @@ impl Host {
                     warn!("a widget tried to open {target}, which is not a web page or a file on this PC");
                 }
             }
+            Some(Action::HomeAssistant(entity)) => self.ha_clicked(entity),
             Some(Action::Script(part)) => {
                 let file = self.slots.iter().find(|slot| slot.surface.window() == window).and_then(|slot| self.placement(&slot.id)).and_then(|placement| placement.file.clone());
                 if let Some(file) = file {
@@ -875,13 +894,16 @@ impl Host {
         // Weather is fetched only while something shows it; the timer is aimed at when the forecast goes stale.
         let weather_due = self.weather_due_in();
         timer(weathers::TIMER_WEATHER, weather_due.is_some(), weather_due.unwrap_or(0));
+        // Home Assistant is asked only about entities a widget on screen mentions.
+        let ha_due = self.ha_due_in();
+        timer(ha::TIMER_HA, ha_due.is_some(), ha_due.unwrap_or(0));
         // Scripts run only while a widget that uses one is on screen.
         let scripts_due = self.scripts_due_in();
         timer(scripts::TIMER_SCRIPTS, scripts_due.is_some(), scripts_due.unwrap_or(0));
     }
 
     fn on_timer(&mut self, timer: usize) {
-        if self.on_flyout_timer(timer) || self.on_files_timer(timer) || self.on_weather_timer(timer) || self.on_scripts_timer(timer) {
+        if self.on_flyout_timer(timer) || self.on_files_timer(timer) || self.on_weather_timer(timer) || self.on_scripts_timer(timer) || self.on_ha_timer(timer) {
             return;
         }
         match timer {
@@ -947,10 +969,13 @@ impl Host {
 
     /// Handles what other threads left in the inbox.
     fn on_wake(&mut self) {
-        let (commands, media, weather, script_results) = {
+        let (commands, media, weather, script_results, ha_results) = {
             let mut inbox = self.inbox.lock().unwrap_or_else(|p| p.into_inner());
-            (std::mem::take(&mut inbox.commands), inbox.media.take(), inbox.weather.take(), std::mem::take(&mut inbox.scripts))
+            (std::mem::take(&mut inbox.commands), inbox.media.take(), inbox.weather.take(), std::mem::take(&mut inbox.scripts), std::mem::take(&mut inbox.ha))
         };
+        for result in ha_results {
+            self.on_ha_result(result);
+        }
         for result in script_results {
             self.on_script_result(result);
         }
@@ -1032,6 +1057,7 @@ impl Host {
             Command::SetStyles(sheet) => self.set_styles(*sheet),
             Command::SetWeather(config) => self.set_weather(config),
             Command::RefreshWeather => self.refresh_weather(),
+            Command::SetHomeAssistant(config) => self.set_ha(config),
             Command::ApproveScript { file, hash } => self.approve_script(&file, &hash),
             Command::RevokeScript(file) => self.revoke_script(&file),
             Command::ReloadFonts => {

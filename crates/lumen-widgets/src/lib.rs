@@ -20,6 +20,7 @@ pub mod launcher;
 pub mod host;
 pub mod layout;
 pub mod media;
+pub mod home_assistant;
 pub mod paint;
 pub mod script;
 pub mod parts;

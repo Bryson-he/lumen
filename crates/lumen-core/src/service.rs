@@ -75,6 +75,8 @@ pub struct Service<D: Desktop> {
     gallery: Option<lumen_ipc::GalleryState>,
     /// Windows Terminal's fragments folder, where the "Lumen" colour scheme goes when switched on.
     terminal_fragments: Option<std::path::PathBuf>,
+    /// The Home Assistant connection (never its token), as the widget host last reported it.
+    home_assistant: lumen_ipc::HaState,
     /// The scripts widget files name, as the widget host last reported them.
     scripts: Vec<lumen_ipc::ScriptInfo>,
     /// Finds places by name (online, through the weather service).
@@ -112,6 +114,7 @@ impl<D: Desktop> Service<D> {
             widget_files: Vec::new(),
             weather: None,
             scripts: Vec::new(),
+            home_assistant: lumen_ipc::HaState::default(),
             terminal_fragments: None,
             gallery: None,
             built_in_gallery: None,
@@ -264,6 +267,50 @@ impl<D: Desktop> Service<D> {
                 // Asks the place search online; the answer comes within a few seconds or not at all.
                 let places = (self.place_search)(&query).map_err(|error| RpcError::new(code::INTERNAL_ERROR, format!("could not search for places: {error}")))?;
                 json(places)
+            }
+            method::GET_HOME_ASSISTANT => json(&self.home_assistant),
+            method::SET_HOME_ASSISTANT => {
+                let wanted: lumen_ipc::SetHaParams = parse(params)?;
+                let host = self.widget_host.as_ref().ok_or_else(|| RpcError::new(code::WIDGETS_UNAVAILABLE, "the desktop widgets are not running, so Home Assistant cannot be shown"))?;
+                // A token left out keeps the one already saved.
+                let token = wanted.token.filter(|token| !token.trim().is_empty()).unwrap_or_else(|| self.home_assistant_config().token);
+                let mut config = lumen_ipc::HaConfig { address: wanted.address, token }.sanitised();
+                // No address means "disconnect": the token is forgotten too.
+                if config.address.is_empty() {
+                    config.token.clear();
+                }
+                if !config.address.is_empty() {
+                    lumen_win::http::split_url(&config.address).map_err(|why| RpcError::new(code::INVALID_PARAMS, format!("That is not an address Lumen can use: {why}")))?;
+                }
+                host(WidgetCommand::SetHomeAssistant(config));
+                Ok(Value::Null)
+            }
+            method::LIST_HA_ENTITIES => {
+                let config = self.home_assistant_config();
+                if !config.is_set() {
+                    return Err(RpcError::new(code::INVALID_PARAMS, "Connect to Home Assistant first (Settings)."));
+                }
+                // A token Home Assistant has refused is not tried again until it is changed.
+                if self.home_assistant.status == lumen_ipc::HaStatus::Refused {
+                    return Err(RpcError::new(code::INVALID_PARAMS, "Home Assistant did not accept the token. Paste a new one under Settings."));
+                }
+                json(lumen_widgets::home_assistant::list(&config).map_err(|error| RpcError::new(code::INTERNAL_ERROR, error.message()))?)
+            }
+            method::NEW_HA_WIDGET => {
+                let entity = params.get("entity").and_then(Value::as_str).unwrap_or_default();
+                if !lumen_ipc::home_assistant::is_entity_id(entity) {
+                    return Err(RpcError::new(code::INVALID_PARAMS, format!("\"{entity}\" is not the name of something in Home Assistant")));
+                }
+                let name = params.get("name").and_then(Value::as_str).map(str::trim).filter(|name| !name.is_empty()).unwrap_or(entity);
+                let file = self.free_widget_file_name(name);
+                self.write_widget_file(&file, &lumen_ipc::home_assistant::widget_yaml(entity, name))?;
+                json(file)
+            }
+            method::OPEN_HA_TOKENS => {
+                let address = lumen_ipc::HaConfig { address: params.get("address").and_then(Value::as_str).unwrap_or_default().to_owned(), token: String::new() }.sanitised().address;
+                lumen_win::http::split_url(&address).map_err(|why| RpcError::new(code::INVALID_PARAMS, format!("Type Home Assistant's address first: {why}")))?;
+                (self.opener)(&format!("{address}/profile/security"));
+                Ok(Value::Null)
             }
             method::OFFER_TO_GALLERY => {
                 let file = file_param(&params)?;
@@ -792,6 +839,20 @@ impl<D: Desktop> Service<D> {
             folder: folder.to_string_lossy().into_owned(),
             terminal: self.store.terminal_scheme() && self.terminal_fragments.as_ref().is_some_and(|fragments| crate::exports::fragment_path(fragments).exists()),
             terminal_available: self.terminal_fragments.is_some() && crate::exports::terminal_installed(),
+        }
+    }
+
+    /// The saved connection, token included, read from its file. Only ever used inside the core.
+    fn home_assistant_config(&self) -> lumen_ipc::HaConfig {
+        let text = std::fs::read_to_string(self.store.root().join("home-assistant.json")).unwrap_or_default();
+        serde_json::from_str::<lumen_ipc::HaConfig>(text.trim_start_matches('\u{feff}')).map(lumen_ipc::HaConfig::sanitised).unwrap_or_default()
+    }
+
+    /// The widget host reports the Home Assistant connection (at start-up and whenever it changes or is tried).
+    pub fn home_assistant_changed(&mut self, state: lumen_ipc::HaState) {
+        if self.home_assistant != state {
+            self.emit(event::HOME_ASSISTANT_CHANGED, &state);
+            self.home_assistant = state;
         }
     }
 
@@ -1987,6 +2048,44 @@ mod tests {
         assert!(!back.enabled);
         assert_eq!(service.handle(method::SET_STARTUP, json!({})).unwrap_err().code, code::INVALID_PARAMS);
         windows_registry::CURRENT_USER.remove_tree(&root).unwrap();
+    }
+
+
+    #[tokio::test(start_paused = true)]
+    async fn the_home_assistant_token_is_kept_replaced_and_forgotten() {
+        let mut service = service();
+        assert_eq!(service.handle(method::SET_HOME_ASSISTANT, json!({ "address": "ha.local:8123", "token": "t" })).unwrap_err().code, code::WIDGETS_UNAVAILABLE);
+        let sent: Rc<RefCell<Vec<WidgetCommand>>> = Rc::default();
+        let log = sent.clone();
+        service.set_widget_host(move |command| log.borrow_mut().push(command));
+        let last = |sent: &Rc<RefCell<Vec<WidgetCommand>>>| sent.borrow().iter().rev().find_map(|command| if let WidgetCommand::SetHomeAssistant(config) = command { Some(config.clone()) } else { None }).unwrap();
+        let save = |service: &Service<FakeDesktop>, config: &lumen_ipc::HaConfig| fs::write(service.store.root().join("home-assistant.json"), serde_json::to_string(config).unwrap()).unwrap();
+
+        let _: Value = call(&mut service, method::SET_HOME_ASSISTANT, json!({ "address": " ha.local:8123/ ", "token": "Bearer first-token " }));
+        assert_eq!(last(&sent), lumen_ipc::HaConfig { address: "http://ha.local:8123".into(), token: "first-token".into() });
+        save(&service, &last(&sent));
+        // The address alone keeps the saved token; a new token replaces it.
+        let _: Value = call(&mut service, method::SET_HOME_ASSISTANT, json!({ "address": "http://192.168.1.5:8123" }));
+        assert_eq!(last(&sent).token, "first-token");
+        let _: Value = call(&mut service, method::SET_HOME_ASSISTANT, json!({ "address": "http://192.168.1.5:8123", "token": "second" }));
+        assert_eq!(last(&sent).token, "second");
+        save(&service, &last(&sent));
+        // No address is "disconnect", and the token goes too.
+        let _: Value = call(&mut service, method::SET_HOME_ASSISTANT, json!({ "address": "" }));
+        assert_eq!(last(&sent), lumen_ipc::HaConfig::default());
+
+        assert_eq!(service.handle(method::SET_HOME_ASSISTANT, json!({ "address": "ftp://nope", "token": "t" })).unwrap_err().code, code::INVALID_PARAMS);
+        // What the app is told never holds a token, and a refused token is not tried again.
+        save(&service, &lumen_ipc::HaConfig { address: "http://ha.invalid:8123".into(), token: "secret-token".into() });
+        service.home_assistant_changed(lumen_ipc::HaState { address: "http://ha.invalid:8123".into(), has_token: true, status: lumen_ipc::HaStatus::Refused, name: None, error: Some("refused".into()) });
+        let told: Value = call(&mut service, method::GET_HOME_ASSISTANT, Value::Null);
+        assert!(!told.to_string().contains("secret-token") && told["hasToken"] == true);
+        assert!(service.handle(method::LIST_HA_ENTITIES, Value::Null).unwrap_err().message.contains("did not accept the token"));
+
+        let file: String = call(&mut service, method::NEW_HA_WIDGET, json!({ "entity": "switch.neon_light", "name": "Neon light" }));
+        let text = fs::read_to_string(service.store.root().join("widgets").join(&file)).unwrap();
+        assert!(file == "neon-light.yaml" && text.contains("ha.toggle switch.neon_light") && !text.contains("secret-token"));
+        assert_eq!(service.handle(method::NEW_HA_WIDGET, json!({ "entity": "../etc" })).unwrap_err().code, code::INVALID_PARAMS);
     }
 
 }

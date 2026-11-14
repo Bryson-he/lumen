@@ -419,6 +419,26 @@ export interface WidgetOption {
   choices: string[];
 }
 
+// ----- Home Assistant (crates/lumen-ipc/src/home_assistant.rs) -----
+
+/** The connection, without its token. */
+export interface HaState {
+  address: string;
+  hasToken: boolean;
+  status: "notSet" | "checking" | "connected" | "refused" | "unreachable";
+  name: string | null;
+  error: string | null;
+}
+
+/** One thing Home Assistant knows about. */
+export interface HaEntity {
+  id: string;
+  name: string;
+  state: string;
+  /** Whether a click can switch or run it. */
+  clickable: boolean;
+}
+
 /** Whether Lumen starts with Windows (crates/lumen-ipc/src/lib.rs). */
 export interface StartupState {
   enabled: boolean;

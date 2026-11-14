@@ -58,6 +58,7 @@ fn main() -> ExitCode {
     let widget_files_dir = store.root().join("widgets");
     let weather_path = store.root().join("weather.json");
     let script_approvals_path = store.root().join("script-approvals.json");
+    let home_assistant_path = store.root().join("home-assistant.json");
 
     // Fullscreen changes flow main -> service; the widget host's handle and
     // its state reports flow main -> service; shutdown flows main -> service;
@@ -100,7 +101,7 @@ fn main() -> ExitCode {
 
     // The desktop widgets live on this thread. The service sends the real
     // theme as soon as it has the handle; until then they use the fallback look.
-    let options = host::Options { layout_path, bar_path, flyouts_path, launcher_path, styles_path, fonts_dir, widget_files_dir, weather_path, script_approvals_path, topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
+    let options = host::Options { layout_path, bar_path, flyouts_path, launcher_path, styles_path, fonts_dir, widget_files_dir, weather_path, script_approvals_path, home_assistant_path, topmost: std::env::var_os("LUMEN_WIDGETS_TOPMOST").is_some() };
     let state_tx = host_tx.clone();
     let on_state = move |report| {
         let _ = state_tx.send(match report {
@@ -112,6 +113,7 @@ fn main() -> ExitCode {
             host::Report::Files(files) => FromHost::Files(files),
             host::Report::Weather(state) => FromHost::Weather(Box::new(state)),
             host::Report::Scripts(scripts) => FromHost::Scripts(scripts),
+            host::Report::HomeAssistant(state) => FromHost::HomeAssistant(state),
             host::Report::Costs(costs) => FromHost::Costs(costs),
         });
     };
@@ -168,6 +170,8 @@ enum FromHost {
     Weather(Box<lumen_ipc::WeatherState>),
     /// The scripts widget files name, and whether each may run.
     Scripts(Vec<lumen_ipc::ScriptInfo>),
+    /// The Home Assistant connection, without its token.
+    HomeAssistant(lumen_ipc::HaState),
     /// A preset was picked from the tray menu.
     ApplyPreset(String),
 }
@@ -242,6 +246,7 @@ fn run_service(
                     FromHost::Files(files) => widget_service.borrow_mut().widget_files_changed(files),
                     FromHost::Weather(state) => widget_service.borrow_mut().weather_changed(*state),
                     FromHost::Scripts(scripts) => widget_service.borrow_mut().scripts_changed(scripts),
+                    FromHost::HomeAssistant(state) => widget_service.borrow_mut().home_assistant_changed(state),
                     FromHost::ApplyPreset(id) => {
                         let params = serde_json::json!({ "id": id });
                         if let Err(error) = widget_service.borrow_mut().handle(lumen_ipc::method::APPLY_PRESET, params) {

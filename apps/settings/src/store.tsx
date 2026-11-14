@@ -3,7 +3,7 @@
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { call, CoreError, onConnection, onCoreEvent } from "./core";
-import type { BarConfig, ComponentStyle, FlyoutConfig, FontList, PartDefaults, WeatherConfig, WeatherState, WidgetFileInfo, ScriptInfo, LauncherConfig, MonitorInfo, StyleAssignments, StylesState, PresetInfo, PreviewState, PreviewThemeParams, Status, Theme, ThemeState, WallpaperEntry, WidgetsState } from "./types";
+import type { BarConfig, ComponentStyle, FlyoutConfig, FontList, PartDefaults, WeatherConfig, WeatherState, WidgetFileInfo, ScriptInfo, HaState, LauncherConfig, MonitorInfo, StyleAssignments, StylesState, PresetInfo, PreviewState, PreviewThemeParams, Status, Theme, ThemeState, WallpaperEntry, WidgetsState } from "./types";
 
 export type Screen = "home" | "presets" | "wallpapers" | "theme" | "widgets" | "bar" | "plugins" | "gallery" | "settings";
 
@@ -65,6 +65,8 @@ interface Lumen {
   widgetFiles: WidgetFileInfo[];
   /** The scripts widget files name, and whether each is allowed to run. */
   scripts: ScriptInfo[];
+  /** The Home Assistant connection (never its token); null until the core reports it. */
+  homeAssistant: HaState | null;
   /** Sends any request to the core; null (with the message strip set) if it failed. */
   request: <T>(method: string, params?: unknown) => Promise<T | null>;
   /** The parts each kind of widget comes with. Null until the core reports them. */
@@ -124,6 +126,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
   const [partDefaults, setPartDefaults] = useState<PartDefaults | null>(null);
   const [widgetFiles, setWidgetFiles] = useState<WidgetFileInfo[]>([]);
   const [scripts, setScripts] = useState<ScriptInfo[]>([]);
+  const [homeAssistant, setHomeAssistant] = useState<HaState | null>(null);
   const [weather, setWeatherState] = useState<WeatherState | null>(null);
   const [fonts, setFonts] = useState<FontList | null>(null);
   const [presets, setPresets] = useState<PresetInfo[]>([]);
@@ -183,6 +186,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       call<PartDefaults>("getPartDefaults").then(setPartDefaults, () => setPartDefaults(null)),
       call<WidgetFileInfo[]>("getWidgetFiles").then(setWidgetFiles, () => setWidgetFiles([])),
       call<ScriptInfo[]>("getScripts").then(setScripts, () => setScripts([])),
+      call<HaState>("getHomeAssistant").then(setHomeAssistant, () => setHomeAssistant(null)),
       call<WeatherState>("getWeather").then(setWeatherState, () => setWeatherState(null)),
     ]);
   }, [refreshTheme, refreshWallpapers, refreshStatus, attempt]);
@@ -210,6 +214,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
         if (method === "stylesChanged") setStylesState(params as StylesState);
         if (method === "widgetFilesChanged") setWidgetFiles(params as WidgetFileInfo[]);
         if (method === "scriptsChanged") setScripts(params as ScriptInfo[]);
+        if (method === "homeAssistantChanged") setHomeAssistant(params as HaState);
         if (method === "weatherChanged") setWeatherState(params as WeatherState);
         if (method === "presetsChanged") {
           setPresets(params as PresetInfo[]);
@@ -468,6 +473,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       setWeather,
       widgetFiles,
       scripts,
+      homeAssistant,
       request,
       partDefaults,
       fonts,
@@ -487,7 +493,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       setWallpaperOnly,
       wallpaperOf,
     }),
-    [screen, themeView, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, widgets, widgetRequest, bar, setBar, flyouts, setFlyouts, showFlyout, launcher, setLauncher, styles, setStyles, styleRequest, weather, setWeather, widgetFiles, scripts, request, partDefaults, fonts, refreshFonts, importFonts, presets, presetRequest, importPresets, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
+    [screen, themeView, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, widgets, widgetRequest, bar, setBar, flyouts, setFlyouts, showFlyout, launcher, setLauncher, styles, setStyles, styleRequest, weather, setWeather, widgetFiles, scripts, homeAssistant, request, partDefaults, fonts, refreshFonts, importFonts, presets, presetRequest, importPresets, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;

@@ -638,7 +638,7 @@ fn part_from(raw: &Value, variables: &Mapping, styles: &Mapping) -> Result<Part,
             "click" => {
                 part.click = text()?;
                 if crate::behaviour::parse_action(&part.click).is_none() && !part.click.trim().is_empty() {
-                    return Err(FileError::new(format!("`click: {}` is not something a click can do; use `open <program, file or web page>`, `media.toggle`, `media.next`, `media.previous`, `lumen.open` or `script`", part.click)));
+                    return Err(FileError::new(format!("`click: {}` is not something a click can do; use `open <program, file or web page>`, `media.toggle`, `media.next`, `media.previous`, `lumen.open`, `ha.toggle <entity>` or `script`", part.click)));
                 }
             }
             "when" | "alert-when" | "alertWhen" => {

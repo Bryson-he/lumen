@@ -67,6 +67,8 @@ pub struct Data<'a> {
     pub hovered: bool,
     /// What the widget's script last handed back (`{script.name}`); `None` for a widget without a script.
     pub script: Option<&'a std::collections::HashMap<String, String>>,
+    /// What Home Assistant says about the entities on screen (`{ha.light.desk}`); `None` until a connection is set.
+    pub ha: Option<&'a std::collections::HashMap<String, lumen_ipc::home_assistant::HaValue>>,
     /// A line to show at the foot of the widget (its script is waiting for approval, or failed).
     pub notice: Option<&'a str>,
 }
@@ -244,6 +246,10 @@ pub fn value_of(source: &str, data: &Data<'_>) -> Option<String> {
         "media.playing" => yes(data.media.is_some_and(|media| media.playing)),
         "media.active" => yes(data.media.is_some()),
         other => {
+            // Something in Home Assistant. Until it has been read (or if it does not exist) it shows a dash.
+            if let (Some((entity, field)), Some(values)) = (lumen_ipc::home_assistant::split_source(other), data.ha) {
+                return Some(values.get(&entity).and_then(|value| value.field(field)).unwrap_or_else(|| if field == "on" { String::new() } else { "–".to_owned() }));
+            }
             // A script's values: anything it has not handed back (yet) is blank rather than left as typed.
             if let (Some(name), Some(values)) = (other.strip_prefix("script."), data.script) {
                 return Some(values.get(name).cloned().unwrap_or_default());
@@ -296,7 +302,7 @@ mod tests {
     use super::*;
 
     fn data<'a>(clock: &'a ClockData, stats: &'a StatsData) -> Data<'a> {
-        Data { clock, stats, media: None, art: None, weather: Box::leak(Box::default()), history: Box::leak(Box::default()), hovered: false, script: None, notice: None }
+        Data { clock, stats, media: None, art: None, weather: Box::leak(Box::default()), history: Box::leak(Box::default()), hovered: false, script: None, ha: None, notice: None }
     }
 
     fn clock() -> ClockData {
@@ -422,6 +428,26 @@ mod tests {
         let (first, last) = (all[0].0, all[BLOCKS - 1].0);
         assert!((first.x - 10.0).abs() < 0.01 && (last.x + last.width - 210.0).abs() < 0.01, "the row fills its box exactly");
         assert!(all.windows(2).all(|pair| pair[1].0.x > pair[0].0.x + pair[0].0.width), "with a gap between blocks");
+    }
+
+
+    #[test]
+    fn home_assistant_values_fill_parts_conditions_bars_and_clicks() {
+        use lumen_ipc::home_assistant::HaValue;
+        let (clock, stats) = (ClockData::now(), StatsData::default());
+        let mut with = data(&clock, &stats);
+        assert_eq!(value_of("ha.light.desk", &with), None, "nothing until a connection is set");
+        let values = std::collections::HashMap::from([
+            ("light.desk".to_owned(), HaValue::from_json(&serde_json::json!({ "state": "on", "attributes": { "friendly_name": "Desk lamp", "brightness": 128 } }))),
+            ("sensor.battery".to_owned(), HaValue::from_json(&serde_json::json!({ "state": "83", "attributes": { "unit_of_measurement": "%" } }))),
+        ]);
+        with.ha = Some(&values);
+        assert_eq!(fill("{ha.light.desk.name}: {ha.light.desk} at {ha.light.desk.brightness}, {ha.switch.missing}", &with), "Desk lamp: On at 128, –");
+        let holds = |condition: &str| behaviour::holds(condition, &|name| value_of(name, &with));
+        assert!(holds("ha.light.desk.on") && !holds("ha.switch.missing.on") && holds("ha.sensor.battery > 80") && holds("ha.light.desk.brightness < 200"));
+        assert_eq!(fraction_for("ha.sensor.battery", &with), Some(0.83), "a percentage fills a bar or a dial");
+        let parts = vec![Part { id: "lamp".into(), click: "ha.toggle light.desk".into(), x: 0.0, y: 0.0, width: 50.0, height: 20.0, ..Default::default() }];
+        assert_eq!(action_at(&parts, &with, (220.0, 110.0), (220.0, 110.0), (10.0, 10.0)), Some(Action::HomeAssistant("light.desk".into())));
     }
 
 }

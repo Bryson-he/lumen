@@ -61,7 +61,8 @@ Light or dark, the app follows Windows:
 - **Bar, volume flyout and launcher.** All drawn in the same theme.
 - **Meters your way.** Any level can be a bar, a row of blocks, a ring, a dial or a graph, and switched between them in one click.
 - **Media buttons.** Play, pause and skip from a widget.
-- **Talks to your other things.** A script can call any web API, so a widget can show and switch a Home Assistant light. An example is in the gallery.
+- **Home Assistant built in.** Connect once, then pick any light, plug, scene or sensor from a list to put it on your desktop: a click switches it. See [docs/HOME-ASSISTANT.md](docs/HOME-ASSISTANT.md).
+- **Talks to your other things.** A script can call any web API, for anything Lumen does not cover itself.
 - **Scripted widgets.** A widget can have a small [Luau](https://luau.org) script. Scripts can do a lot, so each one says what it needs (files, internet, running programs) and never runs until you have allowed it. See [docs/SCRIPTS.md](docs/SCRIPTS.md).
 - **Colours for other apps.** Every theme you keep is also written out as a Windows Terminal colour scheme, VS Code colours, CSS variables and JSON.
 - **Presets.** Save, switch, export and import whole looks.

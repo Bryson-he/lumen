@@ -7,6 +7,7 @@ import { useLumen } from "../store";
 import type { StartupState } from "../types";
 import { Button, Check } from "../ui";
 import { useUpdates } from "../updates";
+import { HaConnection } from "./HomeAssistant";
 
 export function SettingsScreen() {
   const { request, status } = useLumen();
@@ -37,6 +38,8 @@ export function SettingsScreen() {
               : "Lumen starts quietly in the notification area, with your widgets and bar. Windows lists it under Task Manager, Startup apps, where it can also be switched off."}
           </p>
         </section>
+
+        <HaConnection />
 
         <section className="panel" aria-label="Updates">
           <h2 className="panel-title">Updates</h2>

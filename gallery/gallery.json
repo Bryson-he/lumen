@@ -31,9 +31,9 @@
     {
       "id": "home-assistant",
       "kind": "widget",
-      "name": "Home Assistant switch",
+      "name": "Home Assistant by script",
       "author": "Lumen",
-      "description": "Shows whether a light, switch or fan in Home Assistant is on, and toggles it with a click. You add your own address and token to its script. It goes online only to reach your Home Assistant.",
+      "description": "An example for people writing scripts: a Home Assistant switch made with a script and your own token. For everyday use, connect Home Assistant under Settings instead; it needs no script.",
       "file": "widgets/home-assistant.lumenwidget",
       "script": true,
       "permissions": [
