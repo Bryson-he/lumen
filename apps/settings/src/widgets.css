@@ -882,3 +882,44 @@ button.preview-chip:hover:not(:disabled) {
 .ha-kind {
   text-align: right;
 }
+
+/* ---------- Putting a widget at one of nine places ---------- */
+
+.place-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  width: 132px;
+  padding: 6px;
+  border-radius: var(--radius-input);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong);
+}
+.place-spot {
+  display: flex;
+  height: 26px;
+  padding: 5px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+.place-spot:hover:not(:disabled),
+.place-spot:focus-visible {
+  background: var(--surface-selected);
+}
+.place-spot span {
+  width: 14px;
+  height: 9px;
+  border-radius: 2px;
+  background: var(--text-muted);
+}
+.place-spot:hover:not(:disabled) span {
+  background: var(--text);
+}
+.place-spot:nth-child(3n + 1) { justify-content: flex-start; }
+.place-spot:nth-child(3n + 2) { justify-content: center; }
+.place-spot:nth-child(3n) { justify-content: flex-end; }
+.place-spot:nth-child(-n + 3) { align-items: flex-start; }
+.place-spot:nth-child(n + 4):nth-child(-n + 6) { align-items: center; }
+.place-spot:nth-child(n + 7) { align-items: flex-end; }

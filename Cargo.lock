@@ -2219,7 +2219,7 @@ dependencies = [
 
 [[package]]
 name = "lumen-core"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "image",
  "lumen-ipc",
@@ -2239,7 +2239,7 @@ dependencies = [
 
 [[package]]
 name = "lumen-ipc"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "lumen-theme",
  "serde",
@@ -2249,7 +2249,7 @@ dependencies = [
 
 [[package]]
 name = "lumen-render"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "thiserror 2.0.21",
  "windows",
@@ -2258,7 +2258,7 @@ dependencies = [
 
 [[package]]
 name = "lumen-settings"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "lumen-ipc",
  "serde",
@@ -2274,7 +2274,7 @@ dependencies = [
 
 [[package]]
 name = "lumen-theme"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "image",
  "material-colors",
@@ -2285,7 +2285,7 @@ dependencies = [
 
 [[package]]
 name = "lumen-widgets"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "image",
  "lumen-ipc",
@@ -2302,7 +2302,7 @@ dependencies = [
 
 [[package]]
 name = "lumen-win"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "lumen-theme",
  "thiserror 2.0.21",

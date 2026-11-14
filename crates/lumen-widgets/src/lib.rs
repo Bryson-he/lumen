@@ -35,4 +35,19 @@ pub const BUNDLED_FONTS: &[&[u8]] = &[
     include_bytes!("../../../assets/fonts/inter-latin-600-normal.woff2"),
     include_bytes!("../../../assets/fonts/space-grotesk-latin-500-normal.woff2"),
     include_bytes!("../../../assets/fonts/space-grotesk-latin-600-normal.woff2"),
+    // The handwritten face the app offers as a theme font; without it the desktop fell back to Segoe UI.
+    include_bytes!("../../../assets/fonts/caveat-latin-600-normal.woff2"),
+    include_bytes!("../../../assets/fonts/caveat-latin-700-normal.woff2"),
 ];
+
+#[cfg(test)]
+mod font_tests {
+    /// Every font the settings app can preview a widget in must also be one the desktop can draw.
+    #[test]
+    fn the_desktop_has_every_font_the_app_offers() {
+        let bundled = lumen_render::font_families_in(super::BUNDLED_FONTS);
+        for family in ["Inter", "Space Grotesk", "Caveat"] {
+            assert!(bundled.iter().any(|have| have == family), "{family} is missing from {bundled:?}");
+        }
+    }
+}

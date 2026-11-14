@@ -1054,7 +1054,7 @@ fn read_widget_include(folder: &Path, name: &str) -> Option<String> {
 
 /// An update for one widget that changes nothing yet.
 fn update_for(id: &str) -> lumen_ipc::widgets::UpdateWidgetParams {
-    lumen_ipc::widgets::UpdateWidgetParams { id: id.to_owned(), x: None, y: None, width: None, height: None, monitor: None, style: None, component_style: None, parts: None, file: None, options: None, dragging: false }
+    lumen_ipc::widgets::UpdateWidgetParams { id: id.to_owned(), x: None, y: None, width: None, height: None, monitor: None, style: None, component_style: None, parts: None, file: None, options: None, dragging: false, scale: None, anchor: None }
 }
 
 #[cfg(test)]
@@ -1759,7 +1759,7 @@ mod tests {
         let mut service = service();
         let root = service.store.root().to_owned();
         let fonts: FontList = call(&mut service, method::LIST_FONTS, Value::Null);
-        assert_eq!(fonts.bundled, ["Inter", "Space Grotesk"]);
+        assert_eq!(fonts.bundled, ["Caveat", "Inter", "Space Grotesk"]);
         assert!(fonts.imported.is_empty() && fonts.installed.iter().any(|family| family == "Segoe UI"));
 
         let font = root.join("My Font (1).woff2");

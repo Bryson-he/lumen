@@ -9,6 +9,9 @@ use lumen_ipc::widgets::{GRID, MIN_SIZE};
 /// How close (logical pixels) an edge must be to another widget's edge to snap to it.
 const EDGE_REACH: f32 = 8.0;
 
+/// How close a widget's middle must be to the monitor's middle to snap to it.
+const CENTRE_REACH: f32 = 12.0;
+
 /// A rectangle in logical pixels, relative to a monitor's work area.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Frame {
@@ -35,8 +38,8 @@ pub fn snap_move(wanted: Frame, others: &[Frame], area: (f32, f32), snap: bool) 
     let (mut x, mut guide_x) = (wanted.x, None);
     let (mut y, mut guide_y) = (wanted.y, None);
     if snap {
-        (x, guide_x) = snap_axis(wanted.x, wanted.width, others.iter().map(|o| (o.x, o.width)));
-        (y, guide_y) = snap_axis(wanted.y, wanted.height, others.iter().map(|o| (o.y, o.height)));
+        (x, guide_x) = snap_axis(wanted.x, wanted.width, area.0, others.iter().map(|o| (o.x, o.width)));
+        (y, guide_y) = snap_axis(wanted.y, wanted.height, area.1, others.iter().map(|o| (o.y, o.height)));
     }
 
     // Never off the monitor. If that moves it off a matched edge, drop the guide.
@@ -58,8 +61,13 @@ pub fn snap_size(width: f32, height: f32, snap: bool) -> (f32, f32) {
 
 /// One axis: returns the snapped start position and, if an edge of another
 /// widget was matched, the coordinate of that shared line.
-fn snap_axis(start: f32, size: f32, others: impl Iterator<Item = (f32, f32)>) -> (f32, Option<f32>) {
+fn snap_axis(start: f32, size: f32, area: f32, others: impl Iterator<Item = (f32, f32)>) -> (f32, Option<f32>) {
     let mut best: Option<(f32, f32, f32)> = None; // (distance, position, guide line)
+    // The middle of the monitor: a widget centred on it, with the guide down the middle.
+    let centred = (area - size) / 2.0;
+    if area > 0.0 && (centred - start).abs() <= CENTRE_REACH {
+        best = Some(((centred - start).abs(), centred, area / 2.0));
+    }
     for (other_start, other_size) in others {
         let other_end = other_start + other_size;
         // Line up starts, line up ends, or sit flush against either side.
@@ -195,4 +203,19 @@ mod tests {
         let column = [frame(48.0, 0.0, 190.0, 1040.0)];
         assert!(free_spot((190.0, 92.0), &column, AREA).0 >= 48.0 + 190.0 + GRID);
     }
+
+    #[test]
+    fn a_widget_snaps_to_the_middle_of_the_monitor() {
+        let area = (1920.0, 1040.0);
+        let near = snap_move(Frame { x: 853.0, y: 300.0, width: 200.0, height: 100.0 }, &[], area, true);
+        assert_eq!((near.x, near.guide_x), (860.0, Some(960.0)), "centred left to right, with a guide down the middle");
+        assert_eq!(near.guide_y, None);
+        let both = snap_move(Frame { x: 868.0, y: 462.0, width: 200.0, height: 100.0 }, &[], area, true);
+        assert_eq!((both.x, both.y, both.guide_x, both.guide_y), (860.0, 470.0, Some(960.0), Some(520.0)));
+        let far = snap_move(Frame { x: 800.0, y: 300.0, width: 200.0, height: 100.0 }, &[], area, true);
+        assert_eq!(far.guide_x, None);
+        let off = snap_move(Frame { x: 853.0, y: 300.0, width: 200.0, height: 100.0 }, &[], area, false);
+        assert_eq!(off.x, 853.0, "not when snapping is off");
+    }
+
 }

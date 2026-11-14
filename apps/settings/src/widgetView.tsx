@@ -305,12 +305,16 @@ function PartView({ part, look, values, size, defaultSize }: { part: Part; look:
 }
 
 /** A whole widget at 1:1 in logical pixels; scale it with a CSS transform. */
-export function WidgetView({ parts, look, size, defaultSize, values }: { parts: Part[]; look: Look; size: readonly [number, number]; defaultSize: readonly [number, number]; values: Record<string, string> }) {
+export function WidgetView({ parts, look, size, defaultSize, values, zoom = 1 }: { parts: Part[]; look: Look; size: readonly [number, number]; defaultSize: readonly [number, number]; values: Record<string, string>; zoom?: number }) {
   const radius = Math.min(look.radius, Math.min(size[0], size[1]) / 2);
+  // The contents are laid out as designed in a widget `zoom` times smaller, then drawn `zoom` times larger, as on the desktop.
+  const laidOut = [size[0] / zoom, size[1] / zoom] as const;
   return (
     <div className="wv" style={{ width: size[0], height: size[1], borderRadius: radius, background: look.background, opacity: look.opacity }}>
       {look.borderWidth > 0 && <span className="wv-border" style={{ borderRadius: radius, border: `${look.borderWidth}px solid ${look.border}` }} />}
-      {parts.map((part) => !part.hidden && <PartView key={part.id} part={part} look={look} values={values} size={size} defaultSize={defaultSize} />)}
+      <div style={{ position: "absolute", left: 0, top: 0, width: laidOut[0], height: laidOut[1], transform: zoom === 1 ? undefined : `scale(${zoom})`, transformOrigin: "0 0" }}>
+        {parts.map((part) => !part.hidden && <PartView key={part.id} part={part} look={look} values={values} size={laidOut} defaultSize={defaultSize} />)}
+      </div>
     </div>
   );
 }

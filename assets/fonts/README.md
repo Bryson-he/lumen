@@ -9,3 +9,5 @@ families through the `@fontsource` npm packages.
 
 Files are the Latin WOFF2 subsets from `@fontsource/inter` and
 `@fontsource/space-grotesk`. Other scripts fall back to Windows' own fonts.
+
+Caveat (600 and 700) is by the Caveat Project Authors, under the SIL Open Font License; see `LICENSE-Caveat.txt`. It is the handwritten face offered as a theme font.

@@ -84,10 +84,14 @@ fn visible(part: &Part, data: &Data<'_>) -> bool {
 
 /// Draws the card and every visible part. `default_size` is the widget size
 /// the parts' positions were written for.
-pub fn draw(canvas: &Canvas<'_>, paint: &Paint, parts: &[Part], data: &Data<'_>, size: (f32, f32), default_size: (f32, f32)) {
+pub fn draw(canvas: &Canvas<'_>, paint: &Paint, parts: &[Part], data: &Data<'_>, size: (f32, f32), default_size: (f32, f32), zoom: f32) {
     paint.card(canvas, size.0, size.1);
+    // The parts are laid out as designed in a widget `zoom` times smaller, then everything is drawn `zoom` times larger.
+    let zoom = if zoom.is_finite() && zoom > 0.0 { zoom } else { 1.0 };
+    let laid_out = (size.0 / zoom, size.1 / zoom);
     for part in parts.iter().filter(|part| visible(part, data)) {
-        let (x, y, width, height) = part.rect_in(size, default_size);
+        let (x, y, width, height) = part.rect_in(laid_out, default_size);
+        let (x, y, width, height) = (x * zoom, y * zoom, width * zoom, height * zoom);
         let rect = Rect::new(x, y, width, height);
         let colour = colour(paint, part, data);
         match part.kind {
@@ -99,7 +103,7 @@ pub fn draw(canvas: &Canvas<'_>, paint: &Paint, parts: &[Part], data: &Data<'_>,
                     PartWeight::Medium => Weight::Medium,
                     PartWeight::SemiBold => Weight::SemiBold,
                 };
-                let style = TextStyle { family, size: part.size * paint.text_scale, weight, color: colour, align_right: part.align == PartAlign::Right, align_center: part.align == PartAlign::Centre };
+                let style = TextStyle { family, size: part.size * paint.text_scale * zoom, weight, color: colour, align_right: part.align == PartAlign::Right, align_center: part.align == PartAlign::Centre };
                 canvas.text(&text, rect, style);
             }
             PartKind::Icon => {
@@ -155,12 +159,12 @@ pub fn draw(canvas: &Canvas<'_>, paint: &Paint, parts: &[Part], data: &Data<'_>,
                     let step = width / (History::LENGTH - 1) as f32;
                     let first_x = x + width - step * (readings.len() - 1) as f32;
                     let points: Vec<(f32, f32)> = readings.iter().enumerate().map(|(index, value)| (first_x + step * index as f32, y + 1.0 + (height - 2.0) * (1.0 - value.clamp(0.0, 1.0)))).collect();
-                    canvas.polyline(&points, 1.6, colour);
+                    canvas.polyline(&points, 1.6 * zoom.max(0.6), colour);
                 }
             }
-            PartKind::Shape => canvas.fill_round_rect(rect, part.radius.min(width.min(height) / 2.0), colour),
+            PartKind::Shape => canvas.fill_round_rect(rect, (part.radius * zoom).min(width.min(height) / 2.0), colour),
             PartKind::Image => {
-                let radius = part.radius.min(width.min(height) / 2.0);
+                let radius = (part.radius * zoom).min(width.min(height) / 2.0);
                 match data.art.filter(|_| part.source == "media.art") {
                     Some(bitmap) => canvas.image(bitmap, rect, radius),
                     // No picture: a soft gradient in the theme's colours.
@@ -190,7 +194,9 @@ pub fn blocks(rect: Rect, fraction: f32) -> Vec<(Rect, bool)> {
 
 /// What a click at a point inside the widget does: the action of the
 /// topmost visible part there that has one.
-pub fn action_at(parts: &[Part], data: &Data<'_>, size: (f32, f32), default_size: (f32, f32), point: (f32, f32)) -> Option<Action> {
+pub fn action_at(parts: &[Part], data: &Data<'_>, size: (f32, f32), default_size: (f32, f32), zoom: f32, point: (f32, f32)) -> Option<Action> {
+    let zoom = if zoom.is_finite() && zoom > 0.0 { zoom } else { 1.0 };
+    let (size, point) = ((size.0 / zoom, size.1 / zoom), (point.0 / zoom, point.1 / zoom));
     parts.iter().rev().filter(|part| visible(part, data)).find_map(|part| {
         let (x, y, width, height) = part.rect_in(size, default_size);
         // A few pixels of grace: text boxes are often only as tall as the text.
@@ -382,7 +388,7 @@ mod tests {
         let data = data(&clock, &stats);
         let part = |id: &str, x: f32, click: &str, when: &str| Part { id: id.into(), x, y: 10.0, width: 40.0, height: 20.0, click: click.into(), when: when.into(), ..Default::default() };
         let parts = vec![part("under", 10.0, "lumen.open", ""), part("over", 30.0, "media.toggle", ""), part("plain", 100.0, "", ""), part("gone", 160.0, "lumen.open", "stats.cpu > 90")];
-        let at = |x: f32, y: f32| action_at(&parts, &data, (220.0, 110.0), (220.0, 110.0), (x, y));
+        let at = |x: f32, y: f32| action_at(&parts, &data, (220.0, 110.0), (220.0, 110.0), 1.0, (x, y));
         assert_eq!(at(15.0, 20.0), Some(Action::OpenLumen));
         assert_eq!(at(40.0, 20.0), Some(Action::ToggleMedia), "where two overlap, the one drawn on top");
         assert_eq!(at(110.0, 20.0), None, "a part with no action");
@@ -412,7 +418,11 @@ mod tests {
         assert_eq!(fill("Now {script.price} {script.unknown}!", &with), "Now 42 !");
         assert!(behaviour::holds("script.price > 40", &|name| value_of(name, &with)) && !behaviour::holds("script.unknown", &|name| value_of(name, &with)));
         let parts = vec![Part { id: "go".into(), click: "script".into(), x: 0.0, y: 0.0, width: 50.0, height: 20.0, ..Default::default() }];
-        assert_eq!(action_at(&parts, &with, (220.0, 110.0), (220.0, 110.0), (10.0, 10.0)), Some(Action::Script("go".into())));
+        assert_eq!(action_at(&parts, &with, (220.0, 110.0), (220.0, 110.0), 1.0, (10.0, 10.0)), Some(Action::Script("go".into())));
+        // Drawn twice the size, the same part is under a point twice as far in, and no longer under one past its new edge.
+        assert_eq!(action_at(&parts, &with, (440.0, 220.0), (220.0, 110.0), 2.0, (90.0, 30.0)), Some(Action::Script("go".into())));
+        assert_eq!(action_at(&parts, &with, (440.0, 220.0), (220.0, 110.0), 2.0, (120.0, 30.0)), None);
+        assert_eq!(action_at(&parts, &with, (220.0, 110.0), (220.0, 110.0), 1.0, (90.0, 10.0)), None);
         for name in SOURCES {
             assert!(value_of(name, &with).is_some(), "{name}");
         }
@@ -447,7 +457,7 @@ mod tests {
         assert!(holds("ha.light.desk.on") && !holds("ha.switch.missing.on") && holds("ha.sensor.battery > 80") && holds("ha.light.desk.brightness < 200"));
         assert_eq!(fraction_for("ha.sensor.battery", &with), Some(0.83), "a percentage fills a bar or a dial");
         let parts = vec![Part { id: "lamp".into(), click: "ha.toggle light.desk".into(), x: 0.0, y: 0.0, width: 50.0, height: 20.0, ..Default::default() }];
-        assert_eq!(action_at(&parts, &with, (220.0, 110.0), (220.0, 110.0), (10.0, 10.0)), Some(Action::HomeAssistant("light.desk".into())));
+        assert_eq!(action_at(&parts, &with, (220.0, 110.0), (220.0, 110.0), 1.0, (10.0, 10.0)), Some(Action::HomeAssistant("light.desk".into())));
     }
 
 }

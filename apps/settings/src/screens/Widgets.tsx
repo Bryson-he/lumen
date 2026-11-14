@@ -7,7 +7,7 @@ import { hexToRgb } from "../color";
 import { call } from "../core";
 import { PageHeader } from "../Shell";
 import { useLumen } from "../store";
-import {
+import { type Anchor,
   WIDGET_CPU_BUDGET,
   WIDGET_GRID,
   WIDGET_MIN_SIZE,
@@ -43,6 +43,19 @@ const GLASS_OPACITY = { none: 1, low: 0.9, medium: 0.78, high: 0.64 } as const;
 const ZOOM_STEPS = [0.15, 0.2, 0.3, 0.4, 0.5, 0.65, 0.8, 1];
 
 type Tab = "layout" | "style" | "parts" | "data";
+
+/** The nine places a widget can be sent to, in reading order. */
+const PLACES: { anchor: Anchor; label: string }[] = [
+  { anchor: "top-left", label: "Top left" },
+  { anchor: "top", label: "Top middle" },
+  { anchor: "top-right", label: "Top right" },
+  { anchor: "left", label: "Middle left" },
+  { anchor: "centre", label: "Centre of the monitor" },
+  { anchor: "right", label: "Middle right" },
+  { anchor: "bottom-left", label: "Bottom left" },
+  { anchor: "bottom", label: "Bottom middle" },
+  { anchor: "bottom-right", label: "Bottom right" },
+];
 
 export function WidgetsScreen() {
   const { widgets, widgetRequest, shown, wallpapers, styles, partDefaults, widgetFiles, request, go } = useLumen();
@@ -579,7 +592,7 @@ function PreviewWidget({ placement, theme }: { placement: Placement; theme: Them
   const values = useSampleValues();
   if (!theme || !styles || !partDefaults) return null;
   const { parts, defaultSize } = partsOf(placement, partDefaults, widgetFiles, widgets?.resolved);
-  return <WidgetView parts={parts} look={lookFor(placement, theme, styles)} size={[placement.width, placement.height]} defaultSize={defaultSize} values={values} />;
+  return <WidgetView parts={parts} look={lookFor(placement, theme, styles)} size={[placement.width, placement.height]} defaultSize={defaultSize} values={values} zoom={placement.scale ?? 1} />;
 }
 
 // ---------- The inspector ----------
@@ -660,6 +673,32 @@ function Inspector({
             <NumberField label="Height" value={placement.height} min={56} max={2000} disabled={locked} onCommit={(height) => onUpdate({ id, height })} />
             <NumberField label="X" value={placement.x} min={0} max={20000} disabled={locked} onCommit={(x) => onUpdate({ id, x })} />
             <NumberField label="Y" value={placement.y} min={0} max={20000} disabled={locked} onCommit={(y) => onUpdate({ id, y })} />
+          </div>
+          <Slider
+            label="Contents size"
+            min={40}
+            max={500}
+            value={Math.round((placement.scale ?? 1) * 100)}
+            format={(v) => `${v}%`}
+            disabled={locked}
+            onCommit={(percent) => {
+              // The box grows with its contents, so nothing is cut off.
+              const ratio = percent / 100 / (placement.scale ?? 1);
+              onUpdate({ id, scale: percent / 100, width: Math.round(placement.width * ratio), height: Math.round(placement.height * ratio) });
+            }}
+          />
+          <div className="field">
+            <span className="small-14" id={`${monitorSelectId}-place`}>
+              Put it at
+            </span>
+            <div className="place-grid" role="group" aria-labelledby={`${monitorSelectId}-place`}>
+              {PLACES.map((place) => (
+                <button key={place.anchor} type="button" className="place-spot" title={place.label} aria-label={place.label} disabled={locked} onClick={() => onUpdate({ id, anchor: place.anchor })}>
+                  <span aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+            <span className="muted small">A corner, an edge or the middle of its monitor. Dragging also snaps to the middle.</span>
           </div>
           {monitors.length > 1 && (
             <div className="field">

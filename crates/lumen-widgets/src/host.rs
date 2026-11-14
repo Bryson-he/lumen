@@ -46,7 +46,7 @@ use windows::{
         System::LibraryLoader::GetModuleHandleW,
         UI::{
             HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI},
-            Input::KeyboardAndMouse::{MOD_ALT, MOD_NOREPEAT, MOD_WIN, RegisterHotKey, ReleaseCapture, SetCapture, UnregisterHotKey, VK_ESCAPE},
+            Input::KeyboardAndMouse::{GetKeyState, MOD_ALT, MOD_NOREPEAT, MOD_WIN, RegisterHotKey, ReleaseCapture, SetCapture, UnregisterHotKey, VK_ESCAPE, VK_SHIFT},
             WindowsAndMessaging::{
                 CreateWindowExW, DefWindowProcW, DestroyWindow, GetCursorPos, IDC_ARROW, IDC_HAND, IDC_SIZEALL, IDC_SIZENESW, IDC_SIZENWSE, KillTimer, LoadCursorW, PostMessageW,
                 RegisterClassW, SetCursor, SetTimer, WINDOW_STYLE, WM_APP, WM_CAPTURECHANGED, WM_DISPLAYCHANGE, WM_ACTIVATE, WM_CHAR, WM_HOTKEY, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
@@ -265,6 +265,8 @@ struct Drag {
     grab: (i32, i32),
     /// The corner that stays put while resizing, in logical pixels.
     anchor: (f32, f32),
+    /// The widget's size and contents scale when the drag began (for scaling the contents with Shift held).
+    start: (f32, f32, f32),
     last_report: Instant,
 }
 
@@ -750,6 +752,7 @@ impl Host {
             let (width, height) = self.slots[index].surface.size();
             // Its file's parts, its own, or the arrangement its kind comes with.
             let Some((parts, default_size)) = self.placement(&id).map(|placement| self.parts_of(placement)) else { continue };
+            let zoom = self.placement(&id).map_or(1.0, |placement| placement.scale);
             let file = self.placement(&id).and_then(|placement| placement.file.clone());
             let (script, notice) = self.scripts.view(file.as_deref());
             let home = self.ha.view();
@@ -764,7 +767,7 @@ impl Host {
                     *art = canvas.bitmap_from_rgba(cover.size, cover.size, &cover.rgba).ok();
                 }
                 let data = parts::Data { clock, stats, media, art: art.as_ref(), weather, history, hovered, script, ha: home, notice: notice.as_deref() };
-                parts::draw(canvas, &paint, &parts, &data, (width, height), default_size);
+                parts::draw(canvas, &paint, &parts, &data, (width, height), default_size, zoom);
             });
             self.governor.record_draw(&id, started.elapsed());
             match result {
@@ -824,7 +827,7 @@ impl Host {
         let (parts, default_size) = self.parts_of(placement);
         let scale = slot.surface.scale();
         let data = parts::Data { script: self.scripts.view(placement.file.as_deref()).0, ..self.part_data(true) };
-        parts::action_at(&parts, &data, slot.surface.size(), default_size, (x as f32 / scale, y as f32 / scale))
+        parts::action_at(&parts, &data, slot.surface.size(), default_size, placement.scale, (x as f32 / scale, y as f32 / scale))
     }
 
     /// A widget was clicked (outside edit mode): do what the part under the mouse says.
@@ -1143,6 +1146,25 @@ impl Host {
                 None => after.parts = Some(lumen_ipc::parts::sanitise_parts(parts)).filter(|parts| !parts.is_empty()),
             }
         }
+        if let Some(scale) = params.scale.filter(|scale| scale.is_finite()) {
+            after.scale = scale.clamp(lumen_ipc::widgets::SCALE_RANGE.0, lumen_ipc::widgets::SCALE_RANGE.1);
+        }
+        // One of the nine named places: worked out here for the size the widget will have, and
+        // taken exactly, not nudged to the grid or a neighbour.
+        if let Some(anchor) = params.anchor.as_deref()
+            && !self.layout.locked
+        {
+            let area = self.area_size(self.area_index(after.monitor.as_deref()));
+            let size = (params.width.unwrap_or(after.width).clamp(MIN_SIZE.0, 2000.0), params.height.unwrap_or(after.height).clamp(MIN_SIZE.1, 2000.0));
+            if let Some((x, y)) = lumen_ipc::widgets::anchor_position(anchor, size, area) {
+                (after.width, after.height, after.x, after.y) = (size.0, size.1, x, y);
+                self.guides = Guides::default();
+                self.layout.widgets[index] = after.clone();
+                self.apply_placement(&after, before.monitor != after.monitor);
+                self.after_layout_change(true);
+                return;
+            }
+        }
         let moved = params.x.is_some() || params.y.is_some();
         let resized = params.width.is_some() || params.height.is_some();
         let relocating = (moved || resized || after.monitor != before.monitor) && !self.layout.locked;
@@ -1221,6 +1243,7 @@ impl Host {
             parts: None,
             file,
             options: Default::default(),
+            scale: 1.0,
         };
         if let Some(slot) = self.create_slot(&placement) {
             self.slots.push(slot);
@@ -1402,7 +1425,7 @@ impl Host {
         };
         unsafe { SetCapture(HWND(window as *mut _)) };
         if let Some(edit) = self.edit.as_mut() {
-            edit.drag = Some(Drag { id, mode, grab: (x, y), anchor, last_report: Instant::now() - DRAG_REPORT_EVERY });
+            edit.drag = Some(Drag { id, mode, grab: (x, y), anchor, start: (placement.width, placement.height, placement.scale), last_report: Instant::now() - DRAG_REPORT_EVERY });
         }
     }
 
@@ -1411,7 +1434,7 @@ impl Host {
         let Some(drag) = self.edit.as_ref().and_then(|edit| edit.drag.as_ref()) else {
             return;
         };
-        let (id, mode, grab, anchor) = (drag.id.clone(), drag.mode, drag.grab, drag.anchor);
+        let (id, mode, grab, anchor, start) = (drag.id.clone(), drag.mode, drag.grab, drag.anchor, drag.start);
         let Some(slot) = self.slots.iter().find(|slot| slot.surface.window() == window && slot.id == id) else {
             return;
         };
@@ -1442,7 +1465,17 @@ impl Host {
                 };
                 let pointer = ((screen_x - area.work.0) as f32 / area.scale, (screen_y - area.work.1) as f32 / area.scale);
                 let (width, height) = snap::snap_size((pointer.0 - anchor.0).abs(), (pointer.1 - anchor.1).abs(), self.layout.snap);
-                let (width, height) = (width.max(MIN_SIZE.0), height.max(MIN_SIZE.1));
+                let (mut width, mut height) = (width.max(MIN_SIZE.0), height.max(MIN_SIZE.1));
+                // With Shift held the contents grow and shrink with the box, which keeps its shape.
+                if unsafe { GetKeyState(i32::from(VK_SHIFT.0)) } < 0 && start.0 > 0.0 {
+                    let limits = lumen_ipc::widgets::SCALE_RANGE;
+                    let ratio = ((pointer.0 - anchor.0).abs() / start.0).max((pointer.1 - anchor.1).abs() / start.1).clamp(limits.0 / start.2, limits.1 / start.2);
+                    (width, height) = ((start.0 * ratio).round().max(MIN_SIZE.0), (start.1 * ratio).round().max(MIN_SIZE.1));
+                    params.scale = Some(start.2 * ratio);
+                    if let Some(widget) = self.layout.widgets.iter_mut().find(|w| w.id == id) {
+                        widget.scale = (start.2 * ratio).clamp(limits.0, limits.1);
+                    }
+                }
                 params.width = Some(width);
                 params.height = Some(height);
                 // Dragging a left or top handle moves that edge; the anchor corner stays.

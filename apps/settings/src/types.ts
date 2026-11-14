@@ -139,6 +139,8 @@ export interface Placement {
   file?: string;
   /** Its answers to the options its file exposes. */
   options?: Record<string, number | boolean | string>;
+  /** How large the contents are drawn: 1 is as designed. Left out when 1. */
+  scale?: number;
 }
 
 export interface WidgetLayout {
@@ -185,6 +187,10 @@ export interface UpdateWidgetParams {
   file?: string;
   /** Its answers to its file's options (replaces all of them). */
   options?: Record<string, number | boolean | string>;
+  /** How large the contents are drawn: 1 is as designed. */
+  scale?: number;
+  /** Put it at one of nine places on its monitor. */
+  anchor?: Anchor;
   /** True while still dragging: snapped and shown, not yet saved. */
   dragging?: boolean;
 }
@@ -619,3 +625,6 @@ export const PART_ICONS: Record<string, string> = {
   link: "\uE71B",
   info: "\uE946",
 };
+
+/** The nine places a widget can be sent to on its monitor. */
+export type Anchor = "top-left" | "top" | "top-right" | "left" | "centre" | "right" | "bottom-left" | "bottom" | "bottom-right";

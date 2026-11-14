@@ -104,6 +104,9 @@ pub struct Placement {
     /// This widget's answers to the options its file exposes.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
     pub options: crate::widget_file::OptionValues,
+    /// How large the contents are drawn: 1.0 is as designed, 2.0 is twice the size.
+    #[serde(default = "one", skip_serializing_if = "is_one")]
+    pub scale: f32,
 }
 
 /// `widgets/layout.json`.
@@ -131,7 +134,7 @@ impl Default for Layout {
             .into_iter()
             .map(|kind| {
                 let (width, height) = kind.default_size();
-                let placement = Placement { id: format!("{}-1", kind.id_prefix()), kind, monitor: None, x: 48.0, y, width, height, style: WidgetStyle::default(), component_style: None, parts: None, file: None, options: Default::default() };
+                let placement = Placement { id: format!("{}-1", kind.id_prefix()), kind, monitor: None, x: 48.0, y, width, height, style: WidgetStyle::default(), component_style: None, parts: None, file: None, options: Default::default(), scale: 1.0 };
                 y += height + GRID;
                 placement
             })
@@ -235,6 +238,42 @@ pub struct WidgetCost {
     pub status: CostStatus,
 }
 
+/// The limits on how large a widget's contents can be drawn.
+pub const SCALE_RANGE: (f32, f32) = (0.4, 5.0);
+/// How far from the monitor's edges the nine placing spots sit.
+pub const ANCHOR_MARGIN: f32 = 24.0;
+
+fn one() -> f32 {
+    1.0
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref)]
+fn is_one(scale: &f32) -> bool {
+    (*scale - 1.0).abs() < 0.001
+}
+
+/// Where a widget of `size` goes for one of the nine named places in an area of `area`.
+pub fn anchor_position(anchor: &str, size: (f32, f32), area: (f32, f32)) -> Option<(f32, f32)> {
+    let along = |place: u8, size: f32, area: f32| match place {
+        0 => ANCHOR_MARGIN.min((area - size).max(0.0)),
+        1 => ((area - size) / 2.0).max(0.0),
+        _ => (area - size - ANCHOR_MARGIN).max(0.0),
+    };
+    let (column, row) = match anchor {
+        "top-left" => (0, 0),
+        "top" => (1, 0),
+        "top-right" => (2, 0),
+        "left" => (0, 1),
+        "centre" | "center" => (1, 1),
+        "right" => (2, 1),
+        "bottom-left" => (0, 2),
+        "bottom" => (1, 2),
+        "bottom-right" => (2, 2),
+        _ => return None,
+    };
+    Some((along(column, size.0, area.0).round(), along(row, size.1, area.1).round()))
+}
+
 /// Params of `updateWidget`. Only the fields given are changed.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -265,6 +304,13 @@ pub struct UpdateWidgetParams {
     /// This widget's answers to its file's options (replaces all of them).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub options: Option<crate::widget_file::OptionValues>,
+    /// How large the contents are drawn (see [`Placement::scale`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<f32>,
+    /// Put it at one of nine places on its monitor: `top-left`, `top`, `top-right`,
+    /// `left`, `centre`, `right`, `bottom-left`, `bottom`, `bottom-right`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<String>,
     /// True while the user is still dragging: the position is snapped and
     /// shown with guides, but not written to disk until a final update.
     #[serde(default)]
@@ -370,4 +416,24 @@ mod tests {
         assert_eq!(layout.widgets.len(), 1);
         assert_eq!((layout.widgets[0].width, layout.widgets[0].height, layout.widgets[0].style.opacity), (MIN_SIZE.0, 2000.0, 20));
     }
+
+    #[test]
+    fn the_nine_places_sit_a_margin_in_and_the_middle_is_the_middle() {
+        let place = |anchor: &str| anchor_position(anchor, (200.0, 100.0), (1920.0, 1040.0)).unwrap();
+        assert_eq!((place("top-left"), place("top"), place("top-right")), ((24.0, 24.0), (860.0, 24.0), (1696.0, 24.0)));
+        assert_eq!((place("left"), place("centre"), place("right")), ((24.0, 470.0), (860.0, 470.0), (1696.0, 470.0)));
+        assert_eq!((place("bottom-left"), place("bottom"), place("bottom-right")), ((24.0, 916.0), (860.0, 916.0), (1696.0, 916.0)));
+        assert_eq!(place("center"), place("centre"));
+        assert_eq!(anchor_position("upwards", (1.0, 1.0), (10.0, 10.0)), None);
+        // A widget larger than the monitor is never pushed off it.
+        assert_eq!(anchor_position("bottom-right", (3000.0, 2000.0), (1920.0, 1040.0)), Some((0.0, 0.0)));
+    }
+
+    #[test]
+    fn a_placement_without_a_scale_is_drawn_as_designed() {
+        let old: Placement = serde_json::from_value(serde_json::json!({ "id": "a", "kind": "clock", "x": 0, "y": 0, "width": 200, "height": 100 })).unwrap();
+        assert_eq!(old.scale, 1.0);
+        assert!(serde_json::to_value(&old).unwrap().get("scale").is_none(), "and a plain one is not written out");
+    }
+
 }

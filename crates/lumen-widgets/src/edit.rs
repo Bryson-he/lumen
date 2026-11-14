@@ -28,11 +28,11 @@ pub const CHROME_TOP: f32 = 40.0;
 /// How far the outline sits outside the widget.
 const OUTLINE_GAP: f32 = 3.0;
 /// Within this distance of a corner, a drag resizes instead of moving.
-pub const HANDLE_REACH: f32 = 14.0;
+pub const HANDLE_REACH: f32 = 20.0;
 /// How strongly the desktop is dimmed, 0–255.
 const DIM_ALPHA: u8 = 120;
 
-pub const HINT_SIZE: (f32, f32) = (520.0, 40.0);
+pub const HINT_SIZE: (f32, f32) = (760.0, 40.0);
 /// A guide line's thickness in logical pixels.
 pub const GUIDE_THICKNESS: f32 = 2.0;
 
@@ -117,9 +117,10 @@ pub fn draw_selection(canvas: &Canvas<'_>, paint: &Paint, size: (f32, f32), widg
     let outline = widget.inset(-OUTLINE_GAP - 2.0);
     canvas.stroke_round_rect(outline, widget_radius + OUTLINE_GAP + 2.0, 2.0, paint.primary);
 
-    // Four corner handles.
-    let handle = 10.0;
-    for (x, y) in [(outline.x, outline.y), (outline.x + outline.width, outline.y), (outline.x, outline.y + outline.height), (outline.x + outline.width, outline.y + outline.height)] {
+    // Four corner handles, sitting on the widget's own corners (just inside), where a click reaches the widget.
+    let handle = 12.0;
+    let inset = 5.0;
+    for (x, y) in [(widget.x + inset, widget.y + inset), (widget.x + widget.width - inset, widget.y + inset), (widget.x + inset, widget.y + widget.height - inset), (widget.x + widget.width - inset, widget.y + widget.height - inset)] {
         let square = Rect::new(x - handle / 2.0 - 1.0, y - handle / 2.0 - 1.0, handle + 2.0, handle + 2.0);
         canvas.fill_round_rect(square, 3.0, paint.primary);
         canvas.fill_round_rect(square.inset(2.0), 1.5, paint.text);
@@ -152,6 +153,6 @@ pub fn draw_hint(canvas: &Canvas<'_>, paint: &Paint, size: (f32, f32), locked: b
     let bounds = Rect::new(0.0, 0.0, size.0, size.1);
     canvas.fill_round_rect(bounds, size.1 / 2.0, paint.surface);
     canvas.stroke_round_rect(bounds, size.1 / 2.0, 1.0, paint.border);
-    let text = if locked { "Layout is locked · unlock it in Lumen to move widgets · Esc to finish" } else { "Drag to move · drag a corner to resize · Esc to finish" };
+    let text = if locked { "Layout is locked · unlock it in Lumen to move widgets · Esc to finish" } else { "Drag to move · drag a corner to resize · hold Shift to scale the contents too · Esc to finish" };
     canvas.text(text, Rect::new(20.0, 11.0, size.0 - 40.0, 20.0), paint.body(14.0, Weight::Medium, paint.text));
 }
