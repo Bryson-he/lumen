@@ -29,26 +29,20 @@
 
 ## On a real desktop
 
-<table>
-  <tr>
-    <td width="46%" valign="top">
-      <img src="docs/media/desktop.webp" alt="A desktop at night with Lumen widgets and no backgrounds: the date in a handwritten font, a large clock, what is playing with a row of progress blocks, system bars, and a phone's battery level from Home Assistant">
-    </td>
-    <td valign="top">
-      <h3>Widgets that look like part of the wallpaper</h3>
-      <p>This is a desktop in daily use. Every piece on it is a Lumen widget with its background switched off, coloured by the theme Lumen made from the photo behind it.</p>
-      <table>
-        <tr><td><b>Date and clock</b></td><td>Two fonts in one widget: a handwritten date over a large clock.</td></tr>
-        <tr><td><b>Now playing</b></td><td>Cover, title and artist, with progress shown as a row of blocks instead of a bar.</td></tr>
-        <tr><td><b>System</b></td><td>Processor, memory and graphics as thin bars.</td></tr>
-        <tr><td><b>Phone charge</b></td><td>A phone's battery level, read live from Home Assistant.</td></tr>
-      </table>
-      <p>Nothing here needed code. Each widget was arranged with the mouse in Lumen's designer.</p>
-    </td>
-  </tr>
-</table>
+<img align="right" width="44%" src="docs/media/desktop.webp" alt="A desktop at night with Lumen widgets and no backgrounds: the date in a handwritten font, a large clock, what is playing with a row of progress blocks, system bars, and a phone's battery level from Home Assistant">
 
-<br>
+### Widgets that look like part of the wallpaper
+
+This is a desktop in daily use. Every piece on it is a Lumen widget with its background switched off, coloured by the theme Lumen made from the photo behind it.
+
+- **Date and clock.** Two fonts in one widget: a handwritten date over a large clock.
+- **Now playing.** Cover, title and artist, with progress as a row of blocks instead of a bar.
+- **System.** Processor, memory and graphics as thin bars.
+- **Phone charge.** A phone's battery level, read live from Home Assistant.
+
+Nothing here needed code. Each widget was arranged with the mouse in Lumen's designer.
+
+<br clear="both">
 
 ## What it does
 
