@@ -28,6 +28,10 @@ pub enum PartKind {
     Shape,
     /// A circular gauge, filled round as far as its value says.
     Ring,
+    /// A dial: three quarters of a circle, open at the bottom, filled from the left as far as its value says.
+    Dial,
+    /// A level bar drawn as a row of ten blocks, lit as far as its value says.
+    Blocks,
     /// A line showing how a value has moved over the last couple of minutes.
     Graph,
     /// A small symbol: one of Lumen's named icons, or any character or emoji.

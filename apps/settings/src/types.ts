@@ -341,7 +341,7 @@ export const STYLE_FONTS = ["Inter", "Space Grotesk"] as const;
 
 // ----- Widget parts (crates/lumen-ipc/src/parts.rs) -----
 
-export type PartKind = "text" | "bar" | "image" | "shape" | "ring" | "graph" | "icon";
+export type PartKind = "text" | "bar" | "blocks" | "image" | "shape" | "ring" | "dial" | "graph" | "icon";
 /** The widget's own text / muted / highlight colour, or one of the theme's roles. */
 export type PartColor = "text" | "muted" | "highlight" | keyof Roles;
 export type PartAlign = "left" | "centre" | "right";

@@ -102,6 +102,22 @@ pub fn toggle_play_pause() {
     });
 }
 
+/// Skips to the next track (or back to the previous one) in whatever
+/// Windows' media session is playing, like the keyboard's skip keys.
+pub fn skip(forward: bool) {
+    let _ = std::thread::Builder::new().name("media-skip".into()).spawn(move || {
+        let skip = || -> windows::core::Result<()> {
+            unsafe { RoInitialize(RO_INIT_MULTITHREADED) }.ok();
+            let session = Manager::RequestAsync()?.join()?.GetCurrentSession()?;
+            if forward { session.TrySkipNextAsync()?.join()? } else { session.TrySkipPreviousAsync()?.join()? };
+            Ok(())
+        };
+        if let Err(error) = skip() {
+            tracing::debug!("nothing to skip: {error}");
+        }
+    });
+}
+
 /// Starts the listener thread. `on_change` is called (on that thread) with the
 /// current track whenever it changes, and with `None` when nothing is playing.
 pub fn watch(on_change: impl Fn(Option<MediaInfo>) + Send + 'static) {

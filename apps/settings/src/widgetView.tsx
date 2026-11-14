@@ -172,7 +172,7 @@ export function partText(part: Part, values: Record<string, string>): string {
   return part.text.replace(/\{([^{}]*)\}/g, (whole, name: string) => values[name.trim()] ?? whole);
 }
 
-export const PART_KIND_NAMES: Record<PartKind, string> = { text: "Text", bar: "Bar", image: "Picture", shape: "Shape", ring: "Ring", graph: "Graph", icon: "Icon" };
+export const PART_KIND_NAMES: Record<PartKind, string> = { text: "Text", bar: "Bar", image: "Picture", shape: "Shape", ring: "Ring", dial: "Dial", blocks: "Blocks", graph: "Graph", icon: "Icon" };
 
 /** The number a live value starts with: "12%" → 12 (as number_in in the core). */
 function numberIn(value: string): number | null {
@@ -239,6 +239,34 @@ function PartView({ part, look, values, size, defaultSize }: { part: Part; look:
           transform={`rotate(-90 ${rect.width / 2} ${rect.height / 2})`}
         />
       </svg>
+    );
+  }
+  if (part.kind === "dial") {
+    const fraction = Math.min(1, Math.max(0, SAMPLE_FRACTIONS[part.source] ?? (numberIn(values[part.source] ?? "") ?? 0) / 100));
+    const side = Math.min(rect.width, rect.height);
+    const stroke = Math.min(14, Math.max(2, side / 7));
+    const radius = (side - stroke) / 2;
+    const round = 2 * Math.PI * radius;
+    const arc = round * 0.75;
+    // Open at the bottom: the arc starts at the lower left.
+    const turn = `rotate(135 ${rect.width / 2} ${rect.height / 2})`;
+    return (
+      <svg style={box} viewBox={`0 0 ${rect.width} ${rect.height}`} aria-hidden="true">
+        <circle cx={rect.width / 2} cy={rect.height / 2} r={radius} fill="none" stroke={look.track} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={`${arc} ${round}`} transform={turn} />
+        <circle cx={rect.width / 2} cy={rect.height / 2} r={radius} fill="none" stroke={colour} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={`${arc * fraction} ${round}`} transform={turn} />
+      </svg>
+    );
+  }
+  if (part.kind === "blocks") {
+    const fraction = Math.min(1, Math.max(0, SAMPLE_FRACTIONS[part.source] ?? 0));
+    const lit = fraction <= 0 ? 0 : Math.min(10, Math.max(1, Math.round(fraction * 10)));
+    const gap = Math.min(4, Math.max(1.5, rect.width / 60));
+    return (
+      <span style={{ ...box, display: "flex", gap }}>
+        {Array.from({ length: 10 }, (_, index) => (
+          <span key={index} style={{ flex: 1, borderRadius: 2, background: index < lit ? colour : look.track }} />
+        ))}
+      </span>
     );
   }
   if (part.kind === "graph") {

@@ -127,6 +127,23 @@ pub fn draw(canvas: &Canvas<'_>, paint: &Paint, parts: &[Part], data: &Data<'_>,
                     canvas.arc(centre, radius, 0.0, 360.0 * fraction.clamp(0.0, 1.0), stroke, colour);
                 }
             }
+            PartKind::Dial => {
+                if let Some(fraction) = fraction_for(&part.source, data) {
+                    // Three quarters of a circle, open at the bottom; the value fills it from the lower left.
+                    let side = width.min(height);
+                    let stroke = (side / 7.0).clamp(2.0, 14.0);
+                    let (centre, radius) = ((x + width / 2.0, y + height / 2.0), (side - stroke) / 2.0);
+                    canvas.arc(centre, radius, 225.0, 270.0, stroke, paint.track);
+                    canvas.arc(centre, radius, 225.0, 270.0 * fraction.clamp(0.0, 1.0), stroke, colour);
+                }
+            }
+            PartKind::Blocks => {
+                if let Some(fraction) = fraction_for(&part.source, data) {
+                    for (block, lit) in blocks(rect, fraction) {
+                        canvas.fill_round_rect(block, (block.width.min(block.height) / 4.0).min(3.0), if lit { colour } else { paint.track });
+                    }
+                }
+            }
             PartKind::Graph => {
                 let readings = data.history.of(&part.source);
                 // A faint line along the bottom, so an empty graph still has a place.
@@ -154,6 +171,19 @@ pub fn draw(canvas: &Canvas<'_>, paint: &Paint, parts: &[Part], data: &Data<'_>,
         let style = TextStyle { family: &paint.body_font, size: 11.0 * paint.text_scale, weight: Weight::Regular, color: paint.text_muted, align_right: false, align_center: true };
         canvas.text(notice, Rect::new(8.0, (size.1 - 22.0).max(0.0), (size.0 - 16.0).max(0.0), 16.0), style);
     }
+}
+
+/// How many blocks a blocks bar has.
+pub const BLOCKS: usize = 10;
+
+/// The blocks of a blocks bar, left to right, and whether each is lit. A
+/// value above nothing always lights the first block.
+pub fn blocks(rect: Rect, fraction: f32) -> Vec<(Rect, bool)> {
+    let gap = (rect.width / 60.0).clamp(1.5, 4.0);
+    let each = ((rect.width - gap * (BLOCKS - 1) as f32) / BLOCKS as f32).max(1.0);
+    let fraction = fraction.clamp(0.0, 1.0);
+    let lit = if fraction <= 0.0 { 0 } else { ((fraction * BLOCKS as f32).round() as usize).clamp(1, BLOCKS) };
+    (0..BLOCKS).map(|index| (Rect::new(rect.x + (each + gap) * index as f32, rect.y, each, rect.height), index < lit)).collect()
 }
 
 /// What a click at a point inside the widget does: the action of the
@@ -380,6 +410,18 @@ mod tests {
         for name in SOURCES {
             assert!(value_of(name, &with).is_some(), "{name}");
         }
+    }
+
+
+    #[test]
+    fn a_blocks_bar_lights_as_many_blocks_as_its_value() {
+        let lit = |fraction: f32| blocks(Rect::new(10.0, 5.0, 200.0, 8.0), fraction).iter().filter(|(_, lit)| *lit).count();
+        assert_eq!((lit(0.0), lit(0.01), lit(0.34), lit(0.5), lit(0.96), lit(1.0), lit(7.0)), (0, 1, 3, 5, 10, 10, 10));
+        let all = blocks(Rect::new(10.0, 5.0, 200.0, 8.0), 0.5);
+        assert_eq!(all.len(), BLOCKS);
+        let (first, last) = (all[0].0, all[BLOCKS - 1].0);
+        assert!((first.x - 10.0).abs() < 0.01 && (last.x + last.width - 210.0).abs() < 0.01, "the row fills its box exactly");
+        assert!(all.windows(2).all(|pair| pair[1].0.x > pair[0].0.x + pair[0].0.width), "with a gap between blocks");
     }
 
 }

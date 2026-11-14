@@ -79,6 +79,8 @@ Always available:
 | `lumen.value("stats.cpu")` | One of Lumen's live values as text (`clock.*`, `stats.*`, `media.*`, `weather.*`), or `nil` |
 | `lumen.time()` | Seconds since 1970, with fractions |
 | `lumen.log("text")` | Writes a line to Lumen's log |
+| `lumen.json_decode(text)` | JSON text as a table (most web services answer in JSON) |
+| `lumen.json_encode(table)` | A table as JSON text, for sending |
 
 With `files`:
 
@@ -92,7 +94,10 @@ With `network`:
 
 | Call | Gives |
 |---|---|
-| `lumen.http_get("https://…")` | The page's text. Waits up to 10 seconds |
+| `lumen.http_get("https://…")` | The page's text. Waits up to 10 seconds. Fails unless the answer is a plain 200 |
+| `lumen.http_request({ url = …, method = "POST", headers = { … }, body = "…" })` | Any kind of request (GET, POST, PUT, PATCH, DELETE). Hands back `{ status = 200, body = "…" }` whatever the status |
+
+Addresses may be `https://` or `http://`, with a port if needed (`http://homeassistant.local:8123/…`). Plain `http://` is not private: use it for things on your own network, not across the internet. An answer may be up to 1 MB.
 
 With `run`:
 
@@ -107,6 +112,34 @@ A call the widget has no permission for fails with a message saying which permis
 local ok, page = pcall(lumen.http_get, "https://example.com/")
 if not ok then return { status = "offline" } end
 ```
+
+## Talking to other things: a Home Assistant switch
+
+With `network`, a script can drive anything that has a web API: Home Assistant, a smart plug, a media server. The gallery's "Home Assistant switch" is a complete example. Its core is two calls:
+
+```lua
+local ADDRESS = "http://homeassistant.local:8123"
+local TOKEN = "your long-lived access token"
+local ENTITY = "light.desk"
+
+local function ask(method, path, body)
+  return lumen.http_request({
+    url = ADDRESS .. path, method = method, body = body,
+    headers = { Authorization = "Bearer " .. TOKEN, ["Content-Type"] = "application/json" },
+  })
+end
+
+function update()                       -- show the state
+  local thing = lumen.json_decode(ask("GET", "/api/states/" .. ENTITY).body)
+  return { name = thing.attributes.friendly_name, on = thing.state == "on" }
+end
+
+function click(part)                    -- a part with `click: script` was clicked
+  ask("POST", "/api/services/homeassistant/toggle", lumen.json_encode({ entity_id = ENTITY }))
+end
+```
+
+Parts then show `{script.name}`, appear only `when: script.on`, and so on. A token is a password: it lives in your copy of the script on your PC, so do not share that file once the token is in it.
 
 ## Limits
 

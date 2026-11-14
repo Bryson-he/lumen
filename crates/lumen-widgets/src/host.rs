@@ -814,6 +814,8 @@ impl Host {
         use lumen_ipc::behaviour::{Action, is_web_address};
         match self.widget_action(window, x, y) {
             Some(Action::ToggleMedia) => media::toggle_play_pause(),
+            Some(Action::NextTrack) => media::skip(true),
+            Some(Action::PreviousTrack) => media::skip(false),
             Some(Action::OpenLumen) => open_settings_app(),
             Some(Action::Open(target)) => {
                 // A web page, or something that exists on this PC. Never a command line.

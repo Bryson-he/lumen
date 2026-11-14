@@ -34,6 +34,13 @@ function snapAxis(start: number, size: number, lines: number[], reach: number): 
   return best ? { start: best.start, line: best.line } : { start, line: null };
 }
 
+/** Ready-made buttons for whatever is playing. */
+const MEDIA_BUTTONS = [
+  { id: "previous", label: "Previous track", icon: "previous", click: "media.previous" },
+  { id: "play", label: "Play or pause", icon: "play", click: "media.toggle" },
+  { id: "next", label: "Next track", icon: "next", click: "media.next" },
+];
+
 export function Designer({
   placement,
   saved,
@@ -294,6 +301,16 @@ export function Designer({
                     Graph: {item.label}
                   </button>
                 ))}
+              {numbers.map((item) => (
+                <button key={`dial-${item.source}`} type="button" role="menuitem" className="menu-item" onClick={() => add({ id: "dial", name: `${item.label} dial`, kind: "dial", source: item.source, width: 48, height: 48, color: "highlight" })}>
+                  Dial: {item.label}
+                </button>
+              ))}
+              {MEDIA_BUTTONS.map((button) => (
+                <button key={button.click} type="button" role="menuitem" className="menu-item" onClick={() => add({ id: button.id, name: button.label, kind: "icon", text: button.icon, click: button.click, width: 28, height: 28 })}>
+                  Button: {button.label}
+                </button>
+              ))}
               <button type="button" role="menuitem" className="menu-item" onClick={() => add({ id: "icon", name: "Icon", kind: "icon", text: "star", width: 24, height: 24 })}>
                 Icon
               </button>

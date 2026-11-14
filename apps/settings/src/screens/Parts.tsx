@@ -5,10 +5,31 @@
 import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useId, useState } from "react";
 import { useLumen } from "../store";
-import { PART_COLORS, PART_ICONS, PART_LIMITS, ROLE_NAMES, WIDGET_NAMES, type WidgetOption, type Part, type PartAlign, type PartColor, type PartWeight, type Placement, type Roles, type GalleryOffer, type UpdateWidgetParams } from "../types";
+import { PART_COLORS, PART_ICONS, PART_LIMITS, ROLE_NAMES, WIDGET_NAMES, type PartKind, type WidgetOption, type Part, type PartAlign, type PartColor, type PartWeight, type Placement, type Roles, type GalleryOffer, type UpdateWidgetParams } from "../types";
 import { Button, Check, Segmented, Slider } from "../ui";
 import { allSources, PART_KIND_NAMES, partsOf } from "../widgetView";
 import { ScriptCard } from "./Scripts";
+
+/** The parts that show how full something is; one can be turned into another. */
+const METERS: PartKind[] = ["bar", "blocks", "ring", "dial", "graph"];
+const METER_CHOICES: { value: PartKind; label: string }[] = [
+  { value: "bar", label: "Bar" },
+  { value: "blocks", label: "Blocks" },
+  { value: "ring", label: "Ring" },
+  { value: "dial", label: "Dial" },
+  { value: "graph", label: "Graph" },
+];
+
+/** Changes how a meter is drawn, giving it a box that suits the new shape while keeping where it is. */
+function reshaped(part: Part, kind: PartKind): Partial<Part> {
+  const round = kind === "ring" || kind === "dial";
+  const wasRound = part.kind === "ring" || part.kind === "dial";
+  if (round && !wasRound) return { kind, width: 48, height: 48, stretch: false };
+  if (!round && wasRound) return { kind, width: 160, height: kind === "graph" ? 36 : kind === "blocks" ? 10 : 6 };
+  if (kind === "graph") return { kind, height: Math.max(part.height, 30) };
+  if (part.kind === "graph") return { kind, height: kind === "blocks" ? 10 : 6 };
+  return { kind, height: kind === "blocks" ? Math.max(part.height, 8) : part.height };
+}
 
 const FONT_FILES = [{ name: "Font files", extensions: ["ttf", "otf", "ttc", "woff", "woff2"] }];
 
@@ -186,7 +207,7 @@ function PartFields({
   const iconId = useId();
   const clickId = useId();
   const alertId = useId();
-  const clickKind = part.click.startsWith("open ") ? "open" : part.click === "media.toggle" || part.click === "lumen.open" || part.click === "script" ? part.click : part.click ? "open" : "";
+  const clickKind = part.click.startsWith("open ") ? "open" : ["media.toggle", "media.next", "media.previous", "lumen.open", "script"].includes(part.click) ? part.click : part.click ? "open" : "";
   const fontId = useId();
   const colourId = useId();
   const textId = useId();
@@ -250,7 +271,16 @@ function PartFields({
           <span className="muted small">A name from the list (home, music, star, cloud…), or any emoji or letter.</span>
         </div>
       )}
-      {(part.kind === "bar" || part.kind === "ring" || part.kind === "graph") && (
+      {METERS.includes(part.kind) && (
+        <Segmented
+          label="Show as"
+          look="grid-3"
+          value={part.kind}
+          options={METER_CHOICES.map((choice) => ({ ...choice, disabled: locked || (choice.value === "graph" && !part.source.startsWith("stats.")) }))}
+          onChange={(kind) => onChange(reshaped(part, kind))}
+        />
+      )}
+      {METERS.includes(part.kind) && (
         <div className="field">
           <label htmlFor={showsId} className="small-14">
             Shows
@@ -383,6 +413,8 @@ function PartFields({
           <option value="">Nothing</option>
           <option value="open">Open a program, file or web page</option>
           <option value="media.toggle">Play or pause</option>
+          <option value="media.next">Next track</option>
+          <option value="media.previous">Previous track</option>
           <option value="lumen.open">Open Lumen</option>
           <option value="script">Tell the widget's script</option>
         </select>

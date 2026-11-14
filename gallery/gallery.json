@@ -29,6 +29,18 @@
       "script": true
     },
     {
+      "id": "home-assistant",
+      "kind": "widget",
+      "name": "Home Assistant switch",
+      "author": "Lumen",
+      "description": "Shows whether a light, switch or fan in Home Assistant is on, and toggles it with a click. You add your own address and token to its script. It goes online only to reach your Home Assistant.",
+      "file": "widgets/home-assistant.lumenwidget",
+      "script": true,
+      "permissions": [
+        "network"
+      ]
+    },
+    {
       "id": "ledger",
       "kind": "style",
       "name": "Ledger",

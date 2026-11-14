@@ -598,9 +598,11 @@ fn part_from(raw: &Value, variables: &Mapping, styles: &Mapping) -> Result<Part,
                     "image" | "picture" => PartKind::Image,
                     "shape" => PartKind::Shape,
                     "ring" => PartKind::Ring,
+                    "dial" | "gauge" => PartKind::Dial,
+                    "blocks" | "segments" => PartKind::Blocks,
                     "graph" => PartKind::Graph,
                     "icon" => PartKind::Icon,
-                    other => return Err(FileError::new(format!("`kind: {other}` is not a kind of part; use text, bar, image, shape, ring, graph or icon"))),
+                    other => return Err(FileError::new(format!("`kind: {other}` is not a kind of part; use text, bar, blocks, ring, dial, graph, image, shape or icon"))),
                 }
             }
             "text" => part.text = text()?,
@@ -636,7 +638,7 @@ fn part_from(raw: &Value, variables: &Mapping, styles: &Mapping) -> Result<Part,
             "click" => {
                 part.click = text()?;
                 if crate::behaviour::parse_action(&part.click).is_none() && !part.click.trim().is_empty() {
-                    return Err(FileError::new(format!("`click: {}` is not something a click can do; use `open <program, file or web page>`, `media.toggle`, `lumen.open` or `script`", part.click)));
+                    return Err(FileError::new(format!("`click: {}` is not something a click can do; use `open <program, file or web page>`, `media.toggle`, `media.next`, `media.previous`, `lumen.open` or `script`", part.click)));
                 }
             }
             "when" | "alert-when" | "alertWhen" => {
@@ -720,7 +722,7 @@ fn literal(part: &Part) -> Mapping {
     let pair = |a: f32, b: f32| Value::Sequence(vec![num(a), num(b)]);
     set("id", Value::String(part.id.clone()));
     set("name", Value::String(part.name.clone()));
-    set("kind", Value::String(match part.kind { PartKind::Text => "text", PartKind::Bar => "bar", PartKind::Image => "image", PartKind::Shape => "shape", PartKind::Ring => "ring", PartKind::Graph => "graph", PartKind::Icon => "icon" }.to_owned()));
+    set("kind", Value::String(match part.kind { PartKind::Text => "text", PartKind::Bar => "bar", PartKind::Image => "image", PartKind::Shape => "shape", PartKind::Ring => "ring", PartKind::Dial => "dial", PartKind::Blocks => "blocks", PartKind::Graph => "graph", PartKind::Icon => "icon" }.to_owned()));
     set("text", Value::String(part.text.clone()));
     set("source", Value::String(part.source.clone()));
     set("font", part.font.clone().map_or(Value::Null, Value::String));
@@ -931,7 +933,7 @@ parts:
         assert!(wrong("click: media.toggle", "click: format the disk").contains("not something a click can do"));
         assert!(wrong("when: media.playing", "when: is music on?").contains("not a condition"));
         assert!(wrong("alert-when: stats.cpu > 90", "alert-when: stats.cpu > hot").contains("not a number"));
-        assert!(wrong("kind: ring", "kind: dial").contains("ring, graph or icon"));
+        assert!(wrong("kind: ring", "kind: spinner").contains("ring, dial, graph, image, shape or icon"));
     }
 
     const ADJUSTABLE: &str = r#"lumen-widget: 1

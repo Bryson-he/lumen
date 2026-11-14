@@ -39,6 +39,8 @@ pub const MEMORY_LIMIT: usize = 32 * 1024 * 1024;
 const MAX_READ: u64 = 4 * 1024 * 1024;
 const MAX_OUTPUT: usize = 256 * 1024;
 const NETWORK_TIMEOUT_MS: i32 = 10_000;
+/// The most a web answer may hold.
+const MAX_WEB_ANSWER: usize = 1024 * 1024;
 const PROGRAM_TIMEOUT: Duration = Duration::from_secs(15);
 /// The most values one script may hand back, and how long each may be.
 const MAX_VALUES: usize = 64;
@@ -156,6 +158,13 @@ fn library(lua: &Lua, permissions: Permissions, live: Rc<std::cell::RefCell<Valu
         Ok(())
     })?)?;
 
+    // JSON, which most web services speak: text to a table and back. Needs no permission.
+    lumen.set("json_decode", lua.create_function(|lua, text: String| {
+        let value: serde_json::Value = serde_json::from_str(&text).map_err(|error| mlua::Error::runtime(format!("that is not JSON: {error}")))?;
+        from_json(lua, &value, 0)
+    })?)?;
+    lumen.set("json_encode", lua.create_function(|_, value: Value| Ok(to_json(&value, 0)?.to_string()))?)?;
+
     // Files.
     let files = permissions.files;
     lumen.set("read_file", lua.create_function(move |_, path: String| {
@@ -188,9 +197,32 @@ fn library(lua: &Lua, permissions: Permissions, live: Rc<std::cell::RefCell<Valu
         if !network {
             return Err(refused("go online"));
         }
-        let rest = url.strip_prefix("https://").ok_or_else(|| mlua::Error::runtime("only https:// addresses can be fetched"))?;
-        let (host, path) = rest.split_once('/').map_or((rest, "/".to_owned()), |(host, path)| (host, format!("/{path}")));
-        lumen_win::http::get(host, &path, NETWORK_TIMEOUT_MS).map_err(mlua::Error::runtime)
+        let answer = lumen_win::http::request(&lumen_win::http::Request { url: &url, method: "GET", headers: &[], body: None, timeout_ms: NETWORK_TIMEOUT_MS, max_bytes: MAX_WEB_ANSWER }).map_err(mlua::Error::runtime)?;
+        if answer.status != 200 {
+            return Err(mlua::Error::runtime(format!("{url} answered with an error ({})", answer.status)));
+        }
+        String::from_utf8(answer.body).map_err(|_| mlua::Error::runtime("the answer was not text"))
+    })?)?;
+    // Any kind of request: { url = …, method = "POST", headers = { Authorization = "Bearer …" }, body = "…" }.
+    // Hands back { status = 200, body = "…" } whatever the status, so the script can tell a refusal from an answer.
+    lumen.set("http_request", lua.create_function(move |lua, ask: Table| {
+        if !network {
+            return Err(refused("go online"));
+        }
+        let url: String = ask.get("url").map_err(|_| mlua::Error::runtime("http_request needs a url"))?;
+        let method = ask.get::<Option<String>>("method")?.unwrap_or_else(|| "GET".to_owned());
+        let body = ask.get::<Option<mlua::LuaString>>("body")?.map(|body| body.as_bytes().to_vec());
+        let mut headers = Vec::new();
+        if let Some(given) = ask.get::<Option<Table>>("headers")? {
+            for pair in given.pairs::<String, String>() {
+                headers.push(pair.map_err(|_| mlua::Error::runtime("each header needs a name and a text value"))?);
+            }
+        }
+        let answer = lumen_win::http::request(&lumen_win::http::Request { url: &url, method: &method, headers: &headers, body: body.as_deref(), timeout_ms: NETWORK_TIMEOUT_MS, max_bytes: MAX_WEB_ANSWER }).map_err(mlua::Error::runtime)?;
+        let result = lua.create_table()?;
+        result.set("status", answer.status)?;
+        result.set("body", lua.create_string(&answer.body)?)?;
+        Ok(result)
     })?)?;
 
     // Programs.
@@ -208,6 +240,75 @@ fn library(lua: &Lua, permissions: Permissions, live: Rc<std::cell::RefCell<Valu
         Ok(lumen_win::shell::open(&target))
     })?)?;
     Ok(lumen)
+}
+
+/// How deep JSON may nest before it is refused.
+const JSON_DEPTH: usize = 32;
+
+fn from_json(lua: &Lua, value: &serde_json::Value, depth: usize) -> mlua::Result<Value> {
+    if depth > JSON_DEPTH {
+        return Err(mlua::Error::runtime("that JSON is nested too deeply"));
+    }
+    Ok(match value {
+        serde_json::Value::Null => Value::Nil,
+        serde_json::Value::Bool(flag) => Value::Boolean(*flag),
+        serde_json::Value::Number(number) => Value::Number(number.as_f64().unwrap_or(0.0)),
+        serde_json::Value::String(text) => Value::String(lua.create_string(text)?),
+        serde_json::Value::Array(items) => {
+            let table = lua.create_table()?;
+            for (index, item) in items.iter().enumerate() {
+                table.set(index + 1, from_json(lua, item, depth + 1)?)?;
+            }
+            Value::Table(table)
+        }
+        serde_json::Value::Object(fields) => {
+            let table = lua.create_table()?;
+            for (name, item) in fields {
+                table.set(name.as_str(), from_json(lua, item, depth + 1)?)?;
+            }
+            Value::Table(table)
+        }
+    })
+}
+
+fn to_json(value: &Value, depth: usize) -> mlua::Result<serde_json::Value> {
+    if depth > JSON_DEPTH {
+        return Err(mlua::Error::runtime("that table is nested too deeply to write as JSON"));
+    }
+    Ok(match value {
+        Value::Nil => serde_json::Value::Null,
+        Value::Boolean(flag) => serde_json::Value::Bool(*flag),
+        Value::Integer(number) => serde_json::json!(number),
+        Value::Number(number) => {
+            if number.fract() == 0.0 && number.abs() < 1e15 { serde_json::json!(*number as i64) } else { serde_json::json!(number) }
+        }
+        Value::String(text) => serde_json::Value::String(text.to_string_lossy()),
+        Value::Table(table) => {
+            // A table numbered 1..n is a list; anything else is named fields.
+            let length = table.raw_len();
+            if length > 0 && table.pairs::<Value, Value>().count() == length {
+                let mut items = Vec::with_capacity(length);
+                for index in 1..=length {
+                    items.push(to_json(&table.get::<Value>(index)?, depth + 1)?);
+                }
+                serde_json::Value::Array(items)
+            } else {
+                let mut fields = serde_json::Map::new();
+                for pair in table.pairs::<Value, Value>() {
+                    let (name, item) = pair?;
+                    let name = match name {
+                        Value::String(text) => text.to_string_lossy(),
+                        Value::Integer(number) => number.to_string(),
+                        Value::Number(number) => number.to_string(),
+                        _ => continue,
+                    };
+                    fields.insert(name, to_json(&item, depth + 1)?);
+                }
+                serde_json::Value::Object(fields)
+            }
+        }
+        _ => return Err(mlua::Error::runtime("only text, numbers, true/false and tables can be written as JSON")),
+    })
 }
 
 /// Runs a program without a window, waits for it (for a limited time) and returns what it printed.
@@ -299,11 +400,12 @@ mod tests {
                 elseif what == "write" then lumen.write_file("C:\\nope.txt", "x")
                 elseif what == "list" then lumen.list_folder("C:\\")
                 elseif what == "net" then lumen.http_get("https://example.com")
+                elseif what == "post" then lumen.http_request({ url = "http://homeassistant.local:8123/api/services/light/toggle", method = "POST" })
                 elseif what == "run" then lumen.run("cmd", { "/c", "echo hi" })
                 else lumen.open("notepad.exe") end
             end
         "#, NONE).unwrap();
-        for what in ["read", "write", "list", "net", "run", "open"] {
+        for what in ["read", "write", "list", "net", "post", "run", "open"] {
             let error = engine.click(what, &live()).unwrap_err();
             assert!(error.contains("has not been allowed to"), "{what}: {error}");
         }
@@ -327,8 +429,8 @@ mod tests {
         assert_eq!((values["text"].as_str(), values["files"].as_str(), values["said"].as_str()), ("written by a script", "1", "hello from cmd"));
         let _ = std::fs::remove_dir_all(dir);
 
-        let web = Engine::new("t", r#"function update() return { page = lumen.http_get("http://example.com") } end"#, ALL).unwrap();
-        assert!(web.update(&live()).unwrap_err().contains("only https://"));
+        let web = Engine::new("t", r#"function update() return { page = lumen.http_get("ftp://example.com") } end"#, ALL).unwrap();
+        assert!(web.update(&live()).unwrap_err().contains("must start with https:// or http://"));
     }
 
     #[test]
@@ -350,4 +452,21 @@ mod tests {
         let seen = engine.update(&live()).unwrap();
         assert_eq!((seen["io"].as_str(), seen["osexit"].as_str()), ("nil", "nil"), "no raw file or process access outside the lumen library");
     }
+
+    #[test]
+    fn json_goes_both_ways_without_any_permission() {
+        let engine = Engine::new("t", r#"
+            function update()
+                local state = lumen.json_decode('{"entity_id":"light.desk","state":"on","attributes":{"brightness":128,"names":["a","b"]},"gone":null}')
+                local sent = lumen.json_encode({ entity_id = state.entity_id, level = 0.5, on = true, list = { 1, 2, 3 } })
+                local back = lumen.json_decode(sent)
+                return { state = state.state, brightness = state.attributes.brightness, second = state.attributes.names[2], gone = tostring(state.gone),
+                         entity = back.entity_id, level = back.level, third = back.list[3], bad = tostring(pcall(lumen.json_decode, "{nope")) }
+            end
+        "#, NONE).unwrap();
+        let seen = engine.update(&live()).unwrap();
+        assert_eq!((seen["state"].as_str(), seen["brightness"].as_str(), seen["second"].as_str(), seen["gone"].as_str()), ("on", "128", "b", "nil"));
+        assert_eq!((seen["entity"].as_str(), seen["level"].as_str(), seen["third"].as_str(), seen["bad"].as_str()), ("light.desk", "0.50", "3", "false"));
+    }
+
 }

@@ -14,6 +14,9 @@ pub enum Action {
     Open(String),
     /// Play or pause what is playing.
     ToggleMedia,
+    /// Skip to the next track, or back to the previous one.
+    NextTrack,
+    PreviousTrack,
     /// Open the Lumen app.
     OpenLumen,
     /// Tell the widget's script that this part was clicked (the part's id is filled in by whoever finds the click).
@@ -26,6 +29,8 @@ pub fn parse_action(text: &str) -> Option<Action> {
     let text = text.trim();
     match text {
         "media.toggle" => Some(Action::ToggleMedia),
+        "media.next" => Some(Action::NextTrack),
+        "media.previous" => Some(Action::PreviousTrack),
         "lumen.open" => Some(Action::OpenLumen),
         "script" => Some(Action::Script(String::new())),
         _ => text.strip_prefix("open ").map(str::trim).filter(|target| !target.is_empty()).map(|target| Action::Open(target.to_owned())),
