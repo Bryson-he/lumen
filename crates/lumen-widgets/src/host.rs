@@ -587,6 +587,8 @@ impl Host {
             selected: self.selected.clone(),
             guides: self.guides.clone(),
             suspended: self.governor.suspended(),
+            // So the app can draw a widget that answered its file's options as the desktop does.
+            resolved: self.layout.widgets.iter().filter(|w| w.file.is_some() && !w.options.is_empty()).map(|w| (w.id.clone(), self.parts_of(w).0)).collect(),
         }
     }
 
@@ -1056,6 +1058,10 @@ impl Host {
             // Empty, or a style that is not there: back to the one all widgets share.
             after.component_style = Some(id).filter(|id| !id.is_empty() && self.styles.exists(id));
         }
+        if let Some(options) = params.options {
+            // Plain values only, and not an endless number of them; the file decides which mean anything.
+            after.options = options.into_iter().filter(|(name, value)| name.len() <= 64 && (value.is_number() || value.is_boolean() || value.as_str().is_some_and(|text| text.len() <= 400))).take(lumen_ipc::widget_file::MAX_OPTIONS).collect();
+        }
         if let Some(file) = params.file {
             // Empty: back to parts of its own. Otherwise the file takes over from them.
             after.file = Some(file).filter(|file| lumen_ipc::widget_file::is_file_name(file));
@@ -1066,7 +1072,7 @@ impl Host {
         if let Some(parts) = params.parts {
             match after.file.clone() {
                 // A widget from a file: the change goes into the file (an empty list would wipe it, so is ignored).
-                Some(file) if !parts.is_empty() => self.set_file_parts(&file, parts, params.dragging),
+                Some(file) if !parts.is_empty() => self.set_file_parts(&file, parts, params.dragging, &after.options.clone()),
                 Some(_) => {}
                 // An empty list: back to the arrangement its kind comes with.
                 None => after.parts = Some(lumen_ipc::parts::sanitise_parts(parts)).filter(|parts| !parts.is_empty()),
@@ -1149,6 +1155,7 @@ impl Host {
             component_style: None,
             parts: None,
             file,
+            options: Default::default(),
         };
         if let Some(slot) = self.create_slot(&placement) {
             self.slots.push(slot);

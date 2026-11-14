@@ -107,6 +107,25 @@ parts:
     box: [220, 18]
 ```
 
+### Options (built in M19)
+
+A file can let its user adjust a few things without opening it. Each option is used like a variable, and each widget on the desktop keeps its own answers:
+
+```yaml
+options:
+  big: { label: Time size, type: number, default: 40, min: 20, max: 80 }
+  show-date: { label: Show the date, type: toggle, default: true }
+  tint: { label: Colour, type: color, default: accent }
+parts:
+  - id: time
+    text: "{clock.time}"
+    size: $big
+    color: $tint
+  - id: date
+    text: "{clock.date}"
+    shown: $show-date
+```
+
 ## Sources
 
 - Rainmeter forum and community guides on measures, meters, variables, MeterStyle and @Include: https://forum.rainmeter.net/viewtopic.php?p=212506 , https://forum.rainmeter.net/viewtopic.php?p=215974 , https://lewe.gitbook.io/rainmeter-skin-grayhound/grayhound-basics

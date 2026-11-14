@@ -27,6 +27,8 @@ pub(super) struct Files {
     pub(super) list: Vec<WidgetFileInfo>,
     /// Parts being dragged in the designer, not yet written to their file.
     drafts: HashMap<String, Vec<Part>>,
+    /// The parts of widgets that answered their file's options, worked out once per file and set of answers.
+    answered: RefCell<HashMap<String, Vec<Part>>>,
     watch: Option<FolderWatch>,
 }
 
@@ -72,6 +74,7 @@ impl Host {
             }
         }
         self.files.list = fresh;
+        self.files.answered.borrow_mut().clear();
         self.draw(None);
         self.sync_timers();
         self.sync_edit_surfaces();
@@ -87,8 +90,24 @@ impl Host {
     pub(super) fn parts_of(&self, placement: &Placement) -> (Vec<Part>, (f32, f32)) {
         if let Some(name) = &placement.file {
             if let Some(file) = self.file(name) {
-                let parts = self.files.drafts.get(name).unwrap_or(&file.parts).clone();
-                return (parts, (file.size[0], file.size[1]));
+                let size = (file.size[0], file.size[1]);
+                if let Some(draft) = self.files.drafts.get(name) {
+                    return (draft.clone(), size);
+                }
+                // A widget that answered the file's options has parts of its own.
+                if !placement.options.is_empty() && !file.options.is_empty() {
+                    let key = format!("{name}|{}", serde_json::to_string(&placement.options).unwrap_or_default());
+                    if let Some(parts) = self.files.answered.borrow().get(&key) {
+                        return (parts.clone(), size);
+                    }
+                    let folder = &self.options.widget_files_dir;
+                    let worked_out = std::fs::read_to_string(folder.join(name)).ok().and_then(|text| widget_file::parse_with(&text, &|other| read_include(folder, other), &placement.options).ok());
+                    if let Some(answered) = worked_out {
+                        self.files.answered.borrow_mut().insert(key, answered.parts.clone());
+                        return (answered.parts, size);
+                    }
+                }
+                return (file.parts.clone(), size);
             }
             // The file is gone: nothing to draw but the card.
             return (Vec::new(), placement.kind.default_size());
@@ -104,7 +123,7 @@ impl Host {
     /// The designer changed a widget that comes from a file. While dragging
     /// the change is only drawn; when it is final the file is written, keeping
     /// whatever the author wrote that still holds.
-    pub(super) fn set_file_parts(&mut self, name: &str, parts: Vec<Part>, dragging: bool) {
+    pub(super) fn set_file_parts(&mut self, name: &str, parts: Vec<Part>, dragging: bool, answers: &widget_file::OptionValues) {
         let Some(file) = self.file(name).cloned() else { return };
         let parts = lumen_ipc::parts::sanitise_parts(parts);
         if dragging {
@@ -116,7 +135,7 @@ impl Host {
         let folder = self.options.widget_files_dir.clone();
         let path = folder.join(name);
         let previous = std::fs::read_to_string(&path).ok();
-        let text = widget_file::render(&file.name, (file.size[0], file.size[1]), &parts, previous.as_deref(), &|other| read_include(&folder, other));
+        let text = widget_file::render_with(&file.name, (file.size[0], file.size[1]), &parts, previous.as_deref(), &|other| read_include(&folder, other), answers);
         let temp = path.with_extension("yaml.tmp");
         if let Err(error) = std::fs::write(&temp, text).and_then(|()| std::fs::rename(&temp, &path)) {
             warn!("could not save {}: {error}", path.display());
@@ -144,13 +163,13 @@ fn read_folder(folder: &Path, previous: &[WidgetFileInfo]) -> Vec<WidgetFileInfo
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&path) else { continue };
-        let blank = || WidgetFileInfo { file: name.clone(), is_widget: true, name: name.trim_end_matches(".yaml").trim_end_matches(".yml").to_owned(), size: [widget_file::DEFAULT_SIZE.0, widget_file::DEFAULT_SIZE.1], parts: Vec::new(), error: None, error_line: None };
+        let blank = || WidgetFileInfo { file: name.clone(), is_widget: true, name: name.trim_end_matches(".yaml").trim_end_matches(".yml").to_owned(), size: [widget_file::DEFAULT_SIZE.0, widget_file::DEFAULT_SIZE.1], parts: Vec::new(), options: Vec::new(), error: None, error_line: None };
         if !widget_file::is_widget(&text) {
             files.push(WidgetFileInfo { is_widget: false, ..blank() });
             continue;
         }
         files.push(match widget_file::parse(&text, &|other| read_include(folder, other)) {
-            Ok(file) => WidgetFileInfo { name: file.name, size: [file.size.0, file.size.1], parts: file.parts, ..blank() },
+            Ok(file) => WidgetFileInfo { name: file.name, size: [file.size.0, file.size.1], parts: file.parts, options: file.options, ..blank() },
             Err(error) => {
                 let last_good = previous.iter().find(|old| old.file == name && old.is_widget).cloned().unwrap_or_else(blank);
                 WidgetFileInfo { error: Some(error.message), error_line: error.line, ..last_good }

@@ -5,7 +5,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { useEffect, useId, useState } from "react";
 import { useLumen } from "../store";
-import { PART_COLORS, PART_ICONS, PART_LIMITS, ROLE_NAMES, WIDGET_NAMES, type Part, type PartAlign, type PartColor, type PartWeight, type Placement, type Roles, type UpdateWidgetParams } from "../types";
+import { PART_COLORS, PART_ICONS, PART_LIMITS, ROLE_NAMES, WIDGET_NAMES, type WidgetOption, type Part, type PartAlign, type PartColor, type PartWeight, type Placement, type Roles, type UpdateWidgetParams } from "../types";
 import { Button, Check, Segmented, Slider } from "../ui";
 import { allSources, PART_KIND_NAMES, partsOf } from "../widgetView";
 
@@ -29,13 +29,13 @@ export function PartsTab({
   onDesign: () => void;
   onUpdate: (params: UpdateWidgetParams) => void;
 }) {
-  const { partDefaults, fonts, refreshFonts, importFonts, shown, widgetFiles, request } = useLumen();
+  const { partDefaults, fonts, refreshFonts, importFonts, shown, widgetFiles, request, widgets } = useLumen();
   const [naming, setNaming] = useState<string | null>(null);
   const setOpenId = onOpen;
   useEffect(() => void refreshFonts(), [refreshFonts]);
 
   if (!partDefaults) return <p className="muted small-13">The parts of this widget are not available right now.</p>;
-  const { parts, file, own } = partsOf(placement, partDefaults, widgetFiles);
+  const { parts, file, own } = partsOf(placement, partDefaults, widgetFiles, widgets?.resolved);
 
   const saveAsFile = async () => {
     const name = (naming ?? "").trim();
@@ -100,6 +100,7 @@ export function PartsTab({
           </Button>
         </div>
       )}
+      {file && file.options.length > 0 && <OptionsPanel options={file.options} answers={placement.options ?? {}} locked={locked} onChange={(options) => onUpdate({ id: placement.id, options })} />}
       <p className="muted small-13">Each piece has its own font, size, colour and place. Changes show on your desktop straight away and are saved as you go.</p>
       <ul className="parts-list">
         {parts.map((part) => {
@@ -402,6 +403,60 @@ function PartFields({
         </>
       )}
     </div>
+  );
+}
+
+type Answers = Record<string, number | boolean | string>;
+
+/** The options this widget's file exposes, each with a control. The answers belong to this one widget. */
+function OptionsPanel({ options, answers, locked, onChange }: { options: WidgetOption[]; answers: Answers; locked: boolean; onChange: (answers: Answers) => void }) {
+  const baseId = useId();
+  const set = (name: string, value: number | boolean | string) => onChange({ ...answers, [name]: value });
+  const changed = Object.keys(answers).length > 0;
+  return (
+    <section className="parts-options" aria-label="This widget's options">
+      <div className="field-row">
+        <h3 className="label">Options</h3>
+        {changed && (
+          <button type="button" className="link small-13" disabled={locked} onClick={() => onChange({})}>
+            Back to defaults
+          </button>
+        )}
+      </div>
+      {options.map((option) => {
+        const value = answers[option.name] ?? option.default;
+        const id = `${baseId}-${option.name}`;
+        if (option.kind === "toggle") {
+          return (
+            <Check key={option.name} checked={value === true} disabled={locked} onChange={(on) => set(option.name, on)}>
+              {option.label}
+            </Check>
+          );
+        }
+        if (option.kind === "number") {
+          const [min, max] = [option.min ?? 0, option.max ?? 100];
+          return <Slider key={option.name} label={option.label} min={min} max={max} step={max - min <= 2 ? 0.05 : 1} value={Number(value)} format={(v) => String(Math.round(v * 100) / 100)} disabled={locked} onCommit={(next) => set(option.name, next)} />;
+        }
+        if (option.kind === "text") return <LineField key={option.name} label={option.label} value={String(value)} disabled={locked} onCommit={(next) => set(option.name, next)} />;
+        return (
+          <div key={option.name} className="field">
+            <label htmlFor={id} className="small-14">
+              {option.label}
+            </label>
+            <select id={id} value={String(value)} disabled={locked} onChange={(event) => set(option.name, event.target.value)}>
+              {option.kind === "choice"
+                ? option.choices.map((choice) => <option key={choice}>{choice}</option>)
+                : [...PART_COLORS, ...ROLE_NAMES].map(([colour, label]) => (
+                    <option key={colour} value={colour}>
+                      {label}
+                    </option>
+                  ))}
+            </select>
+          </div>
+        );
+      })}
+      <span className="muted small">These belong to this widget only. Another widget from the same file keeps its own.</span>
+    </section>
   );
 }
 

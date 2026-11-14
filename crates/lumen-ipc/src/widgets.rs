@@ -101,6 +101,9 @@ pub struct Placement {
     /// The widget file this widget is drawn from (`big-clock.yaml` in the widgets folder); its parts then come from the file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
+    /// This widget's answers to the options its file exposes.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub options: crate::widget_file::OptionValues,
 }
 
 /// `widgets/layout.json`.
@@ -128,7 +131,7 @@ impl Default for Layout {
             .into_iter()
             .map(|kind| {
                 let (width, height) = kind.default_size();
-                let placement = Placement { id: format!("{}-1", kind.id_prefix()), kind, monitor: None, x: 48.0, y, width, height, style: WidgetStyle::default(), component_style: None, parts: None, file: None };
+                let placement = Placement { id: format!("{}-1", kind.id_prefix()), kind, monitor: None, x: 48.0, y, width, height, style: WidgetStyle::default(), component_style: None, parts: None, file: None, options: Default::default() };
                 y += height + GRID;
                 placement
             })
@@ -196,6 +199,9 @@ pub struct WidgetsState {
     /// Widgets the governor has switched off for using too much CPU.
     #[serde(default)]
     pub suspended: Vec<String>,
+    /// For widgets that answered their file's options: their parts as drawn, by widget id.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub resolved: std::collections::BTreeMap<String, Vec<crate::parts::Part>>,
 }
 
 /// What one widget may use before the governor steps in: its share of the
@@ -256,6 +262,9 @@ pub struct UpdateWidgetParams {
     /// Draw this widget from a widget file; an empty string goes back to parts of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub file: Option<String>,
+    /// This widget's answers to its file's options (replaces all of them).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<crate::widget_file::OptionValues>,
     /// True while the user is still dragging: the position is snapped and
     /// shown with guides, but not written to disk until a final update.
     #[serde(default)]

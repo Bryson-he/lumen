@@ -137,6 +137,8 @@ export interface Placement {
   parts?: Part[];
   /** The widget file it is drawn from, if any ("big-clock.yaml"). */
   file?: string;
+  /** Its answers to the options its file exposes. */
+  options?: Record<string, number | boolean | string>;
 }
 
 export interface WidgetLayout {
@@ -163,6 +165,8 @@ export interface WidgetsState {
   guides: { x: number | null; y: number | null; monitor: string | null };
   /** Widgets the governor switched off for using too much CPU. */
   suspended: string[];
+  /** For widgets that answered their file's options: their parts as drawn, by widget id. */
+  resolved?: Record<string, Part[]>;
 }
 
 export interface UpdateWidgetParams {
@@ -179,6 +183,8 @@ export interface UpdateWidgetParams {
   parts?: Part[];
   /** Draw it from this widget file; "" goes back to parts of its own. */
   file?: string;
+  /** Its answers to its file's options (replaces all of them). */
+  options?: Record<string, number | boolean | string>;
   /** True while still dragging: snapped and shown, not yet saved. */
   dragging?: boolean;
 }
@@ -402,6 +408,17 @@ export const PART_LIMITS = { textSize: [8, 96] } as const;
 
 // ----- Widget files (crates/lumen-ipc/src/widget_file.rs) -----
 
+/** Something about a widget its author lets the person using it adjust. */
+export interface WidgetOption {
+  name: string;
+  label: string;
+  kind: "number" | "toggle" | "text" | "choice" | "color";
+  default: number | boolean | string;
+  min: number | null;
+  max: number | null;
+  choices: string[];
+}
+
 /** One .yaml file in the widgets folder. */
 export interface WidgetFileInfo {
   /** Its name in the widgets folder: "big-clock.yaml". */
@@ -410,8 +427,10 @@ export interface WidgetFileInfo {
   isWidget: boolean;
   name: string;
   size: [number, number];
-  /** The parts as last read successfully (what is on screen). */
+  /** The parts as last read successfully (what is on screen), with every option at its default. */
   parts: Part[];
+  /** What the file lets its user adjust. */
+  options: WidgetOption[];
   /** What is wrong with the file as it is now, if anything. */
   error: string | null;
   errorLine: number | null;

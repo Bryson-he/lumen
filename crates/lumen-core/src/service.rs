@@ -753,7 +753,7 @@ fn read_widget_include(folder: &Path, name: &str) -> Option<String> {
 
 /// An update for one widget that changes nothing yet.
 fn update_for(id: &str) -> lumen_ipc::widgets::UpdateWidgetParams {
-    lumen_ipc::widgets::UpdateWidgetParams { id: id.to_owned(), x: None, y: None, width: None, height: None, monitor: None, style: None, component_style: None, parts: None, file: None, dragging: false }
+    lumen_ipc::widgets::UpdateWidgetParams { id: id.to_owned(), x: None, y: None, width: None, height: None, monitor: None, style: None, component_style: None, parts: None, file: None, options: None, dragging: false }
 }
 
 #[cfg(test)]
@@ -1500,6 +1500,9 @@ mod tests {
         let part = &update.parts.as_ref().unwrap()[0];
         assert_eq!((part.font.as_deref(), part.size, part.color, part.align), (Some("Segoe UI"), 30.0, lumen_ipc::PartColor::Accent, lumen_ipc::PartAlign::Centre));
         assert!(service.handle(method::UPDATE_WIDGET, json!({ "id": "clock-1", "parts": [{ "id": "x", "color": "#ff0000" }] })).is_err(), "a part cannot hold a colour of its own");
+        drop(sent);
+        // A widget's answers to its file's options travel the same way.
+        let _: WidgetsState = call(&mut service, method::UPDATE_WIDGET, json!({ "id": "clock-1", "options": { "big": 64, "show-date": false } }));
     }
 
     #[tokio::test(start_paused = true)]
@@ -1536,7 +1539,7 @@ mod tests {
 
         // The host reports what it read; clients hear once per change.
         let mut rx = service.subscribe();
-        let info = lumen_ipc::WidgetFileInfo { file: saved.clone(), is_widget: true, name: "Desk clock".into(), size: [190.0, 92.0], parts: Vec::new(), error: None, error_line: None };
+        let info = lumen_ipc::WidgetFileInfo { file: saved.clone(), is_widget: true, name: "Desk clock".into(), size: [190.0, 92.0], parts: Vec::new(), options: Vec::new(), error: None, error_line: None };
         service.widget_files_changed(vec![info.clone()]);
         service.widget_files_changed(vec![info]);
         let heard = events(&mut rx);

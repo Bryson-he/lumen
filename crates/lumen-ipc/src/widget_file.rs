@@ -55,9 +55,45 @@ impl FileError {
     }
 }
 
+/// The kinds of option a widget file can expose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OptionKind {
+    Number,
+    Toggle,
+    Text,
+    Choice,
+    /// A theme colour, by name.
+    Color,
+}
+
+/// Something about a widget its author lets the person using it adjust.
+/// In the file it is used like a variable: `size: $big`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetOption {
+    pub name: String,
+    pub label: String,
+    pub kind: OptionKind,
+    /// What it is until the user changes it.
+    pub default: serde_json::Value,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    /// For a choice: what can be picked.
+    pub choices: Vec<String>,
+}
+
+/// The answers one widget on the desktop has given to its file's options.
+pub type OptionValues = serde_json::Map<String, serde_json::Value>;
+
+/// The most options a file may expose.
+pub const MAX_OPTIONS: usize = 24;
+
 /// A widget file, read and worked out.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WidgetFile {
+    /// What the file lets its user adjust.
+    pub options: Vec<WidgetOption>,
     pub name: String,
     /// The size the parts are laid out for, and the size a new widget from this file starts at.
     pub size: (f32, f32),
@@ -74,8 +110,11 @@ pub struct WidgetFileInfo {
     pub is_widget: bool,
     pub name: String,
     pub size: [f32; 2],
-    /// The parts as last read successfully (what is on screen).
+    /// The parts as last read successfully (what is on screen), with every option at its default.
     pub parts: Vec<Part>,
+    /// What the file lets its user adjust.
+    #[serde(default)]
+    pub options: Vec<WidgetOption>,
     /// What is wrong with the file as it is now, if anything.
     pub error: Option<String>,
     pub error_line: Option<usize>,
@@ -107,12 +146,25 @@ pub fn starter(name: &str) -> String {
 /// Reads a widget file. `include` fetches the text of another file in the
 /// same folder by name (for `include:`).
 pub fn parse(text: &str, include: &dyn Fn(&str) -> Option<String>) -> Result<WidgetFile, FileError> {
+    parse_with(text, include, &OptionValues::new())
+}
+
+/// Reads a widget file with one widget's answers to its options (anything
+/// not answered, or answered with something the option does not allow, is
+/// at its default).
+pub fn parse_with(text: &str, include: &dyn Fn(&str) -> Option<String>, answers: &OptionValues) -> Result<WidgetFile, FileError> {
     let text = text.trim_start_matches('\u{feff}');
     let doc = read(text)?;
     if doc.get("lumen-widget").is_none() {
         return Err(FileError { message: "this is not a widget file: it must have the line `lumen-widget: 1`".into(), line: Some(1) });
     }
-    let (variables, styles) = shared(&doc, include).map_err(|error| at_key(error, text, "include"))?;
+    let (mut variables, styles) = shared(&doc, include).map_err(|error| at_key(error, text, "include"))?;
+    // Options are variables whose value the user chooses.
+    let options = options_of(&doc).map_err(|error| at_key(error, text, "options"))?;
+    for option in &options {
+        let value = answers.get(&option.name).filter(|answer| allowed(option, answer)).unwrap_or(&option.default);
+        variables.insert(Value::String(option.name.clone()), serde_yaml_ng::to_value(tidy(option, value)).unwrap_or(Value::Null));
+    }
 
     let name = doc.get("name").and_then(Value::as_str).map(str::trim).filter(|name| !name.is_empty()).unwrap_or("Widget").chars().take(60).collect();
     let size = match doc.get("size") {
@@ -147,7 +199,7 @@ pub fn parse(text: &str, include: &dyn Fn(&str) -> Option<String>) -> Result<Wid
     if parts.len() != count {
         return Err(FileError::new("a part's id may only use letters, numbers and dashes, and a widget holds at most 32 parts"));
     }
-    Ok(WidgetFile { name, size, parts })
+    Ok(WidgetFile { options, name, size, parts })
 }
 
 /// Whether a file is a widget (has `lumen-widget:`) rather than only shared
@@ -165,8 +217,15 @@ pub fn is_widget(text: &str) -> bool {
 /// `variables` and `styles` sections, and each part setting whose value has
 /// not changed (so `size: $big` stays `$big`). Comments are not kept.
 pub fn render(name: &str, size: (f32, f32), parts: &[Part], previous: Option<&str>, include: &dyn Fn(&str) -> Option<String>) -> String {
+    render_with(name, size, parts, previous, include, &OptionValues::new())
+}
+
+/// As [`render`], for parts that were worked out with one widget's answers
+/// to the file's options: the comparison with the old file uses the same
+/// answers, so a setting written `$big` stays `$big` whatever that widget chose.
+pub fn render_with(name: &str, size: (f32, f32), parts: &[Part], previous: Option<&str>, include: &dyn Fn(&str) -> Option<String>, answers: &OptionValues) -> String {
     let old_doc = previous.and_then(|text| read(text.trim_start_matches('\u{feff}')).ok());
-    let old_parts = previous.and_then(|text| parse(text, include).ok()).map(|file| file.parts).unwrap_or_default();
+    let old_parts = previous.and_then(|text| parse_with(text, include, answers).ok()).map(|file| file.parts).unwrap_or_default();
     let old_raw: Vec<&Value> = old_doc.as_ref().and_then(|doc| doc.get("parts")).and_then(Value::as_sequence).map(|list| list.iter().collect()).unwrap_or_default();
 
     let mut out = String::from("# A Lumen widget. Colours are theme roles (text, muted, highlight, primary, accent…), never hex values.\n");
@@ -179,7 +238,7 @@ pub fn render(name: &str, size: (f32, f32), parts: &[Part], previous: Option<&st
         None => out.push_str(&format!("size: [{}, {}]\n", number(f64::from(size.0)), number(f64::from(size.1)))),
     }
     if let Some(doc) = &old_doc {
-        for key in ["include", "variables", "styles"] {
+        for key in ["include", "options", "variables", "styles"] {
             if let Some(value) = doc.get(key).filter(|value| !value.is_null()) {
                 out.push('\n');
                 emit(key, value, 0, &mut out);
@@ -200,6 +259,12 @@ pub fn render(name: &str, size: (f32, f32), parts: &[Part], previous: Option<&st
                 (Some(_), Some(_)) => now.get(key).cloned(),
                 // A new part: write only what differs from a plain part.
                 _ => now.get(key).filter(|value| key == "id" || fresh.get(key) != Some(*value)).cloned(),
+            };
+            // `shown: $option` is `hidden` the other way round; if hidden did not change, keep it as written.
+            let kept_shown = raw.zip(before.as_ref()).filter(|(raw, before)| key == "hidden" && before.get(key) == now.get(key) && raw.get("hidden").is_none()).and_then(|(raw, _)| raw.get("shown").cloned());
+            let (key, written) = match kept_shown {
+                Some(value) => ("shown", Some(value)),
+                None => (key, written),
             };
             if let Some(value) = written {
                 out.push_str(if first { "  - " } else { "    " });
@@ -225,6 +290,80 @@ fn read(text: &str) -> Result<Value, FileError> {
         Value::Mapping(_) => Ok(doc),
         Value::Null => Ok(Value::Mapping(Mapping::new())),
         _ => Err(FileError { message: "the file must be a list of settings such as `name:` and `parts:`".into(), line: Some(1) }),
+    }
+}
+
+/// Reads the `options:` section.
+fn options_of(doc: &Value) -> Result<Vec<WidgetOption>, FileError> {
+    let listed = match doc.get("options") {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::Mapping(listed)) => listed,
+        Some(_) => return Err(FileError::new("`options` must be a group of named options, each with a `type`")),
+    };
+    let mut options = Vec::new();
+    for (name, settings) in listed {
+        let name = name.as_str().unwrap_or_default().to_owned();
+        let wrong = |why: String| FileError::new(format!("option `{name}`: {why}"));
+        if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+            return Err(FileError::new(format!("`{name}` cannot be an option's name; use letters, numbers and dashes")));
+        }
+        let Value::Mapping(settings) = settings else { return Err(wrong("must be a group of settings, like `{ label: Size, type: number, default: 40 }`".into())) };
+        let text = |key: &str| settings.get(key).and_then(Value::as_str).map(str::to_owned);
+        let kind = match text("type").unwrap_or_default().to_lowercase().as_str() {
+            "number" => OptionKind::Number,
+            "toggle" | "switch" | "on-off" => OptionKind::Toggle,
+            "text" => OptionKind::Text,
+            "choice" => OptionKind::Choice,
+            "color" | "colour" => OptionKind::Color,
+            other => return Err(wrong(format!("`type: {other}` is not a type of option; use number, toggle, text, choice or color"))),
+        };
+        let choices: Vec<String> = settings.get("choices").and_then(Value::as_sequence).map(|list| list.iter().filter_map(|item| item.as_str().map(str::to_owned).or_else(|| item.as_f64().map(number))).collect()).unwrap_or_default();
+        if kind == OptionKind::Choice && choices.is_empty() {
+            return Err(wrong("a choice needs a list of `choices`".into()));
+        }
+        let (min, max) = (settings.get("min").and_then(Value::as_f64), settings.get("max").and_then(Value::as_f64));
+        if min.zip(max).is_some_and(|(min, max)| min > max) {
+            return Err(wrong("its `min` is larger than its `max`".into()));
+        }
+        let mut option = WidgetOption { label: text("label").unwrap_or_else(|| name.clone()), name: name.clone(), kind, default: serde_json::Value::Null, min, max, choices };
+        // What it is before anyone changes it: the file's default, or the plainest value of its type.
+        let fallback = match kind {
+            OptionKind::Number => serde_json::json!(min.unwrap_or(0.0)),
+            OptionKind::Toggle => serde_json::json!(false),
+            OptionKind::Text => serde_json::json!(""),
+            OptionKind::Choice => serde_json::json!(option.choices[0]),
+            OptionKind::Color => serde_json::json!("text"),
+        };
+        let given = settings.get("default").and_then(|value| serde_json::to_value(value).ok()).map(|value| if let (OptionKind::Choice | OptionKind::Text, Some(n)) = (kind, value.as_f64()) { serde_json::json!(number(n)) } else { value });
+        option.default = match given {
+            Some(value) if allowed(&option, &value) => tidy(&option, &value),
+            Some(_) => return Err(wrong("its `default` is not something the option allows".into())),
+            None => fallback,
+        };
+        options.push(option);
+        if options.len() > MAX_OPTIONS {
+            return Err(FileError::new(format!("a widget can expose at most {MAX_OPTIONS} options")));
+        }
+    }
+    Ok(options)
+}
+
+/// Whether an answer is something the option can be.
+fn allowed(option: &WidgetOption, answer: &serde_json::Value) -> bool {
+    match option.kind {
+        OptionKind::Number => answer.as_f64().is_some_and(f64::is_finite),
+        OptionKind::Toggle => answer.is_boolean(),
+        OptionKind::Text => answer.as_str().is_some_and(|text| text.chars().count() <= 200),
+        OptionKind::Choice => answer.as_str().is_some_and(|text| option.choices.iter().any(|choice| choice == text)),
+        OptionKind::Color => answer.as_str().is_some_and(|name| colour(name).is_ok()),
+    }
+}
+
+/// An allowed answer, kept inside the option's range.
+fn tidy(option: &WidgetOption, answer: &serde_json::Value) -> serde_json::Value {
+    match (option.kind, answer.as_f64()) {
+        (OptionKind::Number, Some(value)) => serde_json::json!(value.clamp(option.min.unwrap_or(f64::MIN), option.max.unwrap_or(f64::MAX))),
+        _ => answer.clone(),
     }
 }
 
@@ -362,6 +501,8 @@ fn part_from(raw: &Value, variables: &Mapping, styles: &Mapping) -> Result<Part,
             "from-bottom" | "fromBottom" => part.from_bottom = flag()?,
             "radius" => part.radius = num()?,
             "hidden" => part.hidden = flag()?,
+            // The other way round, for an on/off option: `shown: $show-date`.
+            "shown" => part.hidden = !flag()?,
             "click" => {
                 part.click = text()?;
                 if crate::behaviour::parse_action(&part.click).is_none() && !part.click.trim().is_empty() {
@@ -661,6 +802,66 @@ parts:
         assert!(wrong("when: media.playing", "when: is music on?").contains("not a condition"));
         assert!(wrong("alert-when: stats.cpu > 90", "alert-when: stats.cpu > hot").contains("not a number"));
         assert!(wrong("kind: ring", "kind: dial").contains("ring, graph or icon"));
+    }
+
+    const ADJUSTABLE: &str = r#"lumen-widget: 1
+name: Adjustable
+options:
+  big: { label: Time size, type: number, default: 40, min: 20, max: 80 }
+  show-date: { label: Show the date, type: toggle, default: true }
+  tint: { label: Colour, type: color, default: accent }
+  mood: { label: Mood, type: choice, choices: [calm, loud], default: calm }
+  title: { type: text }
+parts:
+  - id: time
+    text: "{clock.time}"
+    size: $big
+    color: $tint
+  - id: date
+    text: "{clock.date}"
+    shown: $show-date
+  - id: label
+    text: $title
+"#;
+
+    #[test]
+    fn a_file_exposes_options_that_each_widget_answers_for_itself() {
+        let file = parse(ADJUSTABLE, &|_| None).unwrap();
+        let described: Vec<(&str, &str, OptionKind)> = file.options.iter().map(|o| (o.name.as_str(), o.label.as_str(), o.kind)).collect();
+        assert_eq!(described, [("big", "Time size", OptionKind::Number), ("show-date", "Show the date", OptionKind::Toggle), ("tint", "Colour", OptionKind::Color), ("mood", "Mood", OptionKind::Choice), ("title", "title", OptionKind::Text)]);
+        assert_eq!((file.options[0].min, file.options[0].max, file.options[3].choices.len()), (Some(20.0), Some(80.0), 2));
+        assert_eq!((file.parts[0].size, file.parts[0].color, file.parts[1].hidden, file.parts[2].text.as_str()), (40.0, PartColor::Accent, false, ""), "everything at its default");
+
+        let answers: OptionValues = serde_json::from_str(r#"{ "big": 64, "show-date": false, "tint": "primary", "title": "Hi" }"#).unwrap();
+        let mine = parse_with(ADJUSTABLE, &|_| None, &answers).unwrap();
+        assert_eq!((mine.parts[0].size, mine.parts[0].color, mine.parts[1].hidden, mine.parts[2].text.as_str()), (64.0, PartColor::Primary, true, "Hi"));
+
+        // Answers the option does not allow fall back to its default; numbers stay in range.
+        let odd: OptionValues = serde_json::from_str(r##"{ "big": 500, "show-date": "yes", "tint": "#ff0000", "mood": "angry", "unknown": 1 }"##).unwrap();
+        let tamed = parse_with(ADJUSTABLE, &|_| None, &odd).unwrap();
+        assert_eq!((tamed.parts[0].size, tamed.parts[0].color, tamed.parts[1].hidden), (80.0, PartColor::Accent, false));
+    }
+
+    #[test]
+    fn the_designer_keeps_options_in_place_whatever_a_widget_chose() {
+        let answers: OptionValues = serde_json::from_str(r#"{ "big": 64, "tint": "primary" }"#).unwrap();
+        let mut parts = parse_with(ADJUSTABLE, &|_| None, &answers).unwrap().parts;
+        parts[1].x = 30.0;
+        let text = render_with("Adjustable", DEFAULT_SIZE, &parts, Some(ADJUSTABLE), &|_| None, &answers);
+        assert!(text.contains("size: $big") && text.contains("color: $tint") && text.contains("shown: $show-date"), "{text}");
+        assert!(text.contains("options:\n  big: { label: Time size, type: number, default: 40, min: 20, max: 80 }"), "{text}");
+        assert_eq!(parse(&text, &|_| None).unwrap().options.len(), 5);
+        assert_eq!(parse_with(&text, &|_| None, &answers).unwrap().parts, parts);
+    }
+
+    #[test]
+    fn badly_written_options_are_explained() {
+        let wrong = |from: &str, to: &str| parse(&ADJUSTABLE.replace(from, to), &|_| None).unwrap_err();
+        assert!(wrong("type: number", "type: slider").message.contains("not a type of option"));
+        assert!(wrong("choices: [calm, loud], ", "").message.contains("needs a list of `choices`"));
+        assert!(wrong("default: 40", "default: lots").message.contains("option `big`"));
+        assert!(wrong("min: 20, max: 80", "min: 90, max: 80").message.contains("larger than"));
+        assert_eq!(wrong("type: number", "type: slider").line, Some(3), "points at the options section");
     }
 
     #[test]

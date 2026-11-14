@@ -125,8 +125,8 @@ export function WidgetsScreen() {
             <Designer
               key={selected.id}
               placement={selected}
-              saved={partsOf(selected, partDefaults, widgetFiles).parts}
-              defaultSize={partsOf(selected, partDefaults, widgetFiles).defaultSize}
+              saved={partsOf(selected, partDefaults, widgetFiles, widgets.resolved).parts}
+              defaultSize={partsOf(selected, partDefaults, widgetFiles, widgets.resolved).defaultSize}
               file={selected.file ?? null}
               look={lookFor(selected, shown, styles)}
               theme={shown}
@@ -542,10 +542,10 @@ function themeVars(theme: Theme | null): CSSProperties {
 
 /** A widget in the preview, drawn from its real parts and component style. */
 function PreviewWidget({ placement, theme }: { placement: Placement; theme: Theme | null }) {
-  const { styles, partDefaults, widgetFiles } = useLumen();
+  const { styles, partDefaults, widgetFiles, widgets } = useLumen();
   const values = useSampleValues();
   if (!theme || !styles || !partDefaults) return null;
-  const { parts, defaultSize } = partsOf(placement, partDefaults, widgetFiles);
+  const { parts, defaultSize } = partsOf(placement, partDefaults, widgetFiles, widgets?.resolved);
   return <WidgetView parts={parts} look={lookFor(placement, theme, styles)} size={[placement.width, placement.height]} defaultSize={defaultSize} values={values} />;
 }
 

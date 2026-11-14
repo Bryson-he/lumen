@@ -78,11 +78,17 @@ export function lookFor(placement: Placement, theme: Theme, styles: StylesState)
 }
 
 /** What a widget is made of: its file's parts, else its own, else the ones its kind comes with. */
-export function partsOf(placement: Placement, defaults: PartDefaults, files: WidgetFileInfo[]): { parts: Part[]; defaultSize: readonly [number, number]; file: WidgetFileInfo | null; own: boolean } {
+export function partsOf(
+  placement: Placement,
+  defaults: PartDefaults,
+  files: WidgetFileInfo[],
+  /** Parts of widgets that answered their file's options, by widget id (from the widgets state). */
+  resolved?: Record<string, Part[]>,
+): { parts: Part[]; defaultSize: readonly [number, number]; file: WidgetFileInfo | null; own: boolean } {
   const kind = defaults[placement.kind];
   if (placement.file) {
     const file = files.find((item) => item.file === placement.file && item.isWidget) ?? null;
-    return { parts: file?.parts ?? [], defaultSize: file?.size ?? kind.size, file, own: true };
+    return { parts: resolved?.[placement.id] ?? file?.parts ?? [], defaultSize: file?.size ?? kind.size, file, own: true };
   }
   return { parts: placement.parts ?? kind.parts, defaultSize: kind.size, file: null, own: !!placement.parts };
 }
