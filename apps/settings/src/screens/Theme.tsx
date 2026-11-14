@@ -28,13 +28,11 @@ const FONTS = [
 const capital = (word: string) => word[0].toUpperCase() + word.slice(1);
 
 export function ThemeScreen() {
-  const { shown, wallpapers, wallpaperOf, previewTheme, go } = useLumen();
+  const { shown, wallpapers, wallpaperOf, previewTheme, go, themeView: view, setThemeView: setView } = useLumen();
   // Which source tab is open; follows the theme until the user picks another.
   const [picked, setPicked] = useState<SourceKind | null>(null);
   // "Auto" stays highlighted until Light or Dark is chosen by hand.
   const [auto, setAuto] = useState(false);
-  // Colours and theme-wide style, or the styles of the individual pieces.
-  const [view, setView] = useState<"colours" | "styles">("colours");
   const sourceKind: SourceKind = picked ?? shown?.source.type ?? "wallpaper";
   useEffect(() => setPicked(null), [shown?.source.type]);
 

@@ -4,6 +4,7 @@ import { PageHeader, SearchBox } from "../Shell";
 import { useLumen } from "../store";
 import type { Theme } from "../types";
 import { Arrow, Button, Dots, Tip, WallpaperArt } from "../ui";
+import { Guide } from "./Guide";
 
 /** The five dots on the hero card. */
 function heroColours(theme: Theme): string[] {
@@ -88,6 +89,8 @@ export function Home() {
           )}
         </div>
       </section>
+
+      <Guide />
 
       <section className="quick" aria-label="Quick switch">
         <div className="section-heading">

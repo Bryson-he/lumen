@@ -19,14 +19,15 @@ import {
   type Theme,
 } from "../types";
 import { Button, Check, Slider, Tip } from "../ui";
+import { ChoiceTiles, LookSwatch, resolveLook } from "../widgetView";
 
 const STYLE_FILES = [{ name: "Lumen style", extensions: ["lumenstyle"] }];
 
-const BACKGROUNDS: { value: StyleBackground; label: string }[] = [
-  { value: "glass", label: "Glass (follows theme blur)" },
-  { value: "solid", label: "Solid" },
-  { value: "gradient", label: "Gradient" },
-  { value: "none", label: "None (just the text and bars)" },
+const BACKGROUNDS: { value: StyleBackground; label: string; short: string; about: string }[] = [
+  { value: "glass", label: "Glass (follows theme blur)", short: "Glass", about: "See-through, so your wallpaper shows behind. How see-through is the theme's blur setting." },
+  { value: "solid", label: "Solid", short: "Solid", about: "One flat colour behind the content." },
+  { value: "gradient", label: "Gradient", short: "Gradient", about: "Fades from one theme colour to another." },
+  { value: "none", label: "None (just the text and bars)", short: "None", about: "Nothing behind the content: just the text and bars on your wallpaper." },
 ];
 
 const PIECES: { key: keyof StyleAssignments; label: string }[] = [
@@ -108,8 +109,8 @@ export function StylesView() {
     <div className="split styles-split">
       <aside className="panel styles-list" aria-label="Styles">
         <h2 className="panel-title">Styles</h2>
-        <StyleGroup label="Built in" styles={styles.builtin} picked={picked.id} assigned={styles.assigned} onPick={setPickedId} />
-        {styles.styles.length > 0 && <StyleGroup label="Yours" styles={styles.styles} picked={picked.id} assigned={styles.assigned} onPick={setPickedId} />}
+        <StyleGroup label="Built in" styles={styles.builtin} picked={picked.id} assigned={styles.assigned} theme={shown} onPick={setPickedId} />
+        {styles.styles.length > 0 && <StyleGroup label="Yours" styles={styles.styles} picked={picked.id} assigned={styles.assigned} theme={shown} onPick={setPickedId} />}
         <div className="button-row">
           <Button size="bar" kind="primary" disabled={full} onClick={duplicate}>
             Duplicate
@@ -160,7 +161,7 @@ export function StylesView() {
             </span>
           )}
         </div>
-        <StyleFields key={picked.id} style={picked} roles={shown?.roles ?? null} disabled={!own} onChange={change} />
+        <StyleFields key={picked.id} style={picked} roles={shown?.roles ?? null} theme={shown} disabled={!own} onChange={change} />
       </section>
 
       <div className="styles-side">
@@ -182,7 +183,7 @@ export function StylesView() {
   );
 }
 
-function StyleGroup({ label, styles, picked, assigned, onPick }: { label: string; styles: ComponentStyle[]; picked: string; assigned: StyleAssignments; onPick: (id: string) => void }) {
+function StyleGroup({ label, styles, picked, assigned, theme, onPick }: { label: string; styles: ComponentStyle[]; picked: string; assigned: StyleAssignments; theme: Theme | null; onPick: (id: string) => void }) {
   const inUse = (id: string) => PIECES.some((piece) => assigned[piece.key] === id);
   return (
     <div className="stack-2">
@@ -191,7 +192,8 @@ function StyleGroup({ label, styles, picked, assigned, onPick }: { label: string
         {styles.map((style) => (
           <li key={style.id}>
             <button type="button" className="styles-item" aria-pressed={style.id === picked} onClick={() => onPick(style.id)}>
-              <span>{style.name}</span>
+              {theme && <LookSwatch look={resolveLook(theme, style)} />}
+              <span className="styles-item-name">{style.name}</span>
               {inUse(style.id) && <span className="muted small">in use</span>}
             </button>
           </li>
@@ -241,7 +243,7 @@ function RoleField({ label, value, roles, disabled, onChange }: { label: string;
   );
 }
 
-function StyleFields({ style, roles, disabled, onChange }: { style: ComponentStyle; roles: Roles | null; disabled: boolean; onChange: (patch: Partial<ComponentStyle>) => void }) {
+function StyleFields({ style, roles, theme, disabled, onChange }: { style: ComponentStyle; roles: Roles | null; theme: Theme | null; disabled: boolean; onChange: (patch: Partial<ComponentStyle>) => void }) {
   const nameId = useId();
   const backgroundId = useId();
   const fontId = useId();
@@ -269,16 +271,18 @@ function StyleFields({ style, roles, disabled, onChange }: { style: ComponentSty
 
       <h3 className="label styles-wide">Background</h3>
       <div className="field">
-        <label htmlFor={backgroundId} className="small-14">
-          Kind
-        </label>
-        <select id={backgroundId} value={style.background} disabled={disabled} onChange={(event) => onChange({ background: event.target.value as StyleBackground })}>
-          {BACKGROUNDS.map((item) => (
-            <option key={item.value} value={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </select>
+        {theme ? (
+          <ChoiceTiles label="Kind of background" value={style.background} disabled={disabled} onChange={(background) => onChange({ background })} options={BACKGROUNDS.map((item) => ({ value: item.value, label: item.short, look: resolveLook(theme, { ...style, background: item.value }) }))} />
+        ) : (
+          <select id={backgroundId} aria-label="Kind of background" value={style.background} disabled={disabled} onChange={(event) => onChange({ background: event.target.value as StyleBackground })}>
+            {BACKGROUNDS.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+        )}
+        <span className="muted small">{BACKGROUNDS.find((item) => item.value === style.background)?.about}</span>
       </div>
       {style.background !== "none" && <RoleField label="Colour" value={style.backgroundRole} roles={roles} disabled={disabled} onChange={(backgroundRole) => onChange({ backgroundRole })} />}
       {style.background === "gradient" && <RoleField label="Fades to" value={style.gradientRole} roles={roles} disabled={disabled} onChange={(gradientRole) => onChange({ gradientRole })} />}

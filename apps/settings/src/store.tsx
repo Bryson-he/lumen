@@ -13,6 +13,9 @@ const PRESET_FILE = /\.lumen$/i;
 interface Lumen {
   screen: Screen;
   go: (screen: Screen) => void;
+  /** Which half of Theme & colours is showing: the colours, or the component styles. */
+  themeView: "colours" | "styles";
+  setThemeView: (view: "colours" | "styles") => void;
 
   connected: boolean;
   /** Why the core is unreachable, when it is. */
@@ -102,6 +105,7 @@ export function useLumen(): Lumen {
 
 export function LumenProvider({ children }: { children: ReactNode }) {
   const [screen, setScreen] = useState<Screen>("home");
+  const [themeView, setThemeView] = useState<"colours" | "styles">("colours");
   const [connected, setConnected] = useState(false);
   const [connectionMessage, setConnectionMessage] = useState<string | null>("Connecting to Lumen…");
   const [theme, setTheme] = useState<Theme | null>(null);
@@ -432,6 +436,8 @@ export function LumenProvider({ children }: { children: ReactNode }) {
     () => ({
       screen,
       go: setScreen,
+      themeView,
+      setThemeView,
       connected,
       connectionMessage,
       theme,
@@ -475,7 +481,7 @@ export function LumenProvider({ children }: { children: ReactNode }) {
       setWallpaperOnly,
       wallpaperOf,
     }),
-    [screen, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, widgets, widgetRequest, bar, setBar, flyouts, setFlyouts, showFlyout, launcher, setLauncher, styles, setStyles, styleRequest, weather, setWeather, widgetFiles, request, partDefaults, fonts, refreshFonts, importFonts, presets, presetRequest, importPresets, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
+    [screen, themeView, connected, connectionMessage, theme, preview, shown, previewEndsAt, wallpapers, monitors, status, widgets, widgetRequest, bar, setBar, flyouts, setFlyouts, showFlyout, launcher, setLauncher, styles, setStyles, styleRequest, weather, setWeather, widgetFiles, request, partDefaults, fonts, refreshFonts, importFonts, presets, presetRequest, importPresets, error, dropping, previewTheme, keep, revert, importWallpapers, updateWallpaper, setWallpaperOnly, wallpaperOf],
   );
 
   return <Context.Provider value={value}>{children}</Context.Provider>;

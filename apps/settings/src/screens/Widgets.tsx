@@ -22,7 +22,7 @@ import {
   type WidgetStyle,
 } from "../types";
 import { Arrow, Button, Check, Segmented, Slider, Tip, WallpaperArt } from "../ui";
-import { lookFor, partsOf, useSampleValues, WidgetView } from "../widgetView";
+import { ChoiceTiles, lookFor, partsOf, useSampleValues, WidgetView } from "../widgetView";
 import { Designer } from "./Designer";
 import { WeatherSettings } from "./Weather";
 import { PartsTab } from "./Parts";
@@ -589,7 +589,7 @@ function Inspector({
   const setStyle = (changes: Partial<WidgetStyle>) => onUpdate({ id, style: { ...style, ...changes } });
   const backgroundId = useId();
   const componentStyleId = useId();
-  const { styles, widgetFiles: files } = useLumen();
+  const { styles, widgetFiles: files, shown } = useLumen();
   const sourceId = useId();
   const monitorSelectId = useId();
 
@@ -666,14 +666,25 @@ function Inspector({
             </div>
           )}
           <div className="field">
-            <label htmlFor={backgroundId} className="small-14">
-              Background
-            </label>
-            <select id={backgroundId} value={style.background} onChange={(event) => setStyle({ background: event.target.value as WidgetBackground })}>
-              <option value="glass">Glass (follows theme blur)</option>
-              <option value="solid">Solid surface</option>
-              <option value="none">None</option>
-            </select>
+            <span className="small-14">Background</span>
+            {shown && styles ? (
+              <ChoiceTiles<WidgetBackground>
+                label="Background"
+                value={style.background}
+                onChange={(background) => setStyle({ background })}
+                options={[
+                  { value: "glass", label: "As its style", look: lookFor({ ...placement, style: { ...style, background: "glass", opacity: 100 } }, shown, styles) },
+                  { value: "solid", label: "Solid", look: lookFor({ ...placement, style: { ...style, background: "solid", opacity: 100 } }, shown, styles) },
+                  { value: "none", label: "None", look: lookFor({ ...placement, style: { ...style, background: "none", opacity: 100 } }, shown, styles) },
+                ]}
+              />
+            ) : (
+              <select id={backgroundId} aria-label="Background" value={style.background} onChange={(event) => setStyle({ background: event.target.value as WidgetBackground })}>
+                <option value="glass">As its style</option>
+                <option value="solid">Solid surface</option>
+                <option value="none">None</option>
+              </select>
+            )}
           </div>
           <Slider label="Opacity" min={20} max={100} value={style.opacity} format={(v) => `${v}%`} onCommit={(opacity) => setStyle({ opacity })} />
           <Check checked={style.radius === null} onChange={(follow) => setStyle({ radius: follow ? null : themeRadius })}>

@@ -280,3 +280,31 @@ export function WidgetView({ parts, look, size, defaultSize, values }: { parts: 
     </div>
   );
 }
+
+/** A thumbnail of a look: a small card with a line of text and a level bar, on a bit of "desktop". */
+export function LookSwatch({ look }: { look: Look }) {
+  return (
+    <span className="look-swatch" aria-hidden="true" style={{ background: `linear-gradient(140deg, ${look.roles.neutral}, ${look.roles.surface} 55%, ${look.roles.primary} 260%)` }}>
+      <span className="look-swatch-card" style={{ background: look.background, borderRadius: Math.min(look.radius, 11) * 0.6, border: look.borderWidth > 0 ? `${Math.min(look.borderWidth, 2)}px solid ${look.border}` : "none" }}>
+        <span className="look-swatch-text" style={{ background: look.text }} />
+        <span className="look-swatch-bar" style={{ background: look.track }}>
+          <span style={{ background: look.highlight }} />
+        </span>
+      </span>
+    </span>
+  );
+}
+
+/** Choices shown as small pictures with a word under each, instead of a drop-down of names. */
+export function ChoiceTiles<T extends string>({ label, value, options, disabled, onChange }: { label: string; value: T; options: { value: T; label: string; look: Look }[]; disabled?: boolean; onChange: (value: T) => void }) {
+  return (
+    <div role="group" aria-label={label} className="choice-tiles">
+      {options.map((option) => (
+        <button key={option.value} type="button" className="choice-tile" aria-pressed={option.value === value} disabled={disabled} onClick={() => onChange(option.value)}>
+          <LookSwatch look={option.look} />
+          <span>{option.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
