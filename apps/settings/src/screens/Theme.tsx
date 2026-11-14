@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { autoMode } from "../color";
 import { PageHeader } from "../Shell";
 import { useLumen } from "../store";
-import { ROLE_NAMES, type Blur, type Mode, type Motion, type Roles, type Style, type Theme, type Variant } from "../types";
+import { ROLE_NAMES, type Blur, type Mode, type Motion, type ExportsState, type Roles, type Style, type Theme, type Variant } from "../types";
 import { Button, Check, Segmented, Slider, Tip, WallpaperArt } from "../ui";
 import { StylesView } from "./Styles";
 
@@ -202,9 +202,50 @@ export function ThemeScreen() {
           <Check checked={shown?.setWindowsAccent ?? false} disabled={!shown} onChange={(setWindowsAccent) => void previewTheme({ setWindowsAccent })}>
             Also set the Windows accent colour
           </Check>
+          <OtherApps />
         </section>
       </div>
     </>
+  );
+}
+
+/** The kept theme written out as files for other apps, and the Windows Terminal colour scheme. */
+function OtherApps() {
+  const { request, theme } = useLumen();
+  const [state, setState] = useState<ExportsState | null>(null);
+  // The files are rewritten whenever a theme is kept.
+  const kept = theme ? JSON.stringify([theme.roles, theme.mode, theme.style]) : "";
+  useEffect(() => {
+    let current = true;
+    void request<ExportsState>("getExports").then((result) => {
+      if (current && result) setState(result);
+    });
+    return () => {
+      current = false;
+    };
+  }, [request, kept]);
+  if (!state) return null;
+
+  return (
+    <div className="other-apps">
+      <div className="label">Other apps</div>
+      <p className="muted small-13">
+        {state.files.length > 0 ? "Each theme you keep is also written out as files: a Windows Terminal colour scheme, VS Code colours, CSS variables and JSON." : "Keep a theme and Lumen writes its colours out as files for Windows Terminal, VS Code, CSS and JSON."}
+      </p>
+      <Button size="bar" onClick={() => void request("openExportsFolder")}>
+        Open the folder
+      </Button>
+      <Check checked={state.terminal} disabled={!state.terminalAvailable} onChange={(terminal) => void request<ExportsState>("setExports", { terminal }).then((result) => result && setState(result))}>
+        Add a Lumen colour scheme to Windows Terminal
+      </Check>
+      <p className="muted small">
+        {!state.terminalAvailable
+          ? "Windows Terminal was not found on this PC."
+          : state.terminal
+            ? "In Terminal, choose Settings, a profile, Appearance, Colour scheme, then Lumen. It follows your theme from then on. Open tabs pick up a new theme when Terminal restarts."
+            : "Adds one file to Terminal's own add-ons folder. Your Terminal settings are not changed, and switching this off removes the file."}
+      </p>
+    </div>
   );
 }
 

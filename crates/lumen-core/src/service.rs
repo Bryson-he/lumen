@@ -65,6 +65,8 @@ pub struct Service<D: Desktop> {
     widget_files: Vec<lumen_ipc::WidgetFileInfo>,
     /// The weather settings and the last forecast, as the widget host last reported them.
     weather: Option<lumen_ipc::WeatherState>,
+    /// Windows Terminal's fragments folder, where the "Lumen" colour scheme goes when switched on.
+    terminal_fragments: Option<std::path::PathBuf>,
     /// The scripts widget files name, as the widget host last reported them.
     scripts: Vec<lumen_ipc::ScriptInfo>,
     /// Finds places by name (online, through the weather service).
@@ -102,6 +104,7 @@ impl<D: Desktop> Service<D> {
             widget_files: Vec::new(),
             weather: None,
             scripts: Vec::new(),
+            terminal_fragments: None,
             place_search: Box::new(lumen_widgets::weather::search),
             preset_mirror: None,
         }
@@ -249,6 +252,28 @@ impl<D: Desktop> Service<D> {
                 // Asks the place search online; the answer comes within a few seconds or not at all.
                 let places = (self.place_search)(&query).map_err(|error| RpcError::new(code::INTERNAL_ERROR, format!("could not search for places: {error}")))?;
                 json(places)
+            }
+            method::GET_EXPORTS => json(self.exports_state()),
+            method::SET_EXPORTS => {
+                let on = params.get("terminal").and_then(Value::as_bool).ok_or_else(|| RpcError::new(code::INVALID_PARAMS, "say whether Windows Terminal should get the colour scheme: { terminal: true or false }"))?;
+                let fragments = self.terminal_fragments.clone().ok_or_else(|| RpcError::new(code::INTERNAL_ERROR, "could not find Windows Terminal's folder on this PC"))?;
+                if on {
+                    let theme = self.committed.clone().unwrap_or_else(Theme::fallback);
+                    crate::exports::write_fragment(&fragments, &theme).map_err(|e| RpcError::new(code::INTERNAL_ERROR, format!("could not add the colour scheme to Windows Terminal: {e}")))?;
+                } else {
+                    crate::exports::remove_fragment(&fragments).map_err(|e| RpcError::new(code::INTERNAL_ERROR, format!("could not remove the colour scheme from Windows Terminal: {e}")))?;
+                }
+                self.store.set_terminal_scheme(on).map_err(store_error)?;
+                json(self.exports_state())
+            }
+            method::OPEN_EXPORTS_FOLDER => {
+                self.refresh_exports();
+                let folder = self.exports_dir();
+                let _ = std::fs::create_dir_all(&folder);
+                if !lumen_win::shell::open(&folder.to_string_lossy()) {
+                    return Err(RpcError::new(code::INTERNAL_ERROR, format!("could not open {}", folder.display())));
+                }
+                json(folder.to_string_lossy())
             }
             method::GET_SCRIPTS => json(&self.scripts),
             method::READ_SCRIPT => {
@@ -464,6 +489,7 @@ impl<D: Desktop> Service<D> {
         }
         info!("kept \"{}\"", preview.theme.name);
         self.committed = Some(preview.theme.clone());
+        self.refresh_exports();
         // A theme kept by hand is no longer "the preset as saved".
         self.look_changed_by_hand();
         self.emit_theme(None, ThemeChangeReason::Commit);
@@ -601,6 +627,41 @@ impl<D: Desktop> Service<D> {
         if self.widgets.as_ref() != Some(&state) {
             self.emit(event::WIDGETS_CHANGED, &state);
             self.widgets = Some(state);
+        }
+    }
+
+    /// Where the kept theme is written out for other apps.
+    fn exports_dir(&self) -> std::path::PathBuf {
+        self.store.root().join("exports")
+    }
+
+    /// Tells the service where Windows Terminal's fragments folder is, and writes the exports for the theme kept now.
+    pub fn set_terminal_fragments(&mut self, folder: Option<std::path::PathBuf>) {
+        self.terminal_fragments = folder;
+        self.refresh_exports();
+    }
+
+    /// Writes the kept theme out for other apps (and into Windows Terminal, if that is switched on).
+    /// A failure here never stops a theme being kept: it is only noted in the log.
+    pub(crate) fn refresh_exports(&self) {
+        let Some(theme) = &self.committed else { return };
+        if let Err(error) = crate::exports::write(&self.exports_dir(), theme) {
+            warn!("could not write the theme out for other apps: {error}");
+        }
+        if let Some(fragments) = self.terminal_fragments.as_ref().filter(|_| self.store.terminal_scheme())
+            && let Err(error) = crate::exports::write_fragment(fragments, theme)
+        {
+            warn!("could not refresh the colour scheme in Windows Terminal: {error}");
+        }
+    }
+
+    fn exports_state(&self) -> lumen_ipc::ExportsState {
+        let folder = self.exports_dir();
+        lumen_ipc::ExportsState {
+            files: crate::exports::FILES.iter().filter(|file| folder.join(file).exists()).map(|file| (*file).to_owned()).collect(),
+            folder: folder.to_string_lossy().into_owned(),
+            terminal: self.store.terminal_scheme() && self.terminal_fragments.as_ref().is_some_and(|fragments| crate::exports::fragment_path(fragments).exists()),
+            terminal_available: self.terminal_fragments.is_some() && crate::exports::terminal_installed(),
         }
     }
 
@@ -1681,4 +1742,40 @@ mod tests {
         assert_eq!(service.desktop.restores, 1);
         assert_eq!(service.desktop.current, None);
     }
+
+    #[tokio::test(start_paused = true)]
+    async fn keeping_a_theme_writes_it_out_for_other_apps() {
+        let mut service = service();
+        let fragments = std::env::temp_dir().join(format!("lumen-fragments-test-{}-{}", std::process::id(), service.store.root().file_name().unwrap().to_string_lossy()));
+        let _ = std::fs::remove_dir_all(&fragments);
+        service.set_terminal_fragments(Some(fragments.clone()));
+        let before: lumen_ipc::ExportsState = call(&mut service, method::GET_EXPORTS, Value::Null);
+        assert!(before.files.is_empty() && !before.terminal, "nothing is written until a theme is kept");
+
+        let preview = preview_blue(&mut service);
+        assert!(!service.exports_dir().exists(), "a preview is not written out");
+        let _: Theme = call(&mut service, method::COMMIT_PREVIEW, Value::Null);
+        let after: lumen_ipc::ExportsState = call(&mut service, method::GET_EXPORTS, Value::Null);
+        assert_eq!(after.files.len(), 5);
+        let css = std::fs::read_to_string(service.exports_dir().join("lumen.css")).unwrap();
+        assert!(css.contains(&format!("--lumen-primary: {};", preview.theme.roles.primary)));
+        assert!(!fragments.exists(), "Windows Terminal is left alone unless asked");
+
+        // Switched on, the scheme goes to Terminal's folder and follows the next theme kept.
+        let on: lumen_ipc::ExportsState = call(&mut service, method::SET_EXPORTS, json!({ "terminal": true }));
+        assert!(on.terminal);
+        let scheme = |fragments: &std::path::Path| serde_json::from_str::<Value>(&std::fs::read_to_string(fragments.join("Lumen").join("lumen.json")).unwrap()).unwrap()["schemes"][0]["background"].clone();
+        assert_eq!(scheme(&fragments), json!(preview.theme.roles.surface));
+        let dark: PreviewState = call(&mut service, method::PREVIEW_THEME, json!({ "source": { "type": "color", "value": "#E53935" }, "mode": "dark" }));
+        let _: Theme = call(&mut service, method::COMMIT_PREVIEW, Value::Null);
+        assert_eq!(scheme(&fragments), json!(dark.theme.roles.surface));
+        assert_ne!(dark.theme.roles.surface, preview.theme.roles.surface);
+
+        // Switched off, Lumen's file is gone again.
+        let off: lumen_ipc::ExportsState = call(&mut service, method::SET_EXPORTS, json!({ "terminal": false }));
+        assert!(!off.terminal && !fragments.join("Lumen").exists());
+        assert_eq!(service.handle(method::SET_EXPORTS, json!({})).unwrap_err().code, code::INVALID_PARAMS);
+        let _ = std::fs::remove_dir_all(fragments);
+    }
+
 }

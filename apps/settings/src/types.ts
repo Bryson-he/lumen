@@ -419,6 +419,15 @@ export interface WidgetOption {
   choices: string[];
 }
 
+/** The kept theme written out for other apps (crates/lumen-ipc/src/lib.rs). */
+export interface ExportsState {
+  folder: string;
+  files: string[];
+  /** Whether Windows Terminal has been given a "Lumen" colour scheme. */
+  terminal: boolean;
+  terminalAvailable: boolean;
+}
+
 /** What a widget's script asks to be allowed to do. */
 export interface ScriptPermissions {
   files: boolean;

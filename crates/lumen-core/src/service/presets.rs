@@ -148,6 +148,7 @@ impl<D: Desktop> Service<D> {
         self.desktop.apply(&plan).map_err(desktop_error)?;
         self.store.save_active_theme(&preset.theme).map_err(store_error)?;
         self.committed = Some(preset.theme.clone());
+        self.refresh_exports();
         // Styles go first, so the widgets, bar and the rest are drawn in them straight away.
         // The preset's own styles are added to the user's; none of the user's are lost.
         if let (Ok(theirs), Some(widgets)) = (serde_json::from_value::<lumen_ipc::StyleSheet>(preset.styles.clone()), &self.widget_host)

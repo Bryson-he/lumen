@@ -26,6 +26,20 @@ pub use parts::{FontList, ImportFontParams, Part, PartAlign, PartColor, PartKind
 pub use weather::{Place, Units, WeatherConfig, WeatherData, WeatherState};
 pub use widget_file::WidgetFileInfo;
 pub use scripts::{ApproveScriptParams, ScriptInfo};
+
+/// The kept theme written out for other apps, and whether Windows Terminal has been given the scheme.
+#[derive(Debug, Clone, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportsState {
+    /// The folder the files are in.
+    pub folder: String,
+    /// The files there now.
+    pub files: Vec<String>,
+    /// Whether a "Lumen" colour scheme is kept in Windows Terminal's list.
+    pub terminal: bool,
+    /// Whether Windows Terminal looks to be installed.
+    pub terminal_available: bool,
+}
 pub use style::{ComponentStyle, ExportStyleParams, ImportStyleParams, Role, StyleAssignments, StyleBackground, StyleSheet, StylesState};
 pub use bar::{BarConfig, BarModule, BarPosition, LauncherApp};
 pub use presets::{ExportPresetParams, ImportPresetParams, Preset, PresetIdParams, PresetInfo, PresetManifest, PresetWallpaper, RenamePresetParams, SavePresetParams};
@@ -153,6 +167,12 @@ pub mod method {
     pub const IMPORT_WIDGET_PACKAGE: &str = "importWidgetPackage";
     /// Shows the widgets folder in File Explorer.
     pub const OPEN_WIDGET_FOLDER: &str = "openWidgetFolder";
+    /// The theme written out for other apps. Result: [`ExportsState`](super::ExportsState).
+    pub const GET_EXPORTS: &str = "getExports";
+    /// Params: `{ terminal }`: whether Windows Terminal gets a "Lumen" colour scheme. Result: [`ExportsState`](super::ExportsState).
+    pub const SET_EXPORTS: &str = "setExports";
+    /// Shows the folder of exported files in File Explorer.
+    pub const OPEN_EXPORTS_FOLDER: &str = "openExportsFolder";
     /// The scripts widget files name, and whether each is allowed to run. Result: a list of [`ScriptInfo`](super::ScriptInfo).
     pub const GET_SCRIPTS: &str = "getScripts";
     /// A script's text, for reading before agreeing to it. Params: `{ file }` (the widget file). Result: `{ script, text }`.

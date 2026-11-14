@@ -53,6 +53,9 @@ struct Config {
     /// Id of the preset the current look came from, until the look is changed by hand.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     active_preset: Option<String>,
+    /// Whether Windows Terminal is given a "Lumen" colour scheme that follows the theme.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    terminal_scheme: bool,
 }
 
 /// A library entry as stored in `wallpapers/index.json`.
@@ -134,6 +137,17 @@ impl Store {
             return Ok(());
         }
         config.active_preset = id.map(str::to_owned);
+        self.write_json("config.json", &config)
+    }
+
+    /// Whether Windows Terminal is given a "Lumen" colour scheme.
+    pub fn terminal_scheme(&self) -> bool {
+        self.read_json::<Config>("config.json").is_ok_and(|config| config.terminal_scheme)
+    }
+
+    pub fn set_terminal_scheme(&self, on: bool) -> Result<()> {
+        let mut config: Config = self.read_json("config.json").unwrap_or_default();
+        config.terminal_scheme = on;
         self.write_json("config.json", &config)
     }
 

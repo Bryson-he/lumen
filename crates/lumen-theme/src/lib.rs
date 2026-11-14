@@ -8,6 +8,7 @@
 //! The JSON shape of [`Theme`] is the theme file format in `docs/PLAN.md` -> "File formats".
 
 mod color;
+pub mod export;
 mod extract;
 mod generate;
 mod theme;
