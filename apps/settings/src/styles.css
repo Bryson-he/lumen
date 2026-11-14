@@ -1250,3 +1250,11 @@ h3 {
   overflow-wrap: anywhere;
   user-select: text;
 }
+
+.update-strip {
+  margin-bottom: 16px;
+  border-color: var(--border-strong);
+}
+.settings-notes {
+  white-space: pre-wrap;
+}

@@ -15,9 +15,12 @@ import "./presets.css";
 import "./bar.css";
 import "./styles-editor.css";
 import App from "./App";
+import { UpdatesProvider } from "./updates";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <App />
+    <UpdatesProvider>
+      <App />
+    </UpdatesProvider>
   </React.StrictMode>,
 );

@@ -22,7 +22,7 @@ pub mod widget_file;
 pub mod widgets;
 
 pub use flyout::{FlyoutConfig, FlyoutPosition, FlyoutStyle};
-pub use gallery::{GalleryInstall, GalleryItem, GalleryKind, GalleryState};
+pub use gallery::{GalleryInstall, GalleryItem, GalleryKind, GalleryOffer, GalleryState};
 pub use launcher::{LauncherConfig, LauncherHotkey};
 pub use parts::{FontList, ImportFontParams, Part, PartAlign, PartColor, PartKind, PartWeight};
 pub use weather::{Place, Units, WeatherConfig, WeatherData, WeatherState};
@@ -179,6 +179,9 @@ pub mod method {
     pub const IMPORT_WIDGET_PACKAGE: &str = "importWidgetPackage";
     /// Shows the widgets folder in File Explorer.
     pub const OPEN_WIDGET_FOLDER: &str = "openWidgetFolder";
+    /// Packs a widget file for the online gallery and opens the page where it is offered. Params: `{ file }`.
+    /// Result: [`GalleryOffer`](super::GalleryOffer). Nothing is uploaded: the user attaches the file on that page themselves.
+    pub const OFFER_TO_GALLERY: &str = "offerToGallery";
     /// Whether Lumen starts when the user signs in to Windows. Result: [`StartupState`](super::StartupState).
     pub const GET_STARTUP: &str = "getStartup";
     /// Params: `{ on }`. Adds Lumen to, or takes it out of, Windows' own start-up list for this user. Result: [`StartupState`](super::StartupState).

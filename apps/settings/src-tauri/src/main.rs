@@ -17,6 +17,9 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        // Updates come from Lumen's GitHub releases and are checked against Lumen's own signature.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             core::start(app.handle());
             Ok(())

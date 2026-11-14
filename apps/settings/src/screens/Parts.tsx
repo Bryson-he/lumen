@@ -5,7 +5,7 @@
 import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { useEffect, useId, useState } from "react";
 import { useLumen } from "../store";
-import { PART_COLORS, PART_ICONS, PART_LIMITS, ROLE_NAMES, WIDGET_NAMES, type WidgetOption, type Part, type PartAlign, type PartColor, type PartWeight, type Placement, type Roles, type UpdateWidgetParams } from "../types";
+import { PART_COLORS, PART_ICONS, PART_LIMITS, ROLE_NAMES, WIDGET_NAMES, type WidgetOption, type Part, type PartAlign, type PartColor, type PartWeight, type Placement, type Roles, type GalleryOffer, type UpdateWidgetParams } from "../types";
 import { Button, Check, Segmented, Slider } from "../ui";
 import { allSources, PART_KIND_NAMES, partsOf } from "../widgetView";
 import { ScriptCard } from "./Scripts";
@@ -32,6 +32,7 @@ export function PartsTab({
 }) {
   const { partDefaults, fonts, refreshFonts, importFonts, shown, widgetFiles, scripts, request, widgets } = useLumen();
   const [naming, setNaming] = useState<string | null>(null);
+  const [offer, setOffer] = useState<GalleryOffer | null>(null);
   const setOpenId = onOpen;
   useEffect(() => void refreshFonts(), [refreshFonts]);
 
@@ -42,6 +43,12 @@ export function PartsTab({
     if (!placement.file || !file) return;
     const path = await saveDialog({ title: `Share ${file.name}`, defaultPath: `${file.name}.lumenwidget`, filters: [{ name: "Lumen widget", extensions: ["lumenwidget"] }] });
     if (path) await request<string>("exportWidgetPackage", { file: placement.file, path });
+  };
+
+  const offerToGallery = async () => {
+    if (!placement.file) return;
+    const made = await request<GalleryOffer>("offerToGallery", { file: placement.file });
+    if (made) setOffer(made);
   };
 
   const saveAsFile = async () => {
@@ -76,6 +83,16 @@ export function PartsTab({
                   <button type="button" className="link small-13" onClick={() => void exportPackage()}>
                     Share it as one file…
                   </button>
+                )}{" "}
+                {!file.error && (
+                  <button type="button" className="link small-13" onClick={() => void offerToGallery()}>
+                    Offer it to the online gallery…
+                  </button>
+                )}
+                {offer && (
+                  <span className="parts-offer" role="status">
+                    Packed as <strong>{offer.path}</strong>. A page has opened in your browser: attach that file there and send it. It is listed for everyone once it has been looked at. Nothing was uploaded by Lumen.
+                  </span>
                 )}
               </>
             ) : (

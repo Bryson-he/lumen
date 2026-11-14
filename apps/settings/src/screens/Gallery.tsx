@@ -41,9 +41,9 @@ export function Gallery() {
   }, [request]);
   useEffect(() => void load(), [load]);
 
-  const useSource = async () => {
+  const useSource = async (chosen: string = source.trim()) => {
     setLoading(true);
-    const state = await request<GalleryState>("setGallerySource", { source: source.trim() });
+    const state = await request<GalleryState>("setGallerySource", { source: chosen });
     setLoading(false);
     if (!state) return;
     setGallery(state);
@@ -177,6 +177,26 @@ export function Gallery() {
             </section>
           );
         })}
+
+      {gallery?.source && !editing && (
+        <section className="strip gallery-where" aria-label="Which gallery">
+          {gallery.local ? (
+            <>
+              <span>These came with Lumen and are read from this PC. Nothing has gone online.</span>
+              <Button size="bar" disabled={loading} onClick={() => void useSource(gallery.online)}>
+                Browse the online gallery
+              </Button>
+            </>
+          ) : (
+            <>
+              <span>{gallery.source === gallery.online ? "This is the online gallery: things other people have shared, each looked at before it was listed." : "This is a gallery someone shared with you."}</span>
+              <Button size="bar" disabled={loading} onClick={() => void useSource("")}>
+                Back to the ones that came with Lumen
+              </Button>
+            </>
+          )}
+        </section>
+      )}
 
       {gallery?.source && (
         <footer className="gallery-footer muted small-13">

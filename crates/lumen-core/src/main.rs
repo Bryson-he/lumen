@@ -208,6 +208,7 @@ fn run_service(
         // Write the kept theme out for other apps, in case it changed while Lumen was not running.
         service.borrow_mut().set_terminal_fragments(exports::terminal_fragments_dir());
         service.borrow_mut().set_built_in_gallery(gallery::built_in());
+        service.borrow_mut().set_opener(lumen_win::shell::open);
         // A copy run against a test profile is never offered "start with Windows".
         if std::env::var_os("LUMEN_DATA_DIR").is_none()
             && let Ok(program) = std::env::current_exe()

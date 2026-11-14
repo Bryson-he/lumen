@@ -807,3 +807,12 @@ button.preview-chip:hover:not(:disabled) {
   margin-top: 8px;
   overflow-wrap: anywhere;
 }
+
+.gallery-where {
+  margin-bottom: 16px;
+}
+.parts-offer {
+  display: block;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}

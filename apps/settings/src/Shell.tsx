@@ -3,6 +3,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLumen, type Screen } from "./store";
+import { UpdateStrip } from "./updates";
 import { Button, SearchIcon, Squiggle } from "./ui";
 
 export const NAV: { screen: Screen; label: string }[] = [
@@ -75,6 +76,7 @@ export function Shell({ children }: { children: ReactNode }) {
             </button>
           </div>
         )}
+        <UpdateStrip />
         <OpenPalette.Provider value={() => setPaletteOpen(true)}>{children}</OpenPalette.Provider>
         {preview && <PreviewBar />}
       </main>

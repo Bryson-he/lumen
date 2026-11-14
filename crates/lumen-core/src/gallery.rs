@@ -11,6 +11,13 @@ use std::path::{Path, PathBuf};
 
 use lumen_ipc::gallery::is_safe_path;
 
+/// The online gallery everyone shares: the `gallery` folder of Lumen's GitHub
+/// repository. Lumen only reads it when the user chooses to browse it.
+pub const ONLINE: &str = "https://raw.githubusercontent.com/Bryson-he/lumen/main/gallery/gallery.json";
+/// Where something is offered to the online gallery: a form on GitHub. It is
+/// listed for everyone only after it has been looked at and accepted.
+pub const OFFER_PAGE: &str = "https://github.com/Bryson-he/lumen/issues/new?template=gallery-submission.yml";
+
 /// The gallery that comes with Lumen: the `gallery` folder beside the
 /// program, if it is there. The gallery is local unless the user points
 /// Lumen at one somebody has shared online.

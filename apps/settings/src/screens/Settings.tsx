@@ -5,11 +5,13 @@ import { useEffect, useState } from "react";
 import { PageHeader } from "../Shell";
 import { useLumen } from "../store";
 import type { StartupState } from "../types";
-import { Check } from "../ui";
+import { Button, Check } from "../ui";
+import { useUpdates } from "../updates";
 
 export function SettingsScreen() {
   const { request, status } = useLumen();
   const [startup, setStartup] = useState<StartupState | null>(null);
+  const updates = useUpdates();
   useEffect(() => {
     let current = true;
     void request<StartupState>("getStartup").then((state) => {
@@ -34,6 +36,34 @@ export function SettingsScreen() {
               ? "Not offered for this copy of Lumen, which is running on a test profile."
               : "Lumen starts quietly in the notification area, with your widgets and bar. Windows lists it under Task Manager, Startup apps, where it can also be switched off."}
           </p>
+        </section>
+
+        <section className="panel" aria-label="Updates">
+          <h2 className="panel-title">Updates</h2>
+          <Check checked={updates.auto} onChange={updates.setAuto}>
+            Look for a newer version when Lumen is opened
+          </Check>
+          <p className="muted small-13">At most once a day, from Lumen's page on GitHub. Lumen only tells you one is there; nothing is downloaded or installed until you say so.</p>
+          <div className="field-row wrap settings-update">
+            <span role="status" className={updates.phase === "failed" ? "script-problem" : undefined}>
+              {updates.phase === "checking" && "Checking…"}
+              {updates.phase === "current" && "You have the newest version."}
+              {updates.phase === "available" && `Lumen ${updates.version} is available.`}
+              {updates.phase === "installing" && `Downloading Lumen ${updates.version}…`}
+              {updates.phase === "failed" && updates.problem}
+            </span>
+            <span className="header-actions">
+              {updates.phase === "available" && (
+                <Button size="bar" kind="primary" onClick={() => void updates.install()}>
+                  Update now
+                </Button>
+              )}
+              <Button size="bar" disabled={updates.phase === "checking" || updates.phase === "installing"} onClick={() => void updates.checkNow()}>
+                Check now
+              </Button>
+            </span>
+          </div>
+          {updates.phase === "available" && updates.notes && <p className="small-13 settings-notes">{updates.notes}</p>}
         </section>
 
         <section className="panel" aria-label="About">

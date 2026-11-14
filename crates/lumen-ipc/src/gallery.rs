@@ -75,6 +75,20 @@ pub struct GalleryState {
     pub items: Vec<GalleryItem>,
     /// Why the gallery could not be read, if it could not.
     pub error: Option<String>,
+    /// The address of the online gallery everyone shares.
+    #[serde(default)]
+    pub online: String,
+    /// True while the gallery showing is the one that came with Lumen (nothing went online).
+    #[serde(default)]
+    pub local: bool,
+}
+
+/// What `offerToGallery` made: the file to attach, and the page to attach it on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GalleryOffer {
+    pub path: String,
+    pub page: String,
 }
 
 /// What happened when an item was asked for.

@@ -67,6 +67,8 @@ pub struct Service<D: Desktop> {
     weather: Option<lumen_ipc::WeatherState>,
     /// Where "start with Windows" is recorded (a registry key) and the program it starts; `None` if not offered.
     startup_entry: Option<(String, std::path::PathBuf)>,
+    /// Opens a web page or folder for the user; does nothing until the real one is set (so tests open nothing).
+    opener: Box<dyn Fn(&str) -> bool>,
     /// The gallery that came with Lumen (a folder beside the program), if there is one.
     built_in_gallery: Option<std::path::PathBuf>,
     /// The gallery as last read, for finding an item when it is installed.
@@ -113,6 +115,7 @@ impl<D: Desktop> Service<D> {
             terminal_fragments: None,
             gallery: None,
             built_in_gallery: None,
+            opener: Box::new(|_| false),
             startup_entry: None,
             place_search: Box::new(lumen_widgets::weather::search),
             preset_mirror: None,
@@ -261,6 +264,17 @@ impl<D: Desktop> Service<D> {
                 // Asks the place search online; the answer comes within a few seconds or not at all.
                 let places = (self.place_search)(&query).map_err(|error| RpcError::new(code::INTERNAL_ERROR, format!("could not search for places: {error}")))?;
                 json(places)
+            }
+            method::OFFER_TO_GALLERY => {
+                let file = file_param(&params)?;
+                // Packed into the user's Downloads folder, as a .zip so GitHub's form accepts it.
+                let downloads = std::env::var_os("USERPROFILE").map(|home| Path::new(&home).join("Downloads")).filter(|folder| folder.is_dir()).unwrap_or_else(|| self.store.root().to_owned());
+                let stem = file.trim_end_matches(".yaml").trim_end_matches(".yml");
+                let packed = crate::widget_packages::export(&self.widget_files_dir(), &self.fonts_dir(), &file, &downloads.join(format!("{stem}.lumenwidget"))).map_err(|why| RpcError::new(code::INVALID_PARAMS, why))?;
+                let zipped = downloads.join(format!("{stem}.lumenwidget.zip"));
+                std::fs::rename(&packed, &zipped).or_else(|_| std::fs::copy(&packed, &zipped).map(|_| ()).and_then(|()| std::fs::remove_file(&packed))).map_err(|e| RpcError::new(code::INTERNAL_ERROR, format!("could not write {}: {e}", zipped.display())))?;
+                (self.opener)(crate::gallery::OFFER_PAGE);
+                json(lumen_ipc::GalleryOffer { path: zipped.to_string_lossy().into_owned(), page: crate::gallery::OFFER_PAGE.to_owned() })
             }
             method::GET_STARTUP => json(self.startup_state()),
             method::SET_STARTUP => {
@@ -678,6 +692,11 @@ impl<D: Desktop> Service<D> {
         self.store.gallery_source().or_else(|| std::env::var("LUMEN_GALLERY").ok().filter(|source| !source.is_empty())).or_else(|| self.built_in_gallery.as_ref().map(|folder| folder.to_string_lossy().into_owned()))
     }
 
+    /// Gives the service the real way to open a web page (the user's browser).
+    pub fn set_opener(&mut self, open: impl Fn(&str) -> bool + 'static) {
+        self.opener = Box::new(open);
+    }
+
     /// Says where the gallery that came with Lumen is.
     pub fn set_built_in_gallery(&mut self, folder: Option<std::path::PathBuf>) {
         self.built_in_gallery = folder;
@@ -685,14 +704,16 @@ impl<D: Desktop> Service<D> {
 
     /// Reads the gallery's index (online, if the gallery is on the web).
     fn read_gallery(&mut self) -> lumen_ipc::GalleryState {
+        let online = crate::gallery::ONLINE.to_owned();
         let Some(source) = self.gallery_source() else {
             self.gallery = None;
-            return lumen_ipc::GalleryState::default();
+            return lumen_ipc::GalleryState { online, ..Default::default() };
         };
+        let local = self.store.gallery_source().is_none() && self.built_in_gallery.as_ref().is_some_and(|folder| folder.to_string_lossy() == source);
         let read = crate::gallery::source_from(&source).and_then(|place| crate::gallery::index(&place)).and_then(|text| lumen_ipc::gallery::parse_index(&text));
         let state = match read {
-            Ok((name, items)) => lumen_ipc::GalleryState { source: Some(source), name, items, error: None },
-            Err(why) => lumen_ipc::GalleryState { source: Some(source), error: Some(format!("The gallery could not be read: {why}")), ..Default::default() },
+            Ok((name, items)) => lumen_ipc::GalleryState { source: Some(source), name, items, error: None, online, local },
+            Err(why) => lumen_ipc::GalleryState { source: Some(source), error: Some(format!("The gallery could not be read: {why}")), online, local, ..Default::default() },
         };
         self.gallery = Some(state.clone());
         state
@@ -1943,6 +1964,7 @@ mod tests {
         service.set_built_in_gallery(Some(gallery.clone()));
         let own: lumen_ipc::GalleryState = call(&mut service, method::GET_GALLERY, Value::Null);
         assert_eq!((own.name.as_str(), own.items.len()), ("Shared", 4));
+        assert!(own.local && own.online.starts_with("https://raw.githubusercontent.com/") && own.online.ends_with("/gallery/gallery.json"));
     }
 
 

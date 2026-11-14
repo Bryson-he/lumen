@@ -448,6 +448,15 @@ export interface GalleryState {
   name: string;
   items: GalleryItem[];
   error: string | null;
+  /** The address of the online gallery everyone shares. */
+  online: string;
+  /** True while the gallery showing is the one that came with Lumen. */
+  local: boolean;
+}
+
+export interface GalleryOffer {
+  path: string;
+  page: string;
 }
 
 export interface GalleryInstall {
